@@ -44,6 +44,8 @@ android.sourceSets.main.assets.srcDirs += webOut
 preBuild.dependsOn('copyWebAssets')
 
 dependencies {
+    // line up the Kotlin library versions the Google libraries pull in (avoids duplicate classes)
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.mediarouter:mediarouter:1.7.0'
     implementation 'com.google.android.gms:play-services-cast-framework:21.5.0'
