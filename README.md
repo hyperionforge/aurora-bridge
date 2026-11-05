@@ -37,6 +37,8 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 
 **Hails:** stations call you when you come near, and you can hail them from COMMS. The speaker appears on the main viewer with subtitles; Velori, Kessari, Orran and Chorus speech is shown in its own script while the computer translates (the Chorus can't be fully translated). The COMMS officer picks the reply on their phone: trade materials, ask for news (rumours mark hidden artefacts on your NAV map), challenge the Orran champion to a duel. Kessari raiders sometimes warp in and demand your surrender: fight, pay tribute, bluff, hand back what's theirs, or give up your cargo. They don't wait forever. What you do changes how each faction treats you.
 
+**Sandbox life:** ask any friendly station *"ANY WORK FOR US?"* for a contract: bounties on hidden raiders, surveys, rescues, salvage, deliveries, or courier runs to another system. Fleet Command sometimes calls with work too. Traffic passes and hails, Velori traders offer deals, Orran patrols demand inspections, freighters send maydays (one captain will remember whether you came), and odd things drift onto sensors. Your standing with each faction is on the COMMS screen.
+
 If someone's phone drops out, they rejoin from the same phone and get their roles back. During a mission their roles stay reserved, but another player can take them over if they don't come back.
 
 ## 3. The main viewer on the TV

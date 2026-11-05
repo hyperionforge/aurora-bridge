@@ -244,6 +244,15 @@ for (const [k, nm] of [['hub', 'velori'], ['citadel', 'orran'], ['monolith', 'ch
   await tv.screenshot({ path: `${OUT}/tv6_${nm}.png` });
 }
 await host.evaluate(() => window.auroraHost.sim.endDialog(true));
+// ---- a contract from Fleet Command, and the COMMS standing panel
+await host.evaluate(() => { const s = window.auroraHost.sim; s.runEvent('fleet'); });
+await sleep(3000);
+await tv.screenshot({ path: `${OUT}/tv70_contract_offer.png` });
+await phones[comO].evaluate(() => { const a = window.auroraApp; a.send(42, a.w.slow.dlg.seq, 0); });
+await sleep(1500);
+await phones[comO].screenshot({ path: `${OUT}/p90_comms_standing.png` });
+await tv.screenshot({ path: `${OUT}/tv71_contract_taken.png` });
+console.log('job:', await host.evaluate(() => window.auroraHost.sim.job && window.auroraHost.sim.job.objective));
 // end of mission
 await host.evaluate(() => window.auroraHost.sim.endMission(true));
 await sleep(1500);

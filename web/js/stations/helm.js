@@ -8,7 +8,7 @@ import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown } from '
 import { CHARS, subtitle } from '../dialogue.js';
 import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
-import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, CIV_NAME, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
+import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, CIV_NAME, CIV_COL, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
 import { drawRadar, radarPick } from './common.js';
 
 export function fromName(w, from) {
@@ -503,11 +503,25 @@ export const comms = {
     y = Math.max(y, L.y0 + 24 + 5 * 32) + 4;
     g.button('open', x, y, rw, 36, 'OPEN CHANNEL', this.sel !== K.NO_ID ? C.ORANGE : C.GREY, C.BLACK, 19, () => { if (this.sel !== K.NO_ID) app.send(CMD.HAIL, this.sel); });
     y += 46;
-    g.text(x, y, 'REPLY OPTIONS', 12, C.GREY_TXT);
-    y += 16;
     const m = commsOptMsg(w.msgs);
+    if (m || !w.mode) g.text(x, y, 'REPLY OPTIONS', 12, C.GREY_TXT);
+    y += 16;
     if (m) m.opt.forEach((o, i) => { g.button('opt' + i, x, y, rw, 28, K.OPT_NAME[o], C.PEACH, C.BLACK, 16, () => app.send(CMD.REPLY, m.from, o)); y += 32; });
-    else g.text(x, y + 4, '(NONE - HAIL SOMEONE FIRST)', 12, C.GREY_TXT);
+    else if (w.slow && w.slow.rep && w.mode) {
+      const civs = [[1, 'FLEET'], [2, 'COLONISTS'], [3, 'VELORI'], [4, 'KESSARI'], [5, 'ORRANS']];
+      g.text(x, y - 16, 'STANDING', 12, C.GREY_TXT);
+      for (const [cv, nm] of civs) {
+        if (y > L.y1 - 60) break;
+        const v = w.slow.rep[cv];
+        g.text(x, y, nm, 12, CIV_COL[cv]);
+        g.rect(x + 90, y + 4, rw - 140, 6, C.SEG_OFF);
+        const mid = x + 90 + (rw - 140) / 2;
+        g.rect(Math.min(mid, mid + v / 100 * (rw - 140) / 2), y + 3, Math.abs(v) / 100 * (rw - 140) / 2, 8, v >= 0 ? C.GREEN : C.RED);
+        g.text(x + rw, y, (v > 0 ? '+' : '') + v, 12, v >= 0 ? C.GREEN : C.RED, 'right');
+        y += 17;
+      }
+      if (w.slow.job) g.wrap(x, y + 2, rw, 'CONTRACT: ' + w.slow.job.objective, 11, C.YELLOW, 1.2, 2);
+    } else g.text(x, y + 4, '(NONE - HAIL SOMEONE FIRST)', 12, C.GREY_TXT);
     g.button('cview', x, L.y1 - 36, rw, 34, 'PUT ON VIEWER', w.view === K.VM_COMMS ? C.ORANGE : C.LILAC, C.BLACK, 17, () => app.send(CMD.VIEW, K.VM_COMMS, K.NO_ID));
   },
 };

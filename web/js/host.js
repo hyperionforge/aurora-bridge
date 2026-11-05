@@ -288,7 +288,7 @@ export class Host {
         waves: M.waves, frLost: M.frLost, ver: M.ver },
       msgs: s.msgs,
       dlg: s.dlg ? { seq: s.dlg.seq, key: s.dlg.key, who: s.dlg.who, from: s.dlg.from, left: s.dlg.deadline ? Math.max(0, Math.round((s.dlg.deadline - s.now) / 1000)) : 0 } : null,
-      rep: s.rep,
+      rep: s.rep, job: s.job ? { type: s.job.type, objective: s.job.objective, giver: s.job.giverName, reward: s.rewardText(s.job.reward) } : null,
       orders,
       ord: { issued: s.ordIssued, done: s.ordDone, avg: s.ordDone ? s.ordTimeSum / s.ordDone : 0 },
       advice: s.advice.map((a) => ({ ...a, otext: a.code < K.NUM_ORDERS ? s.orderText(a.code, a.arg) : '' })),

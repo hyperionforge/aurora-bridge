@@ -44,6 +44,8 @@ function newNpc() {
   };
 }
 
+import { installVoyage } from './voyage.js';
+
 export class Sim {
   constructor(rand = Math.random) {
     this.rand = rand;
@@ -292,6 +294,9 @@ export class Sim {
     this.depleted = new Set();
     this.timers = [];
     this.dlg = null;
+    this.job = null;
+    this.stats = {};
+    this.nextEventAt = undefined;
     this.loadSystem(0);
     this.resetPlayer();
     this.missionT = 0;
@@ -585,7 +590,8 @@ export class Sim {
     const n = this.npc[id], M = this.M;
     if (!n.alive) { this.denied('NO RESPONSE - THE VESSEL HAS BEEN DESTROYED.'); return; }
     if (opt === K.OPT_CLOSE) { this.say(FROM_CREW, 0, 'CHANNEL CLOSED.'); return; }
-    if (opt === 0 && n.talk && DIALOGS[n.talk]) { this.startDialog(n.talk, id); return; }
+    if (opt === 0 && this.jobHandIn && this.jobHandIn(id)) return;
+    if (opt === 0 && n.talk && DIALOGS[n.talk]) { this.startDialog(n.talk, id, n.talkCtx || {}); return; }
     if (n.type === CT_POI) { this.say(FROM_CREW, 0, `IT'S ${/^[AEIOU]/.test(G.POI_NAME[n.poi]) ? 'AN' : 'A'} ${G.POI_NAME[n.poi]}, CAPTAIN. NOBODY TO HAIL - BUT SCIENCE CAN SAMPLE IT.`); return; }
     switch (n.type) {
       case CT_ANOMALY: this.say(FROM_CREW, 0, "IT'S A SUBSPACE ANOMALY, CAPTAIN. THERE IS NOBODY TO HAIL."); return;
@@ -685,9 +691,11 @@ export class Sim {
         return;
       case AI_DRIFT: targetSpeed = 0; break;
       case AI_TRAVEL: {
-        const db = distTo(n.x, n.y, this.bx, this.by);
-        n.desHdg = bearingTo(n.x, n.y, this.bx, this.by);
+        const tx = n.destX ?? this.bx, ty = n.destY ?? this.by;
+        const db = distTo(n.x, n.y, tx, ty);
+        n.desHdg = bearingTo(n.x, n.y, tx, ty);
         targetSpeed = db > 2500 ? n.cruise * clampf(engF, 0.3, 1) : 0;
+        if (n.destX !== undefined && db < 3000 && n.leaveAtDest) { n.active = false; this.boomAt(n.x, n.y, 2); return; }
         turn = 20;
         break;
       }
@@ -897,6 +905,7 @@ export class Sim {
   }
   arrive(to) {
     const P = this.P, from = this.sysIdx;
+    if (this.jobOnLeave) this.jobOnLeave(to);
     this.loadSystem(to);
     const a = Math.atan2(sysAt(from).gy - sysAt(to).gy, sysAt(from).gx - sysAt(to).gx);
     P.x = SYS_C + Math.cos(a) * 66000;
@@ -988,7 +997,7 @@ export class Sim {
       const ds = this.npc[P.dockId] && this.npc[P.dockId].active ? this.npc[P.dockId] : { x: this.bx, y: this.by };
       P.x += (ds.x + 400 - P.x) * dt * 0.8;
       P.y += (ds.y - 400 - P.y) * dt * 0.8;
-      if (P.dockT >= K.DOCK_TIME_S) { P.dock = 2; this.emit(K.EV_DOCKED); }
+      if (P.dockT >= K.DOCK_TIME_S) { P.dock = 2; this.emit(K.EV_DOCKED); if (this.jobOnDock) this.jobOnDock(P.dockId); }
     }
     if (P.dock === 2) {
       P.energy += 60 * dt;
@@ -1090,7 +1099,9 @@ export class Sim {
           if ((n.type === CT_RAIDER || n.type === CT_DESTROYER) && n.scan === 1) n.faction = F_HOSTILE;
           this.say(FROM_CREW, 0, `SCAN ${n.scan >= 2 ? 'COMPLETE' : 'IDENTIFIED'}: ${this.contactName(P.scanId, n.type)}`);
           this.emit(K.EV_SCAN_DONE);
+          const sid = P.scanId;
           P.scanId = NO_ID;
+          if (this.jobOnScan) this.jobOnScan(sid);
         }
       }
     }
@@ -1527,7 +1538,7 @@ export class Sim {
     P.dock = 2; P.dockId = ID_BASE; P.dockT = K.DOCK_TIME_S;
     P.x = this.bx + 400; P.y = this.by - 400;
     if (this.mode === K.MODE_SANDBOX) {
-      this.setObjective('FREE VOYAGE - EXPLORE, ANSWER HAILS, TAKE CONTRACTS FROM STATIONS');
+      this.setObjective(this.voyageObjective());
       this.say(FROM_COMMAND, 0, 'AURORA, YOU ARE CLEARED FOR AN OPEN PATROL OF THE FRONTIER. THE JUMP LANES ARE ON YOUR NAV GALAXY CHART. GOOD HUNTING.');
     }
     if (this.onVoyageStart) this.onVoyageStart();
@@ -1686,6 +1697,7 @@ export class Sim {
         this.emit(K.EV_FOUND, n.art);
       }
       (this.depleted || (this.depleted = new Set())).add(n.poiKey);
+      if (this.jobOnExtract) this.jobOnExtract(id);
       n.active = false; n.alive = false;
       if (P.target === id) P.target = NO_ID;
       if (P.scanId === id) P.scanId = NO_ID;
@@ -1964,9 +1976,9 @@ export class Sim {
     this.rumourI = ((this.rumourI ?? -1) + 1) % hints.length;
     return hints[this.rumourI];
   }
-  contractOffer() { this.sayAs(this.dlg ? this.dlg.who : 'hale', 'NOTHING ON THE BOARD RIGHT NOW. CHECK BACK LATER.'); return 'start'; }
   missionOnDestroyed(id) {
     if (this.game !== GS_RUN) return;
+    if (this.jobOnDestroyed) this.jobOnDestroyed(id);
     if (id === this.M.fr) {
       this.M.frLost = true;
       if (this.M.type === K.MT_ESCORT) this.endMission(false, K.FAIL_FREIGHTER);
@@ -2156,3 +2168,4 @@ export class Sim {
     return K.FACTION_NAME[n.faction];
   }
 }
+installVoyage(Sim);
