@@ -3,9 +3,11 @@
 // relay built into the Android app). Serves web/ and relays WebSocket
 // messages between the host page and every station.
 //
-//   node server/dev-server.mjs [port]
-//   then open http://localhost:8737/?host=1 on this computer (the host),
-//   and http://<this-computer-ip>:8737/ on each phone.
+//   node server/dev-server.mjs [port]          (or: npm start)
+//   runs the relay AND the game itself on this computer. Then open
+//   http://localhost:8737/ in a browser here to play, http://localhost:8737/screen.html
+//   for the main viewer, and http://<this-computer-ip>:8737/ on each phone.
+//   node server/dev-server.mjs [port] --no-host  relay only (a browser page with ?host=1 runs the game)
 //
 // Protocol (text frames):
 //   station -> relay -> host   "M <cid> <json>"   (+ "J <cid>" / "L <cid>")
@@ -86,4 +88,29 @@ export function startRelay(port = PORT, root = ROOT, log = console.log) {
   return server;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) startRelay();
+// Run the game (host.js) right here in Node, so it keeps full speed even when
+// no browser tab is in front (browsers slow down background tabs).
+export async function startNodeHost(port, name) {
+  const { Host } = await import('../web/js/host.js');
+  const host = new Host({ url: `ws://127.0.0.1:${port}/ws?role=host`, name });
+  host.start();
+  return host;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const args = process.argv.slice(2);
+  const port = +args.find((a) => /^\d+$/.test(a)) || PORT;
+  const server = startRelay(port, ROOT, () => {});
+  server.on('listening', async () => {
+    const ips = [];
+    for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal) ips.push(a.address);
+    console.log('\n  STARSHIP AURORA - bridge server running\n');
+    if (!args.includes('--no-host')) {
+      await startNodeHost(port, os.hostname().toUpperCase().slice(0, 12) + "'S BRIDGE");
+      console.log(`  Play on this computer:   http://localhost:${port}/`);
+      console.log(`  Main viewer (TV/window): http://localhost:${port}/screen.html`);
+    } else console.log(`  Relay only. Host in a browser: http://localhost:${port}/?host=1`);
+    for (const ip of ips) console.log(`  Phones on the Wi-Fi:     http://${ip}:${port}/`);
+    console.log('\n  Keep this window open while you play. Ctrl+C to stop.\n');
+  });
+}

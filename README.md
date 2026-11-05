@@ -52,13 +52,19 @@ Chromecasts only run receiver apps registered with Google, so you register yours
 
 The Chromecast needs internet access to load the receiver page from GitHub Pages.
 
-## 4. Play on a PC or laptop (optional)
-Install Node.js 18+, then run:
-```
-npm install
-node server/dev-server.mjs
-```
-Open `http://localhost:8737/?host=1` on the computer (it becomes the host). Phones then join with their browser at the address the lobby shows, and `…/screen.html` is the viewscreen.
+## 4. Host on a laptop instead of a phone
+A laptop can be the host. The game then runs on the laptop, phones join it exactly as they would join a phone host, and the laptop's own browser can be a player or the main viewer (handy if the laptop is plugged into the TV).
+
+1. Install **Node.js** (the LTS version) from <https://nodejs.org>. You only need to do this once.
+2. Get the project onto the laptop: on the GitHub repo page, **Code → Download ZIP**, then unzip it.
+3. **Windows:** double-click **`Start Aurora (Windows).bat`**. **Mac / Linux:** run `./start-mac-linux.sh`. The first run installs a small library, then a window prints the addresses and your browser opens the game.
+   - If Windows Firewall asks, allow access on **private networks**, or the phones won't be able to connect.
+4. On the laptop:
+   - `http://localhost:8737/` to play a station
+   - `http://localhost:8737/screen.html` for the main viewer (put that window full screen on the TV with F11)
+5. On the phones: open the Aurora app and use **JOIN BY ADDRESS** with the laptop's address from that window (for example `192.168.1.20`), or open `http://<laptop address>:8737/` in the phone's browser.
+
+Keep the black window open while you play; closing it ends the game. Chromecast casting still works, but only from a phone running the app.
 
 ---
 
