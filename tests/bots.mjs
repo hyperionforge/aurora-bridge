@@ -91,11 +91,11 @@ export function makeCrew(sim) {
         return;
       }
     }
-    const bd = distTo(P().x, P().y, K.BASE_X, K.BASE_Y);
+    const bd = distTo(P().x, P().y, sim.bx, sim.by);
     if (M.stage >= K.ST_RETURN || (M.type === K.MT_DEFEND && M.stage === 0)) {
       if (M.stage >= K.ST_RETURN && sim.alert !== K.AL_GREEN) send(CMD.ALERT, K.AL_GREEN);
       if (P().dock) return;
-      if (bd > 1300) goTo(K.BASE_X, K.BASE_Y);
+      if (bd > 1300) goTo(sim.bx, sim.by);
       else if (M.stage >= K.ST_RETURN) {
         if (Math.abs(P().speed) > 20 || P().throttle) send(CMD.STOP);
         else send(CMD.DOCK);

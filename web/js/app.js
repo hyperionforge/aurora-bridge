@@ -227,19 +227,27 @@ class App {
     // left panel: mission, auto-assign, start
     const lx = SB_W + 10, lw = Math.min(300, Math.floor((W - SB_W) * 0.36));
     y = TOP_H + 10;
-    const st = s ? s.selType : 0, sd = s ? s.selDiff : 1;
-    g.header(lx, y, lw, 'MISSION', C.SKY);
+    const st = s ? s.selType : 0, sd = s ? s.selDiff : 1, sm = s ? s.selMode || 0 : 0;
+    const sel = (t, d, m) => this.send(CMD.SELECT, t, d, m);
+    const NM = K.MODES_READY;
+    g.header(lx, y, lw, 'GAME', C.SKY);
     y += 24;
     const arrow = 44;
-    if (inTitle) g.button('mp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => this.send(CMD.SELECT, (st + K.NUM_MT - 1) % K.NUM_MT, sd), { sound: 'toggle' });
-    g.textFit(lx + lw / 2, y + 5, K.MT_NAME[st], 20, C.SKY, 'center', lw - 2 * arrow - 8);
-    if (inTitle) g.button('mn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => this.send(CMD.SELECT, (st + 1) % K.NUM_MT, sd), { sound: 'toggle' });
-    y += 38;
-    if (inTitle) g.button('dp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => this.send(CMD.SELECT, st, (sd + 2) % 3), { sound: 'toggle' });
+    if (inTitle) g.button('gp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel(st, sd, (sm + NM - 1) % NM), { sound: 'toggle' });
+    g.textFit(lx + lw / 2, y + 5, K.MODE_NAME[sm], 20, C.ORANGE, 'center', lw - 2 * arrow - 8, true);
+    if (inTitle) g.button('gn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(st, sd, (sm + 1) % NM), { sound: 'toggle' });
+    y += 36;
+    if (sm === K.MODE_MISSION) {
+      if (inTitle) g.button('mp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel((st + K.NUM_MT - 1) % K.NUM_MT, sd, sm), { sound: 'toggle' });
+      g.textFit(lx + lw / 2, y + 5, K.MT_NAME[st], 20, C.SKY, 'center', lw - 2 * arrow - 8);
+      if (inTitle) g.button('mn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel((st + 1) % K.NUM_MT, sd, sm), { sound: 'toggle' });
+      y += 36;
+    }
+    if (inTitle) g.button('dp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel(st, (sd + 2) % 3, sm), { sound: 'toggle' });
     g.text(lx + lw / 2, y + 5, 'DIFFICULTY: ' + K.DIFF_NAME[sd], 20, C.SKY, 'center');
-    if (inTitle) g.button('dn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => this.send(CMD.SELECT, st, (sd + 1) % 3), { sound: 'toggle' });
-    y += 40;
-    y = g.wrap(lx, y, lw, K.MT_DESC[st], 13, C.PEACH, 1.25, 4) + 6;
+    if (inTitle) g.button('dn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(st, (sd + 1) % 3, sm), { sound: 'toggle' });
+    y += 38;
+    y = g.wrap(lx, y, lw, sm === K.MODE_MISSION ? K.MT_DESC[st] : K.MODE_DESC[sm], 12, C.PEACH, 1.2, sm === K.MODE_MISSION ? 3 : 4) + 6;
     if (inTitle) {
       g.header(lx, y, lw, 'ROLES', C.LILAC);
       y += 24;
@@ -247,7 +255,7 @@ class App {
       y += 40;
       g.wrap(lx, y, lw, 'OR TAP THE ROLE CARDS YOU WANT. TAP ONE OF YOURS TO GIVE IT BACK.', 12, C.GREY_TXT, 1.2, 2);
       const by = H - 52;
-      g.button('start', lx, by, lw, 46, 'START MISSION', lb.canStart ? C.ORANGE : C.GREY, lb.canStart ? C.BLACK : C.GREY_TXT, 24, () => {
+      g.button('start', lx, by, lw, 46, ['START MISSION', 'LAUNCH VOYAGE', 'BEGIN CAMPAIGN'][sm], lb.canStart ? C.ORANGE : C.GREY, lb.canStart ? C.BLACK : C.GREY_TXT, 24, () => {
         if (lb.canStart) this.send(CMD.START); else sound.denied();
       }, { silent: !lb.canStart, bold: true });
       g.textFit(lx + lw / 2, by - 20, lb.canStart ? 'ALL ROLES ASSIGNED - READY' : lb.why, 13, lb.canStart ? C.GREEN : C.YELLOW, 'center', lw);

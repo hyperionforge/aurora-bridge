@@ -47,8 +47,8 @@ export const NO_ID = 255;
 export const US = 254; // "our ship" as an owner / target id
 
 // ---------------------------------------------------------------- world
-export const SECTOR = 100000;
-export const MAX_CONTACTS = 10;
+export const SECTOR = 160000;     // size of one star system (see galaxy.js SYS_SIZE)
+export const MAX_CONTACTS = 32;
 
 // ---------------------------------------------------------------- flight
 export const IMPULSE_MAX = 160, WARP_SPEED = 900, WARP_MAX = 4, WARP_CHARGE_S = 3, TURN_RATE = 32, IMPULSE_ACCEL = 45;
@@ -71,7 +71,7 @@ export const SHIELD_REGEN = 1.2, SHIELD_RAISE_S = 2;
 export const EV_NONE = 0, EV_PHASER_HIT = 1, EV_PHASER_MISS = 2, EV_TORP_LAUNCH = 3, EV_WE_HIT_SHIELD = 4, EV_WE_HIT_HULL = 5,
   EV_SYS_DAMAGED = 6, EV_ENEMY_DESTROYED = 7, EV_SCAN_DONE = 8, EV_MESSAGE = 9, EV_DOCKED = 10, EV_WARP_IN = 11,
   EV_OVERHEAT = 12, EV_TORP_HIT = 13, EV_ENEMY_MISSED = 14, EV_DENIED = 15, EV_WARP_ENGAGED = 16,
-  EV_ALERT = 17, EV_VICTORY = 18, EV_DEFEAT = 19, EV_ORDER = 20;
+  EV_ALERT = 17, EV_VICTORY = 18, EV_DEFEAT = 19, EV_ORDER = 20, EV_JUMP = 21, EV_ARRIVE = 22;
 
 // ---------------------------------------------------------------- messages
 export const FROM_COMMAND = 250, FROM_COMPUTER = 251, FROM_CREW = 252;
@@ -85,7 +85,7 @@ export const CMD = {
   START: 1, HEADING: 2, THROTTLE: 3, WARP: 4, STOP: 5, EVASIVE: 6, AUTOPILOT: 7, WAYPOINT: 8, DOCK: 9, VIEW: 10,
   SCAN: 11, LRS: 12, HAIL: 13, REPLY: 14, TARGET: 15, SUB: 16, FIRE_PH: 17, AUTOFIRE: 18, PH_FREQ: 19,
   TUBE_LOAD: 20, TUBE_UNLOAD: 21, TUBE_FIRE: 22, SHIELDS: 23, REINFORCE: 24, ALERT: 25, POWER: 26, COOLANT: 27,
-  TEAM: 28, PRESET: 29, UNDOCK: 30, RESTART: 31, SELECT: 32, ORDER_ACK: 33, ORDER: 34,
+  TEAM: 28, PRESET: 29, UNDOCK: 30, RESTART: 31, SELECT: 32, ORDER_ACK: 33, ORDER: 34, JUMP: 35,
 };
 
 // ---------------------------------------------------------------- static world
@@ -97,11 +97,23 @@ export const PLANETS = [
 export const NEB_X = 66000, NEB_Y = 62000, NEB_R = 9000;
 export const BASE_X = 18000, BASE_Y = 82000;
 export const ANOM_X = 60000, ANOM_Y = 70000;
-export const ID_BASE = 0, ID_BONUS = 1, ID_FIRST_DYN = 2;
+// contact slots: 0 = the system's main station, 1 = Kalos bonus anomaly, 2-5 more stations, 6+ ships and points of interest
+export const ID_BASE = 0, ID_BONUS = 1, ID_STATION2 = 2, ID_FIRST_DYN = 6;
 
 export const FREIGHTER_NAMES = ['MERIDIAN', 'HALCYON', 'ORINOCO', 'TALISMAN', 'WAYFARER', 'CALLISTO', 'BRIGHTWATER', 'SOLACE'];
 
 // ---------------------------------------------------------------- missions
+// game modes
+export const MODE_MISSION = 0, MODE_SANDBOX = 1, MODE_CAMPAIGN = 2;
+export const MODE_NAME = ['MISSION', 'SANDBOX', 'CAMPAIGN'];
+export const MODES_READY = 2;   // modes offered in the lobby (campaign switched on when it's written)
+export const MODE_DESC = [
+  'ONE OF THE CLASSIC MISSIONS IN THE KALOS SYSTEM.',
+  'AN OPEN-ENDED VOYAGE. ROAM THE STARS, ANSWER HAILS, TAKE CONTRACTS FROM STATIONS, SALVAGE WHAT YOU FIND. IT ENDS ONLY IF THE AURORA IS LOST.',
+  'ECHOES OF THE CHORUS: A FIVE-CHAPTER STORY OF SHARDS, SMUGGLERS, HONOUR AND AN ANCIENT SONG. YOUR CHOICES COME BACK TO YOU.',
+];
+// jump drive (between star systems)
+export const JUMP_CHARGE_S = 10, JUMP_TRANSIT_S = 6, JUMP_COST = 150, JUMP_SAFE_R = 12000;
 export const MT_RANDOM = 0, MT_DISTRESS = 1, MT_PATROL = 2, MT_HUNT = 3, MT_ESCORT = 4, MT_SURVEY = 5, MT_DEFEND = 6, NUM_MT = 7;
 export const MT_NAME = ['RANDOM', 'DISTRESS CALL', 'PATROL', 'HUNT', 'ESCORT', 'SURVEY', 'DEFEND STARBASE'];
 export const MT_DESC = [

@@ -31,6 +31,8 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 4. On your phone, the tabs are down the left. **VIEWER** (top right) shows the main viewer and changes it for the whole bridge. **☰** has sound, vibration, the screen-edge margin for rounded corners, *give back my roles* (to swap) and *leave game*.
 5. **Host:** keep the app open and the screen on during a mission. The game runs on your phone. The app keeps the screen awake for you.
 
+**Game modes** (lobby, GAME): **MISSION** is one of the classic missions in the Kalos system. **SANDBOX** is a free voyage across nine star systems: NAV's **GALAXY** chart shows the jump lanes; pick a neighbouring system and **ENGAGE JUMP DRIVE** (you must be undocked, at least 22k from the star, with no hostiles close and 150 energy; more warp power charges it faster). Inside a system you still fly at impulse and warp 1-4. A story campaign is on the way.
+
 If someone's phone drops out, they rejoin from the same phone and get their roles back. During a mission their roles stay reserved, but another player can take them over if they don't come back.
 
 ## 3. The main viewer on the TV

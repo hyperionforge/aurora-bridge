@@ -5,6 +5,7 @@ import { DEG } from '../util.js';
 import { dim, flash, lerpCol } from '../gfx.js';
 import { drawShip, drawStarbase, drawAnomaly, factionColor, artFor, accentFor, ART_CRUISER } from '../ships.js';
 import { fmtDist } from '../util.js';
+import { bodies, drawStation } from '../sysdraw.js';
 
 // world -> radar screen. headingUp rotates the picture so the bow points up
 export function w2r(w, wx, wy, range, cx, cy, R, headingUp) {
@@ -31,13 +32,13 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     }
   }
   g.clip(cx - R, cy - R, 2 * R, 2 * R);
-  for (const pl of K.PLANETS) {
-    const [sx, sy] = w2r(w, pl.x, pl.y, range, cx, cy, R, headingUp);
-    g.circle(sx, sy, Math.max(2, pl.r * R / range), dim(pl.c1, 0.6));
+  for (const b of bodies(w.sys, w.tSec)) {
+    const [sx, sy] = w2r(w, b.x, b.y, range, cx, cy, R, headingUp);
+    g.circle(sx, sy, Math.max(2, b.r * R / range), dim(b.c1, b.star ? 0.9 : 0.6));
   }
-  {
-    const [sx, sy] = w2r(w, K.NEB_X, K.NEB_Y, range, cx, cy, R, headingUp);
-    g.circle(sx, sy, K.NEB_R * R / range, '#5a2d82', false, 1.5);
+  for (const nb of w.sys.nebulae) {
+    const [sx, sy] = w2r(w, nb.x, nb.y, range, cx, cy, R, headingUp);
+    g.circle(sx, sy, nb.r * R / range, nb.col, false, 1.5);
   }
   if (w.P.wpValid) {
     const [sx, sy] = w2r(w, w.P.wpx, w.P.wpy, range, cx, cy, R, headingUp);
@@ -50,7 +51,7 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     if ((sx - cx) ** 2 + (sy - cy) ** 2 > R * R) continue;
     const col = factionColor(c.faction);
     const h = c.hdg - (headingUp ? w.P.hdg : 0);
-    if (c.type === K.CT_STARBASE) drawStarbase(g, sx, sy, 0.12, w.now / 50, w.now);
+    if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, 0.13, w.now, c.civ);
     else if (c.type === K.CT_ANOMALY) drawAnomaly(g, sx, sy, 0.15, w.now);
     else if (c.known) drawShip(g, artFor(c.type), accentFor(c.type), sx, sy, 0.17, h);
     else { g.circle(sx, sy, 5, col); g.circle(sx, sy, 8, col, false, 1.5); }

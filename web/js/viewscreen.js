@@ -8,6 +8,8 @@ import { C } from './config.js';
 import { DEG, clampf, wrap360, angDiff, bearingTo, distTo, fmtDist, pad3, sectorName, mmss } from './util.js';
 import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
+import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawJumpTunnel } from './sysdraw.js';
+import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME } from './galaxy.js';
 
 const NSTARS = 160;
 const SHIELD_DIM = [25, 55, 140], SHIELD_BRIGHT = [130, 225, 255];
@@ -113,17 +115,25 @@ export class Scene {
   drawFwd(g, w, r) {
     const P = w.P, u = r.u, t = w.now, SCX = r.x + r.w / 2, SCY = r.y + r.h / 2;
     this.starsDraw(g, r, P.warping);
-    if (w.inNebula) {
+    if (P.jumping > 0) {
+      drawJumpTunnel(g, r, performance.now(), 1, P.jumping);
+      const to = sysAt(P.jumpTo);
+      g.text(SCX, r.y + 24 * u, 'IN THE JUMP LANE', 22 * u, C.SKY, 'center', true);
+      g.text(SCX, r.y + 52 * u, `DESTINATION ${to.name}  -  ARRIVAL IN ${Math.ceil(P.jumping)}s`, 14 * u, C.PEACH, 'center');
+      return;
+    }
+    const neb = inNebulaOf(w.sys, P.x, P.y);
+    if (neb) {
       const ctx = g.ctx;
       for (let i = 0; i < 1400; i++) {
         const h = (Math.imul(i, 2654435761) ^ Math.floor(P.hdg * 7)) >>> 0;
         ctx.fillStyle = i & 3 ? '#3c1c5a' : '#6e3c96';
         ctx.fillRect(r.x + ((h >>> 8) % 800) / 800 * r.w, r.y + ((h >>> 18) % 416) / 416 * r.h, 2 * u, 2 * u);
       }
-      g.text(r.x + 8 * u, r.y + 30 * u, 'INSIDE THE KALOS NEBULA - SENSORS REDUCED', 12 * u, C.LILAC);
+      g.text(r.x + 8 * u, r.y + 30 * u, `INSIDE THE ${neb.name} - SENSORS REDUCED`, 12 * u, C.LILAC);
     }
     const objs = [];
-    K.PLANETS.forEach((pl, i) => { const p = this.project(w, r, pl.x, pl.y, 0.05); if (p) objs.push({ ...p, kind: -1, i }); });
+    for (const b of bodies(w.sys, w.tSec)) { const p = this.project(w, r, b.x, b.y, b.star ? 0.02 : 0.05); if (p) objs.push({ ...p, kind: -1, b }); }
     for (const n of w.npc) {
       if (!n.alive) continue;
       const p = this.project(w, r, n.x, n.y, ((n.id * 37) % 11 - 5) * 0.025);
@@ -132,15 +142,16 @@ export class Scene {
     objs.sort((a, b) => b.d - a.d);
     for (const o of objs) {
       if (o.kind < 0) {
-        const pl = K.PLANETS[o.i];
-        const rad = Math.max(2, pl.r / o.d * r.F);
-        drawPlanet(g, o.sx, o.sy, rad, pl.c1, pl.c2);
+        const pl = o.b;
+        const rad = Math.max(pl.star ? 3 * u : 2, pl.r / o.d * r.F);
+        if (pl.star) drawStar(g, o.sx, o.sy, rad, pl.c1, pl.c2);
+        else drawRingedPlanet(g, o.sx, o.sy, rad, pl.c1, pl.c2, pl.ring);
         if (rad < 60 * u) g.text(o.sx, o.sy + rad + 6 * u, pl.name, 11 * u, C.GREY_TXT, 'center');
       } else {
         const c = o.n;
         let sc = clampf(1100 / o.d, 0.04, 1.8) * u;
         if (c.type === K.CT_STARBASE) sc *= 1.8;
-        drawContact(g, c.type, o.sx, o.sy, sc, angDiff(P.hdg, c.hdg), t, c.vis ? 1 : 0.6);
+        drawContact(g, c.type, o.sx, o.sy, sc, angDiff(P.hdg, c.hdg), t, c.vis ? 1 : 0.6, c.kind, c.civ);
         if (c.id === P.target) g.brackets(o.sx, o.sy, sc * 70 + 10 * u, flash(300) ? C.RED : C.ORANGE);
         if (o.d < 25000) {
           const known = c.scan > 0 || c.type === K.CT_STARBASE;
@@ -148,6 +159,11 @@ export class Scene {
           g.text(o.sx, o.sy + sc * 70 + 26 * u, fmtDist(o.d), 10 * u, C.GREY_TXT, 'center');
         }
       }
+    }
+    if (P.jumpTo !== K.NO_ID && P.jumpCharge > 0) {
+      drawJumpTunnel(g, r, performance.now(), P.jumpCharge, 0);
+      g.text(SCX, r.y + 24 * u, `JUMP DRIVE CHARGING  ${Math.round(P.jumpCharge * 100)}%`, 16 * u, flash(400) ? C.WHITE : C.SKY, 'center', true);
+      g.text(SCX, r.y + 46 * u, 'DESTINATION ' + sysAt(P.jumpTo).name, 12 * u, C.PEACH, 'center');
     }
     for (const tp of w.torp) {
       const p = this.project(w, r, tp.x, tp.y, 0);
@@ -233,15 +249,7 @@ export class Scene {
     g.circle(cx, cy, R2, C.GRID, false, u);
     g.text(cx + R2 + 4 * u, cy - 6 * u, fmtDist(this.tacRange), 11 * u, C.GRID);
     g.text(cx + R2 / 2 + 4 * u, cy - 6 * u, fmtDist(this.tacRange / 2), 11 * u, C.GRID);
-    const [nx, ny] = w2t(K.NEB_X, K.NEB_Y);
-    drawNebula(g, nx, ny, K.NEB_R * k, 500, '#46235f');
-    for (const pl of K.PLANETS) {
-      const [sx, sy] = w2t(pl.x, pl.y);
-      const pr = Math.max(3, pl.r * k);
-      if (sx + pr < r.x || sx - pr > r.x + r.w || sy + pr < r.y || sy - pr > r.y + r.h) continue;
-      drawPlanet(g, sx, sy, pr, pl.c1, pl.c2);
-      g.text(sx, sy + pr + 4 * u, pl.name, 11 * u, C.GREY_TXT, 'center');
-    }
+    drawSystemLayer(g, w.sys, w.tSec, w2t, k, { u, orbits: true, minR: 3 });
     if (P.wpValid) {
       const [sx, sy] = w2t(P.wpx, P.wpy);
       if (sx > r.x + 10 && sx < r.x + r.w - 10 && sy > r.y + 10 && sy < r.y + r.h - 10) {
@@ -266,7 +274,7 @@ export class Scene {
       const [sx, sy] = w2t(n.x, n.y);
       if (sx < r.x - 40 || sx > r.x + r.w + 40 || sy < r.y - 40 || sy > r.y + r.h + 40) continue;
       const sc = (n.type === K.CT_STARBASE ? clampf(1500 * k / u / 70, 0.25, 1.2) : 0.28) * u;
-      drawContact(g, n.type, sx, sy, sc, n.hdg, t);
+      drawContact(g, n.type, sx, sy, sc, n.hdg, t, 1, n.kind, n.civ);
       g.text(sx, sy + 26 * u, w.shortName(n.id, known), 11 * u, fc, 'center');
       if (n.scan >= 2 && n.type !== K.CT_ANOMALY) {
         g.rect(sx - 15 * u, sy + 40 * u, 30 * u, 3 * u, C.SEG_OFF);
@@ -322,19 +330,16 @@ export class Scene {
   // ---------------------------------------------------------------- sector map
   drawMap(g, w, r) {
     const P = w.P, u = r.u;
-    const S = r.h - 16 * u, mx = r.x + (r.w - S) / 2, my = r.y + 8 * u, k = S / K.SECTOR;
+    const S = r.h - 16 * u, mx = r.x + (r.w - S) / 2, my = r.y + 8 * u, k = S / SYS_SIZE;
     g.strokeRect(mx, my, S, S, C.GRID, u);
     for (let i = 1; i < 10; i++) { g.rect(mx + i * S / 10, my, 1, S, '#121832'); g.rect(mx, my + i * S / 10, S, 1, '#121832'); }
     for (let i = 0; i < 10; i++) {
       g.text(mx + i * S / 10 + S / 20, my + 3 * u, String.fromCharCode(65 + i), 11 * u, C.GRID, 'center');
       g.text(mx + 3 * u, my + i * S / 10 + S / 20 - 6 * u, String(i + 1), 11 * u, C.GRID);
     }
-    drawNebula(g, mx + K.NEB_X * k, my + K.NEB_Y * k, K.NEB_R * k, 600, '#5a2d82');
-    g.text(mx + K.NEB_X * k, my + (K.NEB_Y + K.NEB_R) * k + 4 * u, 'KALOS NEBULA', 11 * u, '#8250aa', 'center');
-    for (const pl of K.PLANETS) {
-      g.circle(mx + pl.x * k, my + pl.y * k, 4 * u, pl.c1);
-      g.text(mx + pl.x * k + 7 * u, my + pl.y * k - 6 * u, pl.name, 11 * u, C.GREY_TXT);
-    }
+    g.clip(mx, my, S, S);
+    drawSystemLayer(g, w.sys, w.tSec, (x, y) => [mx + x * k, my + y * k], k, { u, minR: 3.5, well: true });
+    g.unclip();
     for (const m of w.M.mk) drawMarker(g, mx + m.x * k, my + m.y * k, m.kind, m.r * k, 11 * u);
     g.circle(mx + P.x * k, my + P.y * k, w.sensorRange * k, '#1e3c5a', false, u);
     const pt = (w.slow && w.slow.ptrail) || [];
@@ -348,16 +353,36 @@ export class Scene {
       const x = mx + n.x * k, y = my + n.y * k;
       const known = n.scan > 0 || n.type === K.CT_STARBASE;
       const col = factionColor(known ? n.faction : K.F_UNKNOWN);
-      if (n.type === K.CT_STARBASE) drawStarbase(g, x, y, 0.12 * u, w.now / 50, w.now);
+      if (n.type === K.CT_STARBASE) drawStation(g, n.kind ?? 0, x, y, 0.14 * u, w.now, n.civ);
       else g.circle(x, y, 3 * u, col);
-      g.text(x + 6 * u, y + 3 * u, w.shortName(n.id, known), 11 * u, col);
+      g.text(x + 9 * u, y + 3 * u, w.shortName(n.id, known), 11 * u, col);
     }
     drawShip(g, ART_CRUISER, C.SKY, mx + P.x * k, my + P.y * k, 0.12 * u, P.hdg);
     const lw = mx - r.x - 16 * u;
     if (lw > 120 * u) {
-      g.text(r.x + 12 * u, r.y + 12 * u, 'AURORA', 22 * u, C.SKY);
-      g.text(r.x + 12 * u, r.y + 40 * u, 'SECTOR ' + sectorName(P.x, P.y), 18 * u, C.SKY);
-      g.wrap(r.x + 12 * u, r.y + 70 * u, lw, 'PATH SHOWN FOR THE LAST 2 MINUTES', 11 * u, C.GREY_TXT);
+      const sy = w.sys;
+      g.textFit(r.x + 12 * u, r.y + 12 * u, sy.name, 22 * u, C.SKY, 'left', lw, true);
+      g.text(r.x + 12 * u, r.y + 40 * u, sy.star.type, 13 * u, C.PEACH);
+      g.text(r.x + 12 * u, r.y + 58 * u, 'AURORA IN SECTOR ' + sectorName(P.x, P.y), 13 * u, C.SKY);
+      let yy = g.wrap(r.x + 12 * u, r.y + 80 * u, lw, sy.desc, 11 * u, C.GREY_TXT, 1.25, 4);
+      if (P.jumpTo !== K.NO_ID) {
+        g.text(r.x + 12 * u, yy + 6 * u, P.jumping > 0 ? 'IN THE JUMP LANE' : `JUMP CHARGING ${Math.round(P.jumpCharge * 100)}%`, 14 * u, flash(400) ? C.WHITE : C.SKY);
+        g.text(r.x + 12 * u, yy + 24 * u, '-> ' + sysAt(P.jumpTo).name, 12 * u, C.PEACH);
+      }
+      const gh = Math.min(lw * 0.75, r.h * 0.45);
+      g.text(r.x + 12 * u, r.y + r.h - gh - 26 * u, 'GALAXY', 12 * u, C.ORANGE);
+      drawGalaxy(g, w, r.x + 8 * u, r.y + r.h - gh - 10 * u, lw, gh, { u, labelSize: 8 });
+    }
+    const rw2 = r.x + r.w - (mx + S) - 16 * u;
+    if (rw2 > 120 * u) {
+      let yy = r.y + 12 * u;
+      g.text(mx + S + 12 * u, yy, 'IN THIS SYSTEM', 13 * u, C.ORANGE); yy += 20 * u;
+      for (const n of w.npc) {
+        if (!n.alive || n.type !== K.CT_STARBASE) continue;
+        g.textFit(mx + S + 12 * u, yy, n.name || w.shortName(n.id, true), 13 * u, factionColor(n.faction), 'left', rw2); yy += 15 * u;
+        g.text(mx + S + 12 * u, yy, `${SK_NAME[n.kind ?? 0]}${CIV_NAME[n.civ] ? ' - ' + CIV_NAME[n.civ] : ''}`, 10 * u, C.GREY_TXT); yy += 18 * u;
+      }
+      for (const p of w.sys.planets) { g.text(mx + S + 12 * u, yy, p.name, 11 * u, C.GREY_TXT); yy += 14 * u; }
     }
   }
 
@@ -375,7 +400,7 @@ export class Scene {
     for (let rr = 50; rr <= 200; rr += 50) g.circle(mx, my, rr * u, C.GRID, false, u);
     const sy = my - 190 * u + ((performance.now() / 12) % 380) * u;
     g.rect(mx - 190 * u, sy, 380 * u, u, '#28508c');
-    drawContact(g, c.type, mx, my, (c.type === K.CT_STARBASE ? 2.2 : 1.9) * u, performance.now() / 60, w.now, c.alive ? 1 : 0.4);
+    drawContact(g, c.type, mx, my, (c.type === K.CT_STARBASE ? 2.2 : 1.9) * u, performance.now() / 60, w.now, c.alive ? 1 : 0.4, c.kind, c.civ);
     if (!known) {
       const ctx = g.ctx;
       ctx.fillStyle = C.GREY;
@@ -386,7 +411,7 @@ export class Scene {
     g.textFit(x, y, w.shortName(id, known), 30 * u, factionColor(known ? c.faction : K.F_UNKNOWN), 'left', tw);
     y += 38 * u;
     g.text(x, y, w.contactName(id, known), 13 * u, C.PEACH); y += 18 * u;
-    g.text(x, y, `${known ? K.CT_NAME[c.type] : 'UNKNOWN TYPE'}  ${K.FACTION_NAME[known ? c.faction : K.F_UNKNOWN]}`, 13 * u, C.GREY_TXT); y += 28 * u;
+    g.text(x, y, `${known ? (c.type === K.CT_STARBASE && c.kind != null ? SK_NAME[c.kind] : K.CT_NAME[c.type]) : 'UNKNOWN TYPE'}  ${K.FACTION_NAME[known ? c.faction : K.F_UNKNOWN]}`, 13 * u, C.GREY_TXT); y += 28 * u;
     g.text(x, y, `RANGE ${fmtDist(distTo(P.x, P.y, c.x, c.y))}  BEARING ${pad3(bearingTo(P.x, P.y, c.x, c.y))}`, 18 * u, C.SKY); y += 24 * u;
     g.text(x, y, `HEADING ${pad3(c.hdg)}  SPEED ${Math.round(c.speed)}`, 18 * u, C.SKY); y += 36 * u;
     if (c.scan >= 2 && c.type !== K.CT_ANOMALY) {
@@ -444,7 +469,7 @@ export class Scene {
       g.clip(rx + 2, y + 2, bw - 4, bh - 4);
       if (m.from < K.MAX_CONTACTS) {
         const type = w.typeOf(m.from);
-        drawContact(g, type, px, py, (type === K.CT_STARBASE || type === K.CT_ANOMALY ? 1.2 : 0.95) * bh / 220, (performance.now() / 40) % 360, w.now);
+        drawContact(g, type, px, py, (type === K.CT_STARBASE || type === K.CT_ANOMALY ? 1.2 : 0.95) * bh / 220, (performance.now() / 40) % 360, w.now, 1, w.n(m.from)?.kind, w.n(m.from)?.civ);
       } else { // fleet emblem: an original five-point star in a ring
         const R = bh * 0.36;
         g.circle(px, py, R, '#14285a');
@@ -628,7 +653,7 @@ export function drawViewer(g, w, scene, opts = {}) {
     g.text(290 * u, y + 21 * u, w.shieldsUp() ? 'SHIELDS UP' : P.shieldRaise > 0 ? 'SHIELDS RAISING' : 'SHIELDS DOWN', 12 * u, w.shieldsUp() ? C.SKY : C.GREY_TXT);
     for (let q = 0; q < 4; q++) g.text(420 * u + q * 50 * u, y + 8 * u, K.QUAD_NAME[q][0] + Math.round(P.shield[q]), 15 * u, w.shieldsUp() ? C.SKY : C.GREY, 'left');
     g.text(W - 8 * u, y + 2 * u, 'VIEW: ' + K.VM_NAME[w.view], 16 * u, C.ORANGE, 'right');
-    g.text(W - 8 * u, y + 21 * u, `T+${mmss(w.missionT)}   ${K.MT_NAME[w.M.type]}`, 12 * u, C.GREY_TXT, 'right');
+    g.text(W - 8 * u, y + 21 * u, `T+${mmss(w.missionT)}   ${w.mode ? K.MODE_NAME[w.mode] + ' - ' + w.sys.name : K.MT_NAME[w.M.type]}`, 12 * u, C.GREY_TXT, 'right');
   } else {
     g.text(8 * u, y + 8 * u, 'STARSHIP AURORA BRIDGE SIMULATOR - MAIN VIEWER', 14 * u, C.GREY_TXT);
   }
@@ -643,8 +668,9 @@ export function drawTitleCard(g, w, r, joinUrl) {
   if (!lb) { g.text(cx, r.y + 240 * u, 'WAITING FOR THE HOST...', 18 * u, C.GREY_TXT, 'center'); return; }
   const s = w.slow;
   if (s) {
-    g.text(cx, r.y + 222 * u, `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
-    g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, K.MT_DESC[s.selType], 13 * u, C.GREY_TXT, 1.3, 2);
+    const sm = s.selMode || 0;
+    g.text(cx, r.y + 222 * u, sm ? `${K.MODE_NAME[sm]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}` : `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
+    g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, sm ? K.MODE_DESC[sm] : K.MT_DESC[s.selType], 13 * u, C.GREY_TXT, 1.3, 2);
   }
   // the 8 roles and who holds them
   const byPid = new Map(lb.players.map((p) => [p.pid, p]));

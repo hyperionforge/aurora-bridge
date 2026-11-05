@@ -3,7 +3,9 @@ import * as K from '../config.js';
 import { C, CMD } from '../config.js';
 import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, angDiff, mmss } from '../util.js';
 import { dim, flash, healthColor } from '../gfx.js';
-import { drawShip, drawStarbase, drawMarker, drawNebula, factionColor, ART_CRUISER } from '../ships.js';
+import { drawShip, drawMarker, factionColor, ART_CRUISER } from '../ships.js';
+import { drawSystemLayer, drawGalaxy, drawStation, galaxyKnown } from '../sysdraw.js';
+import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, CIV_NAME, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
 import { drawRadar, radarPick } from './common.js';
 
 export function fromName(w, from) {
@@ -91,71 +93,98 @@ export const helm = {
     g.button('stop', wx, y0 + 246, ww, 40, 'FULL STOP', C.RED, C.BLACK, 19, () => app.send(CMD.STOP));
     g.button('evade', wx, y0 + 292, ww, 34, P.evasive ? 'EVASIVE: ON' : 'EVASIVE: OFF', P.evasive ? C.YELLOW : C.GREY, P.evasive ? C.BLACK : C.GREY_TXT, 17,
       () => app.send(CMD.EVASIVE, P.evasive ? 0 : 1), { sound: 'toggle' });
-    const db = distTo(P.x, P.y, K.BASE_X, K.BASE_Y);
+    const st = nearestStation(w), db = st ? st.d : 1e9;
     let dl = 'DOCK', dc = db < K.DOCK_RANGE ? C.GREEN : C.GREY;
     if (P.dock === 1) { dl = `DOCKING ${Math.round(P.dockT / K.DOCK_TIME_S * 100)}%`; dc = C.YELLOW; }
     else if (P.dock === 2) { dl = 'UNDOCK'; dc = C.LILAC; }
     g.button('dock', wx, y0 + 332, ww, 34, dl, dc, C.BLACK, 17, () => app.send(P.dock === 2 ? CMD.UNDOCK : CMD.DOCK));
-    if (db < 6000 && !P.dock) g.text(wx, y0 + 372, `STARBASE ${fmtDist(db)} - DOCK < 1.8k, < 25 KM/S, SHIELDS DOWN`, 11, C.GREY_TXT);
+    if (db < 6000 && !P.dock) g.textFit(wx, y0 + 372, `${st.n.short || 'STATION'} ${fmtDist(db)} - DOCK < 1.8k, < 25 KM/S, SHIELDS DOWN`, 11, C.GREY_TXT, 'left', ww);
+    if (P.jumpTo !== K.NO_ID) g.text(L.bx + 2, L.by + 76, P.jumping > 0 ? 'IN THE JUMP LANE' : `JUMP CHARGING ${Math.round(P.jumpCharge * 100)}%`, 13, flash(400) ? C.WHITE : C.SKY);
   },
 };
 
 // ============================================================================ NAV
+// SYSTEM: the whole star system with orbits.  LOCAL: 20k around the ship.
+// GALAXY: the jump chart - pick a neighbouring system and JUMP.
+function routeTo(w, from, to) { // shortest lane route through known systems
+  const known = galaxyKnown(w), prev = new Map([[from, -1]]), q = [from];
+  while (q.length) {
+    const a = q.shift();
+    if (a === to) break;
+    for (const b of lanesOf(a)) if (known[b] && !prev.has(b)) { prev.set(b, a); q.push(b); }
+  }
+  if (!prev.has(to)) return null;
+  const path = [];
+  for (let n = to; n !== -1; n = prev.get(n)) path.unshift(n);
+  return path;
+}
+export function nearestStation(w, dockable = true) {
+  let best = null, bd = 1e12;
+  for (const n of w.npc) {
+    if (!n.alive || n.type !== K.CT_STARBASE) continue;
+    if (dockable && (n.faction === K.F_HOSTILE || n.kind === SK_RELAY || n.kind === SK_MONOLITH)) continue;
+    const d = distTo(w.P.x, w.P.y, n.x, n.y);
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best ? { n: best, d: bd } : null;
+}
 export const nav = {
-  zoom: 0,
+  zoom: 0, gsel: -1,
   draw(g, w, app, L) {
     const P = w.P, B = L.BIG, ox = L.bx, oy = L.by;
-    let k, x0, y0;
-    if (this.zoom === 0) { k = B / K.SECTOR; x0 = 0; y0 = 0; } else { k = B / 20000; x0 = P.x - 10000; y0 = P.y - 10000; }
-    const p2 = (wx, wy) => [ox + (wx - x0) * k, oy + (wy - y0) * k];
+    if (this.gsel < 0 || this.gsel >= SYSTEMS.length) this.gsel = lanesOf(w.sysIdx)[0] ?? 0;
+    if (P.jumpTo !== K.NO_ID) this.gsel = P.jumpTo;
+    let k = 1, x0 = 0, y0 = 0;
     g.clip(ox, oy, B, B);
-    const gs = this.zoom ? 2000 : 10000;
-    for (let gx = Math.floor(x0 / gs) * gs; gx < x0 + B / k; gx += gs) g.rect(p2(gx, 0)[0], oy, 1, B, '#121832');
-    for (let gy = Math.floor(y0 / gs) * gs; gy < y0 + B / k; gy += gs) g.rect(ox, p2(0, gy)[1], B, 1, '#121832');
-    g.strokeRect(ox, oy, B, B, C.GRID);
-    if (!this.zoom) for (let i = 0; i < 10; i++) {
-      g.text(ox + i * B / 10 + B / 20, oy + 2, String.fromCharCode(65 + i), 11, C.GRID, 'center');
-      g.text(ox + 3, oy + i * B / 10 + B / 20 - 6, String(i + 1), 11, C.GRID);
+    if (this.zoom === 2) {
+      g.rect(ox, oy, B, B, '#04060e');
+      drawGalaxy(g, w, ox + 6, oy + 18, B - 12, B - 30, { sel: this.gsel, onPick: (i) => { this.gsel = i; app.sound.toggle(); } });
+      g.text(ox + 4, oy + 2, 'GALAXY CHART - JUMP LANES', 11, C.GREY_TXT);
+    } else {
+      if (this.zoom === 0) k = B / SYS_SIZE; else { k = B / 20000; x0 = P.x - 10000; y0 = P.y - 10000; }
+      const p2 = (wx, wy) => [ox + (wx - x0) * k, oy + (wy - y0) * k];
+      const gs = this.zoom ? 2000 : SYS_SIZE / 10;
+      for (let gx = Math.floor(x0 / gs) * gs; gx < x0 + B / k; gx += gs) g.rect(p2(gx, 0)[0], oy, 1, B, '#121832');
+      for (let gy = Math.floor(y0 / gs) * gs; gy < y0 + B / k; gy += gs) g.rect(ox, p2(0, gy)[1], B, 1, '#121832');
+      if (!this.zoom) for (let i = 0; i < 10; i++) {
+        g.text(ox + i * B / 10 + B / 20, oy + 2, String.fromCharCode(65 + i), 11, C.GRID, 'center');
+        g.text(ox + 3, oy + i * B / 10 + B / 20 - 6, String(i + 1), 11, C.GRID);
+      }
+      drawSystemLayer(g, w.sys, w.tSec, p2, k, { minR: this.zoom ? 3 : 2.5, well: true, dots: this.zoom ? 1 : 0.7 });
+      for (const m of w.M.mk) { const [sx, sy] = p2(m.x, m.y); drawMarker(g, sx, sy, m.kind, m.r * k, 11); }
+      const pt = (w.slow && w.slow.ptrail) || [];
+      for (let i = 0; i < pt.length; i += 2) { const [sx, sy] = p2(pt[i], pt[i + 1]); g.rect(sx, sy, 1.5, 1.5, C.SKY); }
+      const [px, py] = p2(P.x, P.y);
+      if (P.wpValid) {
+        const [sx, sy] = p2(P.wpx, P.wpy);
+        g.line(px, py, sx, sy, '#50468c', 1);
+        g.strokeRect(sx - 5, sy - 5, 11, 11, C.VIOLET, 1.5);
+        g.strokeRect(sx - 2, sy - 2, 5, 5, C.VIOLET, 1);
+      }
+      for (const c of w.contacts()) {
+        if (!c.alive) continue;
+        const [sx, sy] = p2(c.x, c.y);
+        const col = factionColor(c.faction);
+        if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, this.zoom ? 0.3 : 0.13, w.now, c.civ);
+        else g.circle(sx, sy, 3.5, col);
+        g.text(sx + 8, sy + 3, w.shortName(c.id, c.known), 11, col);
+      }
+      drawShip(g, ART_CRUISER, C.SKY, px, py, this.zoom ? 0.18 : 0.12, P.hdg);
+      g.text(ox + B - 4, oy + B - 15, 'TAP MAP = SET WAYPOINT', 11, C.GREY_TXT, 'right');
+      g.hit(ox, oy, B, B, { down: (x, y) => { app.sound.toggle(); app.send(CMD.WAYPOINT, 1, 0, Math.round(x0 + (x - ox) / k), Math.round(y0 + (y - oy) / k)); } });
     }
-    const [nx, ny] = p2(K.NEB_X, K.NEB_Y);
-    drawNebula(g, nx, ny, K.NEB_R * k, 400, '#5a2d82');
-    for (const pl of K.PLANETS) {
-      const [sx, sy] = p2(pl.x, pl.y);
-      const r = Math.max(3, pl.r * k);
-      g.circle(sx, sy, r, pl.c1);
-      g.text(sx + r + 3, sy - 6, pl.name, 11, C.GREY_TXT);
-    }
-    for (const m of w.M.mk) { const [sx, sy] = p2(m.x, m.y); drawMarker(g, sx, sy, m.kind, m.r * k, 11); }
-    const pt = (w.slow && w.slow.ptrail) || [];
-    for (let i = 0; i < pt.length; i += 2) { const [sx, sy] = p2(pt[i], pt[i + 1]); g.rect(sx, sy, 1.5, 1.5, C.SKY); }
-    const [px, py] = p2(P.x, P.y);
-    if (P.wpValid) {
-      const [sx, sy] = p2(P.wpx, P.wpy);
-      g.line(px, py, sx, sy, '#50468c', 1);
-      g.strokeRect(sx - 5, sy - 5, 11, 11, C.VIOLET, 1.5);
-      g.strokeRect(sx - 2, sy - 2, 5, 5, C.VIOLET, 1);
-    }
-    for (const c of w.contacts()) {
-      if (!c.alive) continue;
-      const [sx, sy] = p2(c.x, c.y);
-      const col = factionColor(c.faction);
-      if (c.type === K.CT_STARBASE) drawStarbase(g, sx, sy, this.zoom ? 0.3 : 0.12, w.now / 50, w.now);
-      else g.circle(sx, sy, 3.5, col);
-      g.text(sx + 6, sy + 3, w.shortName(c.id, c.known), 11, col);
-    }
-    drawShip(g, ART_CRUISER, C.SKY, px, py, this.zoom ? 0.18 : 0.12, P.hdg);
     g.unclip();
-    g.text(ox + B - 4, oy + B - 15, 'TAP MAP = SET WAYPOINT', 11, C.GREY_TXT, 'right');
-    g.hit(ox, oy, B, B, { down: (x, y) => { app.sound.toggle(); app.send(CMD.WAYPOINT, 1, 0, Math.round(x0 + (x - ox) / k), Math.round(y0 + (y - oy) / k)); } });
+    g.strokeRect(ox, oy, B, B, C.GRID);
     // under
-    const bw = (L.uw - 12) / 3;
-    g.button('zs', L.ux, L.uy, bw, L.uh, 'SECTOR', this.zoom === 0 ? C.VIOLET : C.GREY, C.BLACK, 17, () => { this.zoom = 0; });
-    g.button('zl', L.ux + bw + 6, L.uy, bw, L.uh, 'LOCAL 20K', this.zoom === 1 ? C.VIOLET : C.GREY, C.BLACK, 17, () => { this.zoom = 1; });
-    g.button('cwp', L.ux + 2 * (bw + 6), L.uy, bw, L.uh, 'CLEAR WP', C.RED_DIM, C.PEACH, 17, () => app.send(CMD.WAYPOINT, 0));
+    const bw = (L.uw - 18) / 4;
+    ['SYSTEM', 'LOCAL 20K', 'GALAXY'].forEach((l, i) =>
+      g.button('z' + i, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, this.zoom === i ? C.VIOLET : C.GREY, C.BLACK, 17, () => { this.zoom = i; }));
+    g.button('cwp', L.ux + 3 * (bw + 6), L.uy, bw, L.uh, 'CLEAR WP', C.RED_DIM, C.PEACH, 17, () => app.send(CMD.WAYPOINT, 0));
+    if (this.zoom === 2) { this.jumpPanel(g, w, app, L); return; }
     // right column
     const x = L.rx, rw = L.rw;
     let y = L.y0;
-    g.header(x, y, rw, 'WAYPOINT', C.VIOLET);
+    g.header(x, y, rw, 'WAYPOINT - ' + w.sys.name, C.VIOLET);
     y += 24;
     if (P.wpValid) {
       const d = distTo(P.x, P.y, P.wpx, P.wpy);
@@ -174,10 +203,15 @@ export const nav = {
     y += 46;
     g.text(x, y, 'QUICK WAYPOINTS', 12, C.GREY_TXT);
     y += 16;
-    const qn = ['STARBASE 12', 'MISSION TARGET', 'KALOS NEBULA'], qw = (rw - 12) / 3;
-    qn.forEach((n, i) => g.button('q' + i, x + i * (qw + 6), y, qw, 32, n, C.LILAC, C.BLACK, 15, () => {
-      let qx = [K.BASE_X, 0, K.ANOM_X][i], qy = [K.BASE_Y, 0, K.ANOM_Y][i];
-      if (i === 1) { const m = w.M.mk[0]; if (!m) { app.sound.denied(); return; } qx = m.x; qy = m.y; }
+    const qn = ['NEAREST STATION', 'MISSION TARGET', 'LEAVE STAR WELL'], qw = (rw - 12) / 3;
+    qn.forEach((n, i) => g.button('q' + i, x + i * (qw + 6), y, qw, 32, n, C.LILAC, C.BLACK, 13, () => {
+      let qx, qy;
+      if (i === 0) { const st = nearestStation(w, false); if (!st) { app.sound.denied(); return; } qx = st.n.x; qy = st.n.y + 1200; }
+      else if (i === 1) { const m = w.M.mk[0]; if (!m) { app.sound.denied(); return; } qx = m.x; qy = m.y; }
+      else {
+        const a = Math.atan2(P.y - SYS_C, P.x - SYS_C), d = Math.max(WELL_R + 5000, distTo(P.x, P.y, SYS_C, SYS_C));
+        qx = SYS_C + Math.cos(a) * d; qy = SYS_C + Math.sin(a) * d;
+      }
       app.send(CMD.WAYPOINT, 1, 0, Math.round(qx), Math.round(qy));
     }, { sound: 'toggle' }));
     y += 40;
@@ -187,8 +221,9 @@ export const nav = {
     if (!list.length) g.text(x, y + 4, 'NOTHING ON SENSORS', 12, C.GREY_TXT);
     const bw2 = Math.min(92, (rw - 120) / 2);
     for (const c of list) {
+      if (y > L.y1 - 80) break;
       const col = factionColor(c.faction);
-      g.textFit(x, y + 2, w.shortName(c.id, c.known), 15, col, 'left', rw - 2 * bw2 - 60);
+      g.textFit(x, y + 2, w.shortName(c.id, c.known), 15, col, 'left', rw - 2 * bw2 - 16);
       g.text(x, y + 19, `${fmtDist(w.range(c))}  BRG ${pad3(w.bearing(c))}`, 11, C.GREY_TXT);
       const ic = P.autopilot === K.AP_TARGET && P.apTarget === c.id;
       g.button('ic' + c.id, x + rw - 2 * bw2 - 6, y + 1, bw2, 30, ic ? 'INTERCEPTING' : 'INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 14,
@@ -199,6 +234,55 @@ export const nav = {
     y = Math.max(y, L.y1 - 46);
     g.text(x, y, 'OBJECTIVE:', 12, C.ORANGE);
     g.wrap(x, y + 14, rw, w.M.objective, 12, C.PEACH, 1.2, 2);
+  },
+  jumpPanel(g, w, app, L) {
+    const P = w.P, x = L.rx, rw = L.rw, cur = w.sysIdx, sel = this.gsel, S = sysAt(sel);
+    const visited = new Set((w.slow && w.slow.visited) || [cur]);
+    let y = L.y0;
+    g.header(x, y, rw, 'JUMP DRIVE', C.SKY);
+    y += 26;
+    g.textFit(x, y, S.name, 22, sel === cur ? C.SKY : C.PEACH, 'left', rw, true);
+    g.text(x + rw, y + 6, S.star.type, 12, C.GREY_TXT, 'right');
+    y += 28;
+    y = g.wrap(x, y, rw, visited.has(sel) ? S.desc : 'UNCHARTED - NO DETAILED SURVEY ON FILE. ' + S.desc, 12, C.GREY_TXT, 1.2, 3) + 4;
+    if (visited.has(sel) && S.stations.length)
+      y = g.wrap(x, y, rw, 'STATIONS: ' + S.stations.map((s) => `${s.name} (${CIV_NAME[s.civ] || 'UNKNOWN'})`).join(', '), 12, C.TAN, 1.2, 2) + 4;
+    y += 4;
+    // status line + the big button
+    let why = '', ready = false;
+    const lanes = lanesOf(cur);
+    if (sel === cur) why = 'WE ARE IN THIS SYSTEM.';
+    else if (!lanes.includes(sel)) {
+      const r = routeTo(w, cur, sel);
+      why = r ? 'NO DIRECT LANE. ROUTE: ' + r.map((i) => sysAt(i).name).join(' > ') : 'NO KNOWN ROUTE.';
+    } else {
+      why = (w.slow && w.slow.jumpWhy && w.slow.jumpWhy[sel]) || '';
+      ready = !why;
+      if (ready) why = `LANE OPEN - ${K.JUMP_CHARGE_S}s CHARGE, ${K.JUMP_COST} ENERGY.`;
+    }
+    const by = L.y1 - 44;
+    if (P.jumping > 0) {
+      g.text(x, by - 40, `IN THE JUMP LANE - ARRIVING IN ${Math.ceil(P.jumping)}s`, 15, flash(400) ? C.WHITE : C.SKY);
+      g.progress(x, by - 18, rw, 10, 1 - P.jumping / K.JUMP_TRANSIT_S, C.SKY);
+      g.button('jump', x, by, rw, 42, 'JUMPING...', C.GREY, C.GREY_TXT, 20, () => {}, { silent: true });
+      return;
+    }
+    if (P.jumpTo !== K.NO_ID) {
+      g.text(x, by - 40, `CHARGING FOR ${sysAt(P.jumpTo).name}  ${Math.round(P.jumpCharge * 100)}%`, 15, C.YELLOW);
+      g.progress(x, by - 18, rw, 10, P.jumpCharge, C.YELLOW);
+      g.button('jump', x, by, rw, 42, 'ABORT JUMP', C.RED, C.BLACK, 20, () => app.send(CMD.JUMP, K.NO_ID));
+      return;
+    }
+    // neighbours as quick picks
+    g.text(x, y, 'LANES FROM ' + w.sys.name, 12, C.GREY_TXT);
+    y += 16;
+    const known = galaxyKnown(w), nb = lanes.filter((i) => known[i]);
+    const lw = (rw - 6 * (nb.length - 1)) / Math.max(1, nb.length);
+    nb.forEach((i, n) => g.button('ln' + i, x + n * (lw + 6), y, lw, 30, sysAt(i).name, sel === i ? C.SKY : C.GREY, sel === i ? C.BLACK : C.GREY_TXT, 12,
+      () => { this.gsel = i; }, { sound: 'toggle' }));
+    g.wrap(x, by - 36, rw, why, 12, ready ? C.GREEN : sel === cur ? C.SKY : C.YELLOW, 1.2, 2);
+    g.button('jump', x, by, rw, 42, ready ? 'ENGAGE JUMP DRIVE' : 'JUMP UNAVAILABLE', ready ? C.ORANGE : C.GREY, ready ? C.BLACK : C.GREY_TXT, 20,
+      () => { if (ready) app.send(CMD.JUMP, sel); else app.sound.denied(); }, { silent: !ready, bold: true });
   },
 };
 
@@ -259,7 +343,8 @@ export const science = {
       g.text(x, y + 4, 'SHIELD FREQUENCY: ' + K.FREQ_CHAR[c.freq], 17, C.GREEN);
       g.text(x + rw, y + 8, 'TELL TACTICAL: MATCHED PHASERS +50%', 11, C.GREY_TXT, 'right');
     } else if (lvl === 2 && c.type === K.CT_ANOMALY) g.wrap(x, y, rw, 'TETRYON EMISSIONS AND AN UNSTABLE SUBSPACE FOLD. DATA TRANSMITTED TO FLEET COMMAND.', 13, C.LILAC);
-    else if (c.type === K.CT_STARBASE) g.wrap(x, y, rw, 'FRIENDLY STARBASE. DOCK HERE FOR REPAIRS, ENERGY AND TORPEDOES.', 13, C.GREEN);
+    else if (c.type === K.CT_STARBASE) g.wrap(x, y, rw, `${SK_NAME[c.kind ?? 0]}${CIV_NAME[c.civ] ? ' (' + CIV_NAME[c.civ] + ')' : ''}. ` +
+      (c.faction === K.F_HOSTILE ? 'HOSTILE - KEEP CLEAR OF ITS GUNS.' : c.kind === SK_RELAY || c.kind === SK_MONOLITH ? 'NO DOCKING FACILITIES.' : 'DOCK HERE FOR REPAIRS, ENERGY AND TORPEDOES.'), 13, factionColor(c.faction));
     else g.wrap(x, y, rw, 'FULL SCAN NEEDED FOR SHIELDS, HULL, SYSTEMS AND SHIELD FREQUENCY.', 13, C.GREY_TXT);
     const by = L.y1 - 38;
     g.text(x, by - 18, `SENSORS ${Math.round(P.health[K.S_SENSORS])}% HEALTH, ${P.power[K.S_SENSORS]}% POWER`, 12, P.health[K.S_SENSORS] < 50 ? C.RED : C.GREY_TXT);

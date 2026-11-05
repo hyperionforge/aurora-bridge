@@ -11,6 +11,7 @@
 //                   "I <json>"  public info for the /info endpoint (discovery)
 import * as K from './config.js';
 import { Sim } from './sim.js';
+import { lanesOf as lanesOfSys } from './galaxy.js';
 
 const TICK = 0.02;        // simulation step (s)
 const FAST_MS = 100;      // ship / contacts / projectiles
@@ -229,10 +230,11 @@ export class Host {
         id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
         hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
         sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
+        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.poi >= 0 ? { poi: n.poi } : {}),
       });
     }
     return {
-      t: 'f', now: s.now, game: s.game, alert: s.alert, view: s.view, viewId: s.viewId, missionT: r1(s.missionT), kills: s.kills, bonus: s.bonus,
+      t: 'f', now: s.now, game: s.game, sys: s.sysIdx, mode: s.mode, alert: s.alert, view: s.view, viewId: s.viewId, missionT: r1(s.missionT), kills: s.kills, bonus: s.bonus,
       sr: Math.round(s.sensorRange()), nebula: s.inNebula(P.x, P.y),
       P: {
         x: r1(P.x), y: r1(P.y), hdg: r1(P.hdg), desHdg: r1(P.desHdg), speed: r1(P.speed), throttle: P.throttle, warpSet: P.warpSet,
@@ -243,12 +245,20 @@ export class Host {
         health: P.health.map(r1), power: P.power, coolant: P.coolant, heat: P.heat.map(r1), team: P.team,
         phCharge: Math.round(P.phCharge * 100) / 100, autoFire: P.autoFire, torps: P.torps, tubeState: P.tubeState, tubeType: P.tubeType,
         tubeTimer: P.tubeTimer.map(r1), target: P.target, sub: P.sub, scanId: P.scanId, scanProg: Math.round(P.scanProg * 100) / 100, lrs: r1(P.lrs),
+        dockId: P.dockId, jumpTo: P.jumpTo, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
       },
       npc,
       torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),
       beams: s.beams.map((b) => ({ from: b.from, to: b.to, hit: b.hit, t0: b.t0 })),
       booms: s.booms.map((b) => ({ x: Math.round(b.x), y: Math.round(b.y), size: b.size, t0: b.t0 })),
     };
+  }
+  // why each neighbouring system can't be jumped to right now ('' = go)
+  jumpReasons() {
+    const s = this.sim, out = {};
+    if (s.game !== K.GS_RUN) return out;
+    for (const i of lanesOfSys(s.sysIdx)) out[i] = s.jumpBlock(i);
+    return out;
   }
   buildSlow() {
     const s = this.sim, M = s.M;
@@ -269,7 +279,8 @@ export class Host {
       };
     });
     return {
-      t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
+      t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, selMode: s.selMode, mode: s.mode, sys: s.sysIdx,
+      visited: [...s.visited], revealed: [...s.revealed], jumpWhy: s.P.jumpTo === K.NO_ID ? this.jumpReasons() : {}, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
       M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
         waves: M.waves, frLost: M.frLost, ver: M.ver },
       msgs: s.msgs,

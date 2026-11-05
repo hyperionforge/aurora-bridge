@@ -7,6 +7,7 @@
 // everything moves smoothly at 30-60 fps.
 import * as K from './config.js';
 import { lerp, lerpAng, shortName, contactName, distTo, bearingTo } from './util.js';
+import { sysAt } from './galaxy.js';
 
 const DELAY = 110;
 const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet: 0, warpCharge: 0, warping: false, evasive: false, autopilot: 0,
@@ -40,6 +41,10 @@ export class World {
   get orders() { return this.slow ? this.slow.orders : []; }
   get nameSeed() { return this.slow ? this.slow.nameSeed : 0; }
   get captain() { return this.slow ? this.slow.captain : false; }
+  get sysIdx() { return this.f1 ? this.f1.sys : 0; }
+  get sys() { return sysAt(this.sysIdx); }
+  get mode() { return this.f1 ? this.f1.mode : 0; }
+  get tSec() { return this.now / 1000; }  // game clock for orbits
 
   onMessage(m) {
     this.lastRx = performance.now();
@@ -100,8 +105,16 @@ export class World {
   visible(id) { const n = this.n(id); return !!(n && n.vis); }
   known(id) { const n = this.n(id); return !!(n && (n.scan > 0 || n.type === K.CT_STARBASE)); }
   typeOf(id) { const n = this.n(id); return n ? n.type : id === K.ID_BASE ? K.CT_STARBASE : K.CT_RAIDER; }
-  shortName(id, known = this.known(id)) { return shortName(id, this.typeOf(id), known, this.nameSeed); }
-  contactName(id, known = this.known(id)) { return contactName(id, this.typeOf(id), known, this.nameSeed); }
+  shortName(id, known = this.known(id)) {
+    const n = this.n(id);
+    if (n && n.short && (known || n.type === K.CT_STARBASE)) return n.short;
+    return shortName(id, this.typeOf(id), known, this.nameSeed);
+  }
+  contactName(id, known = this.known(id)) {
+    const n = this.n(id);
+    if (n && n.name && (known || n.type === K.CT_STARBASE)) return n.name;
+    return contactName(id, this.typeOf(id), known, this.nameSeed);
+  }
   // what the sensors show: visible contacts, unknown ones masked (the hardware's ContactRec)
   contacts() {
     const out = [];
@@ -110,7 +123,7 @@ export class World {
       const known = n.scan >= 1 || n.type === K.CT_STARBASE;
       const full = n.scan >= 2;
       out.push({
-        id: n.id, x: n.x, y: n.y, hdg: n.hdg, speed: n.speed, alive: n.alive, scan: n.scan, known,
+        id: n.id, x: n.x, y: n.y, hdg: n.hdg, speed: n.speed, alive: n.alive, scan: n.scan, known, kind: n.kind, civ: n.civ, poi: n.poi,
         type: known ? n.type : n.type === K.CT_ANOMALY ? K.CT_ANOMALY : K.CT_FREIGHTER,
         faction: known ? n.faction : K.F_UNKNOWN,
         surrender: n.ai === 6, fleeing: n.ai === 5,

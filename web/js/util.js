@@ -21,7 +21,7 @@ export const lerp = (a, b, t) => a + (b - a) * t;
 export const lerpAng = (a, b, t) => wrap360(a + angDiff(a, b) * t);
 
 export function sectorName(x, y) {
-  const cx = clampf(Math.floor(x / 10000), 0, 9), cy = clampf(Math.floor(y / 10000), 0, 9);
+  const cx = clampf(Math.floor(x / 16000), 0, 9), cy = clampf(Math.floor(y / 16000), 0, 9);
   return String.fromCharCode(65 + cx) + '-' + (cy + 1);
 }
 export function fmtDist(d) {

@@ -5,13 +5,14 @@
 // host owns the ship, every other ship, the mission script, combat and
 // engineering. Stations only send commands and draw what the host sends.
 import * as K from './config.js';
+import { SYSTEMS, SYS_INDEX, SYS_C, WELL_R, CIV_FLEET, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN, CIV_CHORUS, CIV_NONE, SK_RELAY, SK_MONOLITH, SK_HAVEN, planetPos, starPos, inNebulaOf, lanesOf, sysAt } from './galaxy.js';
 import { clampf, wrap360, angDiff, bearingTo, distTo, quadFromRel, sectorName, contactName, shortName, orderText, DEG } from './util.js';
 
 const {
   NO_ID, US, MAX_CONTACTS, NSYS, S_IMPULSE, S_WARP, S_PHASERS, S_TORPS, S_SHIELDS, S_SENSORS,
   CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTROYER, CT_ANOMALY, CT_BUOY,
   F_FRIEND, F_NEUTRAL, F_HOSTILE, F_UNKNOWN, GS_TITLE, GS_RUN, GS_WIN, GS_LOST,
-  FROM_COMMAND, FROM_COMPUTER, FROM_CREW, BASE_X, BASE_Y, ID_BASE, ID_BONUS, ID_FIRST_DYN, SECTOR,
+  FROM_COMMAND, FROM_COMPUTER, FROM_CREW, ID_BASE, ID_BONUS, ID_FIRST_DYN, SECTOR,
 } = K;
 
 export const AI_STATIC = 0, AI_DRIFT = 1, AI_TRAVEL = 2, AI_WARPIN = 3, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_PATROL = 7;
@@ -26,6 +27,7 @@ function newPlayer() {
     health: [0, 0, 0, 0, 0, 0], power: [0, 0, 0, 0, 0, 0], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0],
     team: [NO_ID, NO_ID], phCharge: 0, autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0],
     target: NO_ID, sub: 0, scanId: NO_ID, scanProg: 0, lrs: 0, restockT: 0, overheatWarnAt: [-1e9, -1e9, -1e9, -1e9, -1e9, -1e9],
+    dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0,
   };
 }
 function newNpc() {
@@ -33,6 +35,7 @@ function newNpc() {
     active: false, alive: false, type: 0, faction: 0, x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, hull: 0, shields: 0, shMax: 0, armor: 1,
     freq: 0, eng: 0, wpn: 0, sgen: 0, scan: 0, ai: 0, aiTarget: US, aiT: 0, phCd: 0, torpCd: 0, orbitDir: 1, breakOff: 0, jinkAt: 0,
     homeX: 0, homeY: 0, cruise: 60, deadAt: 0, trail: [], trailT: 0,
+    name: '', short: '', kind: 0, civ: 0, poi: -1,
   };
 }
 
@@ -61,6 +64,11 @@ export class Sim {
     this.selType = K.MT_RANDOM;
     this.selDiff = 1;
     this.captainMode = false;
+    this.mode = K.MODE_MISSION;
+    this.selMode = K.MODE_MISSION;
+    this.sysIdx = 0;
+    this.visited = new Set([0]);
+    this.revealed = new Set();      // hidden systems the crew has found
     this.nameSeed = 0;
     this.M = this.newMission();
     this.msgs = [];
@@ -83,12 +91,49 @@ export class Sim {
       ambush: false, frLost: false, frSaved: false, ax: 0, ay: 0, bx: 0, by: 0, fail: 0, objective: '', mk: [], ver: 0 };
   }
   frand() { return this.rand(); }
+  // ---------------------------------------------------------------- the current star system
+  get sysDef() { return sysAt(this.sysIdx); }
+  get bx() { const b = this.npc[ID_BASE]; return b && b.active ? b.x : (this.sysDef.stations[0] ? this.sysDef.stations[0].x : SYS_C); }
+  get by() { const b = this.npc[ID_BASE]; return b && b.active ? b.y : (this.sysDef.stations[0] ? this.sysDef.stations[0].y : SYS_C); }
+  get neb() { return this.sysDef.nebulae[0] || { x: SYS_C, y: SYS_C, r: 1 }; }
+  attitudeOf(civ) { return civ === CIV_FLEET || civ === CIV_COLONY ? F_FRIEND : civ === CIV_KESSARI ? F_HOSTILE : F_NEUTRAL; }
+  isStation(id) { const n = this.npc[id]; return !!n && n.active && n.type === CT_STARBASE; }
+  canDockAt(id) { const n = this.npc[id]; return this.isStation(id) && n.alive && n.faction !== F_HOSTILE && n.kind !== SK_RELAY && n.kind !== SK_MONOLITH; }
+  // spawn everything that lives permanently in system idx
+  loadSystem(idx) {
+    this.sysIdx = idx;
+    this.visited.add(idx);
+    this.npc = Array.from({ length: MAX_CONTACTS }, newNpc);
+    this.torp = [];
+    this.beams = [];
+    this.booms = [];
+    this.ptrail = [];
+    const sd = this.sysDef;
+    sd.stations.forEach((st, k) => {
+      const id = k === 0 ? ID_BASE : K.ID_STATION2 + k - 1;
+      this.spawnNpc(id, CT_STARBASE, this.attitudeOf(st.civ), st.x, st.y, 0);
+      const n = this.npc[id];
+      Object.assign(n, { name: st.name, short: st.short || st.name, kind: st.kind, civ: st.civ, scan: 2 });
+      if (st.kind === SK_HAVEN) { n.shMax = n.shields = 260; n.armor = 0.3; }
+      if (st.kind === SK_MONOLITH) { n.shMax = n.shields = 0; n.armor = 0; }
+    });
+    if (idx === 0) this.spawnNpc(ID_BONUS, CT_ANOMALY, F_UNKNOWN, 120000, 54000, 0);
+    if (this.onSystemLoaded) this.onSystemLoaded(idx);
+  }
   irand(n) { return Math.floor(this.rand() * n); }
 
   // ---------------------------------------------------------------- names
   typeOfId(id) { return id < MAX_CONTACTS ? this.npc[id].type : CT_STARBASE; }
-  shortName(id, known = true) { return shortName(id, this.typeOfId(id), known, this.nameSeed); }
-  contactName(id, type, known = true) { return contactName(id, type, known, this.nameSeed); }
+  shortName(id, known = true) {
+    const n = this.npc[id];
+    if (n && n.short && (known || n.type === CT_STARBASE)) return n.short;
+    return shortName(id, this.typeOfId(id), known, this.nameSeed);
+  }
+  contactName(id, type, known = true) {
+    const n = this.npc[id];
+    if (n && n.name && (known || n.type === CT_STARBASE)) return n.name;
+    return contactName(id, type, known, this.nameSeed);
+  }
   contactKnown(id) { return id < MAX_CONTACTS && (this.npc[id].scan > 0 || this.npc[id].type === CT_STARBASE); }
   orderText(code, arg) { return orderText(code, arg, (id) => this.shortName(id, this.contactKnown(id))); }
 
@@ -117,7 +162,7 @@ export class Sim {
     if (P.energy <= 0.5) e *= 0.3;
     return e;
   }
-  inNebula(x, y) { return distTo(x, y, K.NEB_X, K.NEB_Y) < K.NEB_R; }
+  inNebula(x, y) { return !!inNebulaOf(this.sysDef, x, y); }
   sensorRange() {
     const P = this.P;
     let r = K.SENSOR_RANGE * clampf(this.eff(S_SENSORS), 0.3, 1.5);
@@ -191,8 +236,8 @@ export class Sim {
   }
   resetPlayer() {
     const P = (this.P = newPlayer());
-    P.x = BASE_X + 2400;
-    P.y = BASE_Y - 1200;
+    P.x = this.bx + 2400;
+    P.y = this.by - 1200;
     P.hdg = P.desHdg = 45;
     P.energy = K.ENERGY_MAX;
     P.hull = 100;
@@ -205,10 +250,9 @@ export class Sim {
     this.torp = [];
     this.beams = [];
     this.booms = [];
+    this.visited = new Set([0]);
+    this.loadSystem(0);
     this.resetPlayer();
-    this.spawnNpc(ID_BASE, CT_STARBASE, F_FRIEND, BASE_X, BASE_Y, 0);
-    this.spawnNpc(ID_BONUS, CT_ANOMALY, F_UNKNOWN, K.ANOM_X, K.ANOM_Y, 0);
-    this.ptrail = [];
     this.missionT = 0;
     this.bonus = false;
     this.kills = 0;
@@ -346,7 +390,12 @@ export class Sim {
     if (c.cmd === CMD.ORDER_ACK) { this.orderAck(a); return; }
     if (c.cmd === CMD.ORDER) { this.issueOrder(a, b); return; }
     if (c.cmd === CMD.SELECT) {
-      if (this.game !== GS_RUN) { this.selType = ((a % K.NUM_MT) + K.NUM_MT) % K.NUM_MT; this.selDiff = ((b % 3) + 3) % 3; this.M.ver++; }
+      if (this.game !== GS_RUN) {
+        this.selType = ((a % K.NUM_MT) + K.NUM_MT) % K.NUM_MT;
+        this.selDiff = ((b % 3) + 3) % 3;
+        this.selMode = ((c.c | 0) % 3 + 3) % 3;
+        this.M.ver++;
+      }
       return;
     }
     if (c.cmd === CMD.RESTART) { if (this.game !== GS_RUN) this.game = GS_TITLE; return; }
@@ -379,17 +428,24 @@ export class Sim {
         if (!P.wpValid && P.autopilot === K.AP_WAYPOINT) P.autopilot = K.AP_OFF;
         break;
       case CMD.DOCK: {
-        const d = distTo(P.x, P.y, BASE_X, BASE_Y);
         if (P.dock) break;
-        if (!this.npc[ID_BASE].alive) { this.denied('THERE IS NO STARBASE TO DOCK WITH.'); break; }
-        if (d > K.DOCK_RANGE) { this.denied('TOO FAR FROM THE STARBASE TO DOCK (< 1.8k).'); break; }
+        // the nearest station that will have us
+        let sid = NO_ID, d = 1e9;
+        for (let i = 0; i < MAX_CONTACTS; i++) if (this.canDockAt(i)) { const dd = distTo(P.x, P.y, this.npc[i].x, this.npc[i].y); if (dd < d) { d = dd; sid = i; } }
+        if (sid === NO_ID) {
+          const hostile = this.npc.some((n, i) => this.isStation(i) && n.alive && n.faction === F_HOSTILE);
+          this.denied(hostile ? 'THAT STATION IS HOSTILE - THEY WILL NOT LET US DOCK.' : 'THERE IS NO STATION TO DOCK WITH IN THIS SYSTEM.');
+          break;
+        }
+        if (d > K.DOCK_RANGE) { this.denied(`TOO FAR FROM ${this.shortName(sid)} TO DOCK (< 1.8k).`); break; }
         if (Math.abs(P.speed) > K.DOCK_MAX_SPEED) { this.denied('TOO FAST TO DOCK - SLOW BELOW 25 KM/S.'); break; }
         if (P.shieldsOn) { this.denied('LOWER SHIELDS BEFORE DOCKING.'); break; }
-        P.dock = 1; P.dockT = 0; P.throttle = 0; P.warpSet = 0;
-        this.say(ID_BASE, 3, 'DOCKING CLAMPS ENGAGING. WELCOME HOME, AURORA.');
+        P.dock = 1; P.dockT = 0; P.throttle = 0; P.warpSet = 0; P.dockId = sid;
+        this.say(sid, 3, this.npc[sid].civ === CIV_FLEET ? 'DOCKING CLAMPS ENGAGING. WELCOME HOME, AURORA.' : `DOCKING CLEARANCE GRANTED. WELCOME TO ${this.npc[sid].name}.`);
         break;
       }
       case CMD.UNDOCK: if (P.dock) { P.dock = 0; this.say(FROM_CREW, 0, 'UNDOCKED.'); } break;
+      case CMD.JUMP: this.jumpCmd(a); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
@@ -552,12 +608,20 @@ export class Sim {
 
     switch (n.ai) {
       case AI_STATIC:
-        if (n.type === CT_STARBASE && game === GS_RUN) { // starbase defence phasers
+        if (n.type === CT_STARBASE && game === GS_RUN && n.kind !== SK_RELAY && n.kind !== SK_MONOLITH) { // station defence phasers
           n.phCd -= dt;
-          if (n.phCd <= 0) {
+          if (n.phCd <= 0 && n.faction === F_HOSTILE) { // a hostile station shoots at us if we come close
+            const dd = distTo(n.x, n.y, P.x, P.y);
+            if (dd < 7000) {
+              n.phCd = 3;
+              const hit = this.frand() < 0.7;
+              this.beamFx(id, US, hit);
+              if (hit) this.damagePlayer(n.x, n.y, 16 * DIFF_DMG[this.M.diff % 3]);
+            }
+          } else if (n.phCd <= 0 && n.faction === F_FRIEND) {
             let best = NO_ID, bd = 6000;
             for (let i = 0; i < MAX_CONTACTS; i++)
-              if (this.hostileAlive(i) && this.npc[i].ai !== AI_WARPIN) {
+              if (this.hostileAlive(i) && this.npc[i].ai !== AI_WARPIN && this.npc[i].type !== CT_STARBASE) {
                 const dd = distTo(n.x, n.y, this.npc[i].x, this.npc[i].y);
                 if (dd < bd) { bd = dd; best = i; }
               }
@@ -572,8 +636,8 @@ export class Sim {
         return;
       case AI_DRIFT: targetSpeed = 0; break;
       case AI_TRAVEL: {
-        const db = distTo(n.x, n.y, BASE_X, BASE_Y);
-        n.desHdg = bearingTo(n.x, n.y, BASE_X, BASE_Y);
+        const db = distTo(n.x, n.y, this.bx, this.by);
+        n.desHdg = bearingTo(n.x, n.y, this.bx, this.by);
         targetSpeed = db > 2500 ? n.cruise * clampf(engF, 0.3, 1) : 0;
         turn = 20;
         break;
@@ -734,8 +798,73 @@ export class Sim {
 
   // ---------------------------------------------------------------- our ship
   dropWarp() { const P = this.P; P.warpSet = 0; P.warping = false; P.warpCharge = 0; }
+  // ---------------------------------------------------------------- jump drive (between star systems)
+  jumpBlock(to) {
+    const P = this.P;
+    if (this.mode === K.MODE_MISSION) return 'JUMP DRIVE LOCKED - FLEET ORDERS KEEP US IN KALOS FOR THIS MISSION.';
+    if (!lanesOf(this.sysIdx).includes(to)) return 'NO JUMP LANE TO THAT SYSTEM FROM HERE.';
+    if (sysAt(to).hidden && !this.revealed.has(to)) return 'NO JUMP LANE TO THAT SYSTEM FROM HERE.';
+    if (P.dock) return 'UNDOCK BEFORE JUMPING.';
+    if (P.health[S_WARP] <= 0) return 'WARP DRIVE OFFLINE - THE JUMP DRIVE NEEDS IT.';
+    if (distTo(P.x, P.y, SYS_C, SYS_C) < WELL_R) return `TOO DEEP IN THE STAR'S GRAVITY WELL - GET ${Math.round(WELL_R / 1000)}K FROM THE STAR.`;
+    for (let i = 0; i < MAX_CONTACTS; i++)
+      if (this.hostileAlive(i) && this.npc[i].type !== CT_STARBASE && this.npc[i].ai !== AI_FLEE && distTo(P.x, P.y, this.npc[i].x, this.npc[i].y) < K.JUMP_SAFE_R)
+        return 'HOSTILES TOO CLOSE - THEIR WEAPONS FIRE DISRUPTS THE JUMP FIELD.';
+    if (P.energy < K.JUMP_COST) return `NOT ENOUGH ENERGY TO JUMP (${K.JUMP_COST} NEEDED).`;
+    return '';
+  }
+  jumpCmd(to) {
+    const P = this.P;
+    if (to === NO_ID || to === P.jumpTo) {
+      if (P.jumpTo !== NO_ID && !P.jumping) { P.jumpTo = NO_ID; P.jumpCharge = 0; this.say(FROM_CREW, 0, 'JUMP ABORTED.'); }
+      return;
+    }
+    if (P.jumping) return;
+    const why = this.jumpBlock(to);
+    if (why) { this.denied(why); return; }
+    P.jumpTo = to;
+    P.jumpCharge = 0;
+    P.warpSet = 0; P.warping = false; P.warpCharge = 0;
+    this.say(FROM_CREW, 0, `JUMP DRIVE CHARGING - DESTINATION ${sysAt(to).name}.`);
+  }
+  jumpTick(dt) {
+    const P = this.P;
+    if (P.jumping > 0) {
+      P.jumping -= dt;
+      if (P.jumping <= 0) this.arrive(P.jumpTo);
+      return true;
+    }
+    const why = this.jumpBlock(P.jumpTo);
+    if (why) { P.jumpTo = NO_ID; P.jumpCharge = 0; this.say(FROM_CREW, 1, 'JUMP ABORTED: ' + why); return false; }
+    P.jumpCharge += dt / K.JUMP_CHARGE_S * clampf(this.eff(S_WARP), 0.3, 1.5);
+    if (P.jumpCharge >= 1) {
+      P.jumpCharge = 1;
+      P.energy -= K.JUMP_COST;
+      P.jumping = K.JUMP_TRANSIT_S;
+      this.emit(K.EV_JUMP, P.jumpTo);
+      this.say(FROM_CREW, 0, `JUMP! EN ROUTE TO ${sysAt(P.jumpTo).name}.`);
+    }
+    return false;
+  }
+  arrive(to) {
+    const P = this.P, from = this.sysIdx;
+    this.loadSystem(to);
+    const a = Math.atan2(sysAt(from).gy - sysAt(to).gy, sysAt(from).gx - sysAt(to).gx);
+    P.x = SYS_C + Math.cos(a) * 66000;
+    P.y = SYS_C + Math.sin(a) * 66000;
+    P.hdg = P.desHdg = bearingTo(P.x, P.y, SYS_C, SYS_C);
+    P.speed = 40; P.throttle = 0; P.autopilot = K.AP_OFF; P.wpValid = false;
+    P.target = NO_ID; P.scanId = NO_ID; P.apTarget = NO_ID;
+    P.jumpTo = NO_ID; P.jumpCharge = 0; P.jumping = 0;
+    if (this.mode !== K.MODE_MISSION) this.clearMarkers();
+    this.emit(K.EV_ARRIVE, to);
+    this.say(FROM_CREW, 0, `ARRIVED: ${this.sysDef.name}. ${this.sysDef.desc}`);
+    if (this.onArrive) this.onArrive(to, from);
+  }
+
   playerTick(dt) {
     const P = this.P, npc = this.npc;
+    if (P.jumpTo !== NO_ID && this.jumpTick(dt)) { P.speed = K.WARP_SPEED * 6; return; } // in the jump tunnel
     // ---- steering
     if (P.autopilot === K.AP_WAYPOINT && P.wpValid) {
       const d = distTo(P.x, P.y, P.wpx, P.wpy);
@@ -803,8 +932,9 @@ export class Sim {
     // ---- docking
     if (P.dock === 1) {
       P.dockT += dt;
-      P.x += (BASE_X + 400 - P.x) * dt * 0.8;
-      P.y += (BASE_Y - 400 - P.y) * dt * 0.8;
+      const ds = this.npc[P.dockId] && this.npc[P.dockId].active ? this.npc[P.dockId] : { x: this.bx, y: this.by };
+      P.x += (ds.x + 400 - P.x) * dt * 0.8;
+      P.y += (ds.y - 400 - P.y) * dt * 0.8;
       if (P.dockT >= K.DOCK_TIME_S) { P.dock = 2; this.emit(K.EV_DOCKED); }
     }
     if (P.dock === 2) {
@@ -948,7 +1078,9 @@ export class Sim {
   setWaypoint(x, y) { const P = this.P; P.wpValid = true; P.wpx = x; P.wpy = y; }
   clampSec(v) { return clampf(v, 6000, SECTOR - 6000); }
   clearOfPlanets(x, y) {
-    for (const p of K.PLANETS) if (distTo(x, y, p.x, p.y) < p.r + 3000) return false;
+    const t = this.now / 1000;
+    for (let i = 0; i < this.sysDef.planets.length; i++) { const [px, py] = planetPos(this.sysDef, i, t); if (distTo(x, y, px, py) < this.sysDef.planets[i].r + 3000 + this.sysDef.planets[i].orbit * 0.15) return false; }
+    if (distTo(x, y, SYS_C, SYS_C) < WELL_R) return false;
     return true;
   }
   randomPoint(minBase, maxBase = 1e9) {
@@ -956,7 +1088,7 @@ export class Sim {
     for (let t = 0; t < 80; t++) {
       x = 8000 + this.frand() * (SECTOR - 16000);
       y = 8000 + this.frand() * (SECTOR - 16000);
-      const d = distTo(x, y, BASE_X, BASE_Y);
+      const d = distTo(x, y, this.bx, this.by);
       if (d >= minBase && d <= maxBase && this.clearOfPlanets(x, y)) break;
     }
     return [x, y];
@@ -1010,7 +1142,7 @@ export class Sim {
     M.stageT = 0;
     M.foes = [];
     this.clearMarkers();
-    this.setWaypoint(BASE_X, BASE_Y);
+    this.setWaypoint(this.bx, this.by);
     this.setObjective('RETURN TO STARBASE 12 AND DOCK');
     if (msg) this.say(FROM_COMMAND, 3, msg);
   }
@@ -1126,7 +1258,7 @@ export class Sim {
   // ---- HUNT
   huntStart() {
     const M = this.M;
-    if (this.frand() < 0.6) [M.ax, M.ay] = this.pointNear(K.NEB_X, K.NEB_Y, this.frand() * K.NEB_R * 0.6); // hiding in the nebula
+    if (this.frand() < 0.6) [M.ax, M.ay] = this.pointNear(this.neb.x, this.neb.y, this.frand() * this.neb.r * 0.6); // hiding in the nebula
     else [M.ax, M.ay] = this.randomPoint(35000);
     const raiders = M.diff === 1 ? 3 : 2, dest = M.diff === 2 ? 1 : 0;
     for (let i = 0; i < raiders + dest; i++) {
@@ -1156,12 +1288,12 @@ export class Sim {
   escortStart() {
     const M = this.M;
     [M.ax, M.ay] = this.randomPoint(32000, 46000);
-    M.fr = this.spawnAt(CT_FREIGHTER, F_FRIEND, M.ax, M.ay, bearingTo(M.ax, M.ay, BASE_X, BASE_Y));
+    M.fr = this.spawnAt(CT_FREIGHTER, F_FRIEND, M.ax, M.ay, bearingTo(M.ax, M.ay, this.bx, this.by));
     const f = this.npc[M.fr];
     f.scan = 1;
     f.shMax = f.shields = 40;
     f.cruise = 110;
-    M.bx = distTo(M.ax, M.ay, BASE_X, BASE_Y); // route length
+    M.bx = distTo(M.ax, M.ay, this.bx, this.by); // route length
     M.waves = 2 + (M.diff === 2 ? 1 : 0);
     M.wave = 0;
     this.addMarker(M.ax, M.ay, K.MK_RENDEZVOUS);
@@ -1183,7 +1315,7 @@ export class Sim {
         }
         break;
       case 1: {
-        const prog = 1 - distTo(f.x, f.y, BASE_X, BASE_Y) / M.bx;
+        const prog = 1 - distTo(f.x, f.y, this.bx, this.by) / M.bx;
         if (M.wave < M.waves && this.foesDone() && prog > (M.wave + 1) / (M.waves + 1)) {
           const last = M.wave === M.waves - 1;
           this.warpInGroup(1 + (M.diff >= 1 ? 1 : 0), last && M.diff >= 1 ? 1 : 0, f.x, f.y, 11000, M.fr, US);
@@ -1193,7 +1325,7 @@ export class Sim {
         if (P.autopilot === K.AP_OFF && !P.wpValid) this.setWaypoint(f.x, f.y);
         if (this.foesLeft()) this.setObjective(`ESCORT: PROTECT THE ${this.shortName(M.fr)} - ${this.foesLeft()} ATTACKERS`);
         else this.setObjective(`ESCORT THE ${this.shortName(M.fr)} TO STARBASE 12 (${Math.round(clampf(prog * 100, 0, 100))}% OF THE WAY)`);
-        if (distTo(f.x, f.y, BASE_X, BASE_Y) < 3000) {
+        if (distTo(f.x, f.y, this.bx, this.by) < 3000) {
           M.frSaved = true;
           f.ai = AI_DRIFT;
           this.say(M.fr, 3, "WE'VE MADE IT! DOCKING NOW. WE OWE YOU, AURORA.");
@@ -1215,9 +1347,9 @@ export class Sim {
     for (let i = 0; i < 3; i++) {
       let x = 0, y = 0;
       for (let t = 0; t < 40; t++) {
-        if (i === 0) [x, y] = this.pointNear(K.NEB_X, K.NEB_Y, this.frand() * K.NEB_R * 0.7); // one hides in the nebula
+        if (i === 0) [x, y] = this.pointNear(this.neb.x, this.neb.y, this.frand() * this.neb.r * 0.7); // one hides in the nebula
         else [x, y] = this.randomPoint(20000);
-        let ok = distTo(x, y, K.ANOM_X, K.ANOM_Y) > 6000;
+        let ok = distTo(x, y, this.npc[ID_BONUS].x, this.npc[ID_BONUS].y) > 6000;
         for (const k of M.ids) if (distTo(x, y, npc[k].x, npc[k].y) < 18000) ok = false;
         if (ok) break;
       }
@@ -1256,12 +1388,12 @@ export class Sim {
   // ---- DEFEND
   defendStart() {
     const M = this.M, P = this.P;
-    P.x = BASE_X + 3000;
-    P.y = BASE_Y - 3000;
+    P.x = this.bx + 3000;
+    P.y = this.by - 3000;
     M.waves = 2 + M.diff;
     M.wave = 0;
     M.stage = 0;
-    this.setWaypoint(BASE_X, BASE_Y);
+    this.setWaypoint(this.bx, this.by);
     this.setObjective('DEFEND STARBASE 12 - FIRST WAVE EXPECTED IN 30 SECONDS');
     this.say(ID_BASE, 2, 'AURORA, LONG RANGE SENSORS SHOW KESSARI ATTACK GROUPS ON THEIR WAY. WE NEED YOU HERE.');
   }
@@ -1275,7 +1407,7 @@ export class Sim {
         if (M.stageT >= wait) {
           const last = M.wave === M.waves - 1;
           const raiders = 2 + (M.wave >= 2 && M.diff >= 1 ? 1 : 0);
-          this.warpInGroup(raiders, last && M.diff >= 1 ? 1 : 0, BASE_X, BASE_Y, 22000, ID_BASE, M.wave % 2 ? US : ID_BASE);
+          this.warpInGroup(raiders, last && M.diff >= 1 ? 1 : 0, this.bx, this.by, 22000, ID_BASE, M.wave % 2 ? US : ID_BASE);
           M.stage = 1;
           M.stageT = 0;
           this.say(FROM_CREW, 2, 'ATTACK WAVE INBOUND!');
@@ -1296,10 +1428,19 @@ export class Sim {
 
   // ---- common
   startMission() {
+    this.mode = this.selMode;
     this.resetWorld();
     this.ordersReset();
     this.game = GS_RUN;
     const M = this.M;
+    if (this.mode !== K.MODE_MISSION) { // sandbox / campaign: a voyage, not a single mission
+      M.type = 0;
+      M.diff = this.selDiff % 3;
+      this.nameSeed = this.irand(256);
+      this.startVoyage();
+      M.ver++;
+      return;
+    }
     M.type = this.selType === K.MT_RANDOM ? 1 + this.irand(K.NUM_MT - 1) : this.selType;
     M.diff = this.selDiff % 3;
     M.fr = NO_ID;
@@ -1317,6 +1458,16 @@ export class Sim {
     }
     M.ver++;
   }
+  startVoyage() {
+    const P = this.P;
+    P.dock = 2; P.dockId = ID_BASE; P.dockT = K.DOCK_TIME_S;
+    P.x = this.bx + 400; P.y = this.by - 400;
+    if (this.mode === K.MODE_SANDBOX) {
+      this.setObjective('FREE VOYAGE - EXPLORE, ANSWER HAILS, TAKE CONTRACTS FROM STATIONS');
+      this.say(FROM_COMMAND, 0, 'AURORA, YOU ARE CLEARED FOR AN OPEN PATROL OF THE FRONTIER. THE JUMP LANES ARE ON YOUR NAV GALAXY CHART. GOOD HUNTING.');
+    }
+    if (this.onVoyageStart) this.onVoyageStart();
+  }
   missionOnDestroyed(id) {
     if (this.game !== GS_RUN) return;
     if (id === this.M.fr) {
@@ -1328,6 +1479,10 @@ export class Sim {
   missionTick(dt) {
     const M = this.M, P = this.P;
     M.stageT += dt;
+    if (this.mode !== K.MODE_MISSION) {
+      if (this.voyageTick) this.voyageTick(dt);
+      if (!M.type) return;
+    }
     if (M.stage < K.ST_RETURN) {
       switch (M.type) {
         case K.MT_DISTRESS: this.distressTick(); break;
@@ -1338,7 +1493,7 @@ export class Sim {
         case K.MT_DEFEND: this.defendTick(); break;
       }
     } else if (M.stage === K.ST_RETURN) {
-      const db = distTo(P.x, P.y, BASE_X, BASE_Y);
+      const db = distTo(P.x, P.y, this.bx, this.by);
       if (M.ambush && M.stageT > 10 && db < 34000 && db > 9000) {
         const r = P.hdg * DEG;
         const sx = this.clampSec(P.x + Math.sin(r) * 14000), sy = this.clampSec(P.y - Math.cos(r) * 14000);
@@ -1483,7 +1638,7 @@ export class Sim {
           add(C.SKY, K.O_SCAN, i, 'UNIDENTIFIED CONTACT ON SENSORS');
       if (P.wpValid && !P.warping && P.autopilot === K.AP_OFF && distTo(P.x, P.y, P.wpx, P.wpy) > 25000) add(C.SKY, K.O_COURSE, 0, 'LONG WAY TO THE WAYPOINT - SET COURSE');
       if (P.wpValid && !P.warping && P.autopilot === K.AP_WAYPOINT && distTo(P.x, P.y, P.wpx, P.wpy) > 25000) add(C.SKY, K.O_WARP, 0, 'ON COURSE AT IMPULSE - WARP WOULD BE FASTER');
-      if (this.M.stage >= K.ST_RETURN && distTo(P.x, P.y, BASE_X, BASE_Y) < 6000 && P.dock === 0) add(C.GREEN, K.O_DOCK, 0, 'STARBASE IN RANGE - TAKE US IN TO DOCK');
+      if (this.M.stage >= K.ST_RETURN && distTo(P.x, P.y, this.bx, this.by) < 6000 && P.dock === 0) add(C.GREEN, K.O_DOCK, 0, 'STARBASE IN RANGE - TAKE US IN TO DOCK');
     }
     if (!adv.length) adv.push({ text: 'NO RECOMMENDATIONS, CAPTAIN', code: 255, arg: 0, col: C.GREEN_DIM });
     return adv;

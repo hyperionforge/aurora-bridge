@@ -150,6 +150,40 @@ for (const [mode, nm] of [[0, 'fwd'], [1, 'tac'], [2, 'map'], [3, 'tgt'], [4, 'c
 await phones[n - 1].evaluate(() => { window.auroraApp.viewerPage = true; window.auroraApp.send(10, 1, 255); });
 await sleep(800);
 await phones[n - 1].screenshot({ path: `${OUT}/p40_viewer_page.png` });
+// ---- jump drive: switch to a free voyage, look at the galaxy chart, jump to Meridian
+await host.evaluate(() => {
+  const s = window.auroraHost.sim;
+  for (let i = 6; i < 32; i++) if (s.npc[i].active && s.npc[i].type !== 0) s.npc[i].active = false;
+  s.P.health = s.P.health.map(() => 100); s.P.power[1] = 150;
+  s.mode = 1; s.P.x = 120000; s.P.y = 120000; s.P.dock = 0; s.P.energy = 900;
+});
+await host.evaluate(async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 0; });
+const navOwner = await (async () => { for (let i = 0; i < n; i++) if (await phones[i].evaluate(() => window.auroraApp.myStation().tabs.includes(1))) return i; return 0; })();
+await phones[navOwner].evaluate(() => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(1); });
+await sleep(600);
+await phones[navOwner].screenshot({ path: `${OUT}/p60_nav_system.png` });
+await phones[navOwner].evaluate(async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 2; m.nav.gsel = 1; });
+await sleep(1200);
+await phones[navOwner].screenshot({ path: `${OUT}/p61_nav_galaxy.png` });
+await phones[navOwner].evaluate(() => window.auroraApp.send(35, 1));
+await sleep(300);
+console.log('jump state:', await host.evaluate(() => { const s = window.auroraHost.sim; return JSON.stringify({ to: s.P.jumpTo, mode: s.mode, game: s.game, why: s.jumpBlock(1), ch: s.P.jumpCharge }); }));
+await phones[n - 1].evaluate(() => window.auroraApp.send(10, 0, 255));
+await sleep(5000);
+console.log('jump msgs:', await host.evaluate(() => window.auroraHost.sim.msgs.slice(0, 2).map((m) => m.text).join(' | ')));
+await tv.screenshot({ path: `${OUT}/tv30_jump_charge.png` });
+await phones[navOwner].screenshot({ path: `${OUT}/p62_nav_charging.png` });
+await sleep(7000);
+await tv.screenshot({ path: `${OUT}/tv31_jump_tunnel.png` });
+await sleep(6000);
+console.log('after jump:', await host.evaluate(() => window.auroraHost.sim.sysDef.name));
+await tv.screenshot({ path: `${OUT}/tv32_arrived_fwd.png` });
+await phones[n - 1].evaluate(() => window.auroraApp.send(10, 2, 255));
+await sleep(900);
+await tv.screenshot({ path: `${OUT}/tv33_meridian_map.png` });
+await phones[navOwner].evaluate(async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 0; });
+await sleep(600);
+await phones[navOwner].screenshot({ path: `${OUT}/p63_nav_meridian.png` });
 // end of mission
 await host.evaluate(() => window.auroraHost.sim.endMission(true));
 await sleep(1500);
