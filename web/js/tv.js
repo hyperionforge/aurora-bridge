@@ -1,0 +1,44 @@
+// ============================================================================
+// tv.js - the big viewscreen (a TV browser via screen.html, or a Chromecast
+// via receiver.html). Shows the title card while the crew assembles, the
+// view mode the bridge picked during a mission, and the debrief afterwards.
+// ============================================================================
+import * as K from './config.js';
+import { Gfx, loadFonts } from './gfx.js';
+import { World } from './world.js';
+import { Scene, drawViewer, drawTitleCard } from './viewscreen.js';
+import { sound } from './sound.js';
+
+export class TvApp {
+  constructor(canvas, opts = {}) {
+    this.g = new Gfx(canvas, { width: 960, height: 540, touch: false });
+    this.w = new World();
+    this.scene = new Scene();
+    this.joinUrl = opts.joinUrl || '';
+    this.status = opts.status || '';
+    sound.volume = 0.035;
+    sound.wave = 'triangle';
+    requestAnimationFrame(() => this.frame());
+  }
+  onMsg(m) {
+    if (m.t === 'join') { this.joinUrl = m.url; return; }
+    if (m.t === 'nohost') { this.status = 'NO HOST - START A GAME ON THE HOSTING PHONE'; return; }
+    this.status = '';
+    this.w.onMessage(m);
+    if (m.t === 'ev') for (const e of m.e) { this.scene.onEvent(e); if (e.type !== K.EV_ORDER && e.type !== K.EV_DENIED) sound.event(e); }
+  }
+  frame() {
+    requestAnimationFrame(() => this.frame());
+    const g = this.g, w = this.w;
+    w.update();
+    g.begin();
+    if (!w.have) {
+      const u = g.H / 540;
+      g.text(g.W / 2, 200 * u, 'STARSHIP AURORA', 50 * u, K.C.ORANGE, 'center', true);
+      g.text(g.W / 2, 270 * u, this.status || 'MAIN VIEWER - WAITING FOR THE BRIDGE...', 20 * u, K.C.PEACH, 'center');
+      return;
+    }
+    drawViewer(g, w, this.scene, { title: (r) => drawTitleCard(g, w, r, this.joinUrl) });
+  }
+}
+export { loadFonts, sound };

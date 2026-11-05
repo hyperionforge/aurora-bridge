@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Aurora Bridge</title>
+<style>
+  @font-face { font-family: Antonio; src: url(fonts/antonio-latin-400-normal.woff2) format('woff2'); font-weight: 400; }
+  @font-face { font-family: Antonio; src: url(fonts/antonio-latin-600-normal.woff2) format('woff2'); font-weight: 600; }
+  :root { --orange: #ff9900; --peach: #ffcc99; --lilac: #cc99cc; --violet: #9999ff; --sky: #99ccff; --red: #e63737; --green: #5acd6e; --grey: #46464e; --txt: #8c8c96; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--peach); font-family: Antonio, "Arial Narrow", sans-serif; text-transform: uppercase;
+    -webkit-user-select: none; user-select: none; overflow: hidden; }
+  .frame { display: grid; grid-template-columns: 92px 1fr; grid-template-rows: 40px 1fr; height: 100%; }
+  .elbow { grid-row: 1 / span 2; background: var(--orange); border-top-left-radius: 34px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .elbow div { height: 64px; margin-top: 4px; background: var(--lilac); }
+  .elbow div:nth-child(2) { background: var(--violet); }
+  .elbow div:last-child { background: #ffaa64; border-bottom-left-radius: 34px; }
+  .top { display: flex; align-items: center; gap: 12px; padding-left: 14px; }
+  .top .cap { width: 40px; height: 40px; background: var(--orange); }
+  .top h1 { margin: 0; color: var(--orange); font-size: 30px; font-weight: 600; letter-spacing: 1px; white-space: nowrap; }
+  .top .bar { flex: 1; height: 18px; background: var(--orange); border-radius: 0 9px 9px 0; margin-right: 8px; }
+  .main { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.25fr); gap: 16px; padding: 10px 12px 10px 14px; overflow: auto; }
+  h2 { margin: 6px 0 8px; font-size: 18px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  h2::before { content: ''; width: 22px; height: 16px; border-radius: 8px 0 0 8px; background: currentColor; }
+  h2::after { content: ''; flex: 1; height: 16px; border-radius: 0 8px 8px 0; background: currentColor; }
+  label { display: block; color: var(--txt); font-size: 14px; margin: 6px 0 4px; }
+  input { font: inherit; font-size: 22px; width: 100%; padding: 6px 16px; border-radius: 22px; border: 2px solid var(--violet); background: #0e101e; color: #fff;
+    text-transform: uppercase; outline: none; }
+  button { font: inherit; font-size: 20px; border: 0; border-radius: 22px; padding: 8px 18px; background: var(--orange); color: #000; cursor: pointer; }
+  button:active { background: #fff; }
+  button.big { width: 100%; font-size: 26px; padding: 10px; margin-top: 10px; font-weight: 600; }
+  button.alt { background: var(--lilac); }
+  button.dim { background: var(--grey); color: var(--peach); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row input { flex: 1; }
+  .hosts { display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
+  .host { display: flex; align-items: center; gap: 10px; background: #0e101e; border: 2px solid var(--sky); border-radius: 18px; padding: 6px 8px 6px 16px; }
+  .host .n { flex: 1; color: var(--sky); font-size: 20px; }
+  .host .s { color: var(--txt); font-size: 14px; display: block; }
+  .muted { color: var(--txt); font-size: 14px; line-height: 1.3; text-transform: none; }
+  .muted b { color: var(--peach); font-weight: 400; }
+  .searching { color: var(--txt); font-size: 16px; padding: 8px 0; }
+  .searching::after { content: '...'; animation: dots 1.4s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+  @keyframes dots { from { width: 0 } to { width: 1.2em } }
+  .panel { display: none; position: fixed; inset: 0; background: #000; padding: 16px 20px; overflow: auto; z-index: 2; }
+  .panel.open { display: block; }
+  .ok { color: var(--green); }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="elbow"><div></div><div></div><div></div></div>
+  <div class="top"><h1>STARSHIP AURORA - BRIDGE SIMULATOR</h1><div class="bar"></div></div>
+  <div class="main">
+    <section>
+      <h2 style="color: var(--orange)">YOUR NAME</h2>
+      <input id="name" maxlength="14" placeholder="NAME" autocapitalize="characters" autocomplete="off">
+      <button class="big" id="host">HOST A NEW BRIDGE</button>
+      <p class="muted">The host phone runs the game. Everyone must be on the <b>same Wi-Fi</b> (or the host's phone hotspot). 2-4 players, plus an optional captain.</p>
+      <div class="row" style="margin-top: 6px">
+        <button class="alt" id="settingsBtn">SETTINGS / TV</button>
+        <button class="dim" id="helpBtn">HOW TO PLAY</button>
+      </div>
+    </section>
+    <section>
+      <h2 style="color: var(--sky)">BRIDGES ON THIS WI-FI</h2>
+      <div class="hosts" id="hosts"><div class="searching">SEARCHING</div></div>
+      <label>OR JOIN BY ADDRESS (SHOWN ON THE HOST'S SCREEN)</label>
+      <div class="row"><input id="addr" placeholder="192.168.1.20" inputmode="url" autocapitalize="off"><button id="joinAddr">JOIN</button></div>
+    </section>
+  </div>
+</div>
+
+<div class="panel" id="settings">
+  <h2 style="color: var(--lilac)">MAIN VIEWER ON A TV</h2>
+  <p class="muted"><b>Chromecast:</b> enter the Cast receiver App ID you registered (see the README: it takes about 10 minutes, once). Then restart the app: a CAST TV button appears at the top of every station.</p>
+  <label>CHROMECAST RECEIVER APP ID</label>
+  <div class="row"><input id="appid" placeholder="E.G. 1A2B3C4D" autocapitalize="characters" autocomplete="off"><button id="saveAppId">SAVE</button></div>
+  <p class="muted" id="appidMsg"></p>
+  <p class="muted"><b>No Chromecast?</b> Any web browser on the same Wi-Fi can be the main viewer: a smart TV's browser, a laptop plugged into the TV, a tablet. Open the address the host shows, followed by <b>screen.html</b> - for example http://192.168.1.20:8737/screen.html</p>
+  <button class="big" id="closeSettings">BACK</button>
+</div>
+
+<div class="panel" id="help">
+  <h2 style="color: var(--orange)">HOW TO PLAY</h2>
+  <p class="muted"><b>1.</b> One phone taps HOST A NEW BRIDGE. The others open the app and tap the bridge in the list (or open the host's address in a phone browser - that works on iPhones too).</p>
+  <p class="muted"><b>2.</b> In CREW ASSEMBLY, decide whether you want a CAPTAIN. The ship's stations are shared out among the crew automatically: 1 crew = everything, 2 = Helm &amp; Science / Tactical &amp; Engineering, 3 = Conn / Tactical &amp; Science / Engineering, 4 = Helm / Science &amp; Comms / Tactical / Engineering. Each player taps the station they want.</p>
+  <p class="muted"><b>3.</b> Pick a mission and difficulty, then START MISSION. Use the tabs down the left side of your phone. VIEWER (top right) shows the main viewer and changes what the whole bridge sees.</p>
+  <p class="muted"><b>4.</b> Talk to each other! Science finds the enemy's shield frequency, Tactical matches it, Engineering keeps the power and heat in check, Helm keeps the enemy in the phaser arc. The captain gets advice from the first officer and sends orders that pop up on the right crewmate's phone.</p>
+  <p class="muted"><b>Host:</b> keep the app open and the screen on during a mission - the game runs on your phone.</p>
+  <button class="big" id="closeHelp">BACK</button>
+</div>
+
+<script>
+  const N = window.AuroraNative;
+  const $ = (id) => document.getElementById(id);
+  const nameIn = $('name');
+  nameIn.value = N ? N.getName() : (localStorage.getItem('aurora.name') || '');
+  const name = () => {
+    const n = nameIn.value.trim().toUpperCase();
+    if (!n) { nameIn.focus(); nameIn.style.borderColor = '#e63737'; return null; }
+    return n;
+  };
+  $('host').onclick = () => { const n = name(); if (!n) return; if (N) N.host(n); else location.href = '/?host=1&name=' + encodeURIComponent(n); };
+  const join = (url) => { const n = name(); if (!n) return; if (N) N.join(url, n); else location.href = url + '?name=' + encodeURIComponent(n); };
+  $('joinAddr').onclick = () => {
+    let a = $('addr').value.trim().toLowerCase();
+    if (!a) return;
+    if (!a.startsWith('http')) a = 'http://' + a;
+    if (!/:\d+/.test(a.replace('http://', ''))) a = a.replace(/\/$/, '') + ':8737';
+    join(a.replace(/\/$/, '') + '/');
+  };
+  $('settingsBtn').onclick = () => { $('settings').classList.add('open'); $('appid').value = N ? N.getCastAppId() : ''; };
+  $('closeSettings').onclick = () => $('settings').classList.remove('open');
+  $('helpBtn').onclick = () => $('help').classList.add('open');
+  $('closeHelp').onclick = () => $('help').classList.remove('open');
+  $('saveAppId').onclick = () => {
+    if (N) N.setCastAppId($('appid').value);
+    $('appidMsg').innerHTML = '<span class="ok">SAVED. CLOSE AND REOPEN THE APP TO SWITCH CASTING ON.</span>';
+  };
+
+  // ---- bridges found on the Wi-Fi
+  const info = {};
+  async function poll() {
+    if (!N) { $('hosts').innerHTML = '<div class="muted">Open this page in the Aurora Bridge app to find games automatically.</div>'; return; }
+    let list = [];
+    try { list = JSON.parse(N.getHosts()); } catch {}
+    list = list.filter((h) => !h.mine);
+    for (const h of list) {
+      const key = h.host + ':' + h.port;
+      if (!info[key] || Date.now() - info[key].at > 3000) {
+        info[key] = info[key] || { at: 0 };
+        info[key].at = Date.now();
+        fetch(`http://${key}/info`, { cache: 'no-store' }).then((r) => r.json()).then((j) => { info[key].j = j; }).catch(() => { info[key].j = null; });
+      }
+    }
+    const el = $('hosts');
+    if (!list.length) { if (!el.querySelector('.searching')) el.innerHTML = '<div class="searching">SEARCHING</div>'; return; }
+    el.innerHTML = '';
+    for (const h of list) {
+      const key = h.host + ':' + h.port, j = info[key] && info[key].j;
+      const d = document.createElement('div');
+      d.className = 'host';
+      const st = j && j.players != null ? `${j.players} ABOARD - ${j.game === 1 ? 'MISSION IN PROGRESS' : 'CREW ASSEMBLY'}` : key;
+      d.innerHTML = `<div class="n">${(j && j.name) || h.name}<span class="s">${st}</span></div>`;
+      const b = document.createElement('button');
+      b.textContent = 'JOIN';
+      b.onclick = () => join(`http://${key}/`);
+      d.appendChild(b);
+      el.appendChild(d);
+    }
+  }
+  poll();
+  setInterval(poll, 1500);
+</script>
+</body>
+</html>

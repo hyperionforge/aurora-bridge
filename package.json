@@ -1,0 +1,16 @@
+{
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@fontsource/antonio": "^5.1.0",
+    "qrcode-generator": "^1.4.4",
+    "ws": "^8.18.0"
+  },
+  "name": "aurora-bridge",
+  "version": "1.0.0",
+  "description": "Starship Aurora bridge simulator for Android phones",
+  "scripts": {
+    "start": "node server/dev-server.mjs",
+    "test": "node tests/bots.mjs 1,2,3 && node tests/e2e.mjs node 2 0"
+  }
+}

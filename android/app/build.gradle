@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.aurora.bridge'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.aurora.bridge'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // signed with the debug key so the APK installs straight away;
+            // set up your own signing key before publishing anywhere
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// The game itself lives in ../../web (shared with the TV receiver and the
+// PC dev server). Copy it into the APK's assets/web at build time.
+def webOut = layout.buildDirectory.dir('generated/webassets').get().asFile
+tasks.register('copyWebAssets', Copy) {
+    from(rootProject.file('../web'))
+    into(new File(webOut, 'web'))
+}
+android.sourceSets.main.assets.srcDirs += webOut
+preBuild.dependsOn('copyWebAssets')
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.mediarouter:mediarouter:1.7.0'
+    implementation 'com.google.android.gms:play-services-cast-framework:21.5.0'
+}

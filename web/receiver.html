@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aurora Main Viewer</title>
+<style>html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }</style>
+<!-- Google Cast Web Receiver (CAF) SDK -->
+<script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script type="module">
+  // Chromecast custom receiver. The casting phone relays the host's
+  // snapshots over a custom message channel; this page only draws them.
+  import { TvApp, loadFonts, sound } from './js/tv.js';
+  const NS = 'urn:x-cast:com.aurora.bridge';
+  await loadFonts();
+  const app = new TvApp(document.getElementById('cv'), { status: 'CONNECTED - WAITING FOR THE BRIDGE...' });
+  try { sound.unlock(); } catch {}
+  const ctx = cast.framework.CastReceiverContext.getInstance();
+  ctx.addCustomMessageListener(NS, (ev) => {
+    let d = ev.data;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return; } }
+    if (d && d.t) app.onMsg(d);
+  });
+  const options = new cast.framework.CastReceiverOptions();
+  options.disableIdleTimeout = true;          // a mission can run for many minutes with no media playing
+  options.maxInactivity = 3600;
+  options.skipPlayersLoad = true;              // no media player needed
+  options.customNamespaces = { [NS]: cast.framework.system.MessageType.JSON };
+  ctx.start(options);
+</script>
+</body>
+</html>

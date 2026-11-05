@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aurora Main Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  #hint { position: fixed; left: 0; right: 0; bottom: 8px; text-align: center; font: 16px Antonio, "Arial Narrow", sans-serif; color: #8c8c96; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hint">CLICK / TAP FOR SOUND - PRESS F FOR FULL SCREEN</div>
+<script type="module">
+  // Main viewer in any browser on the same Wi-Fi: a smart TV, a laptop on HDMI, a tablet...
+  import { TvApp, loadFonts, sound } from './js/tv.js';
+  import { Link } from './js/world.js';
+  await loadFonts();
+  const app = new TvApp(document.getElementById('cv'));
+  const pid = 'screen-' + Math.random().toString(36).slice(2, 8);
+  const link = new Link((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws', (m) => app.onMsg(m));
+  link.setHello({ t: 'hello', pid, name: 'VIEWSCREEN', kind: 'screen' });
+  fetch('/lan').then((r) => r.json()).then((j) => { if (j.urls && j.urls[0]) app.joinUrl = j.urls[0]; }).catch(() => {});
+  const hint = document.getElementById('hint');
+  const unlock = () => { sound.unlock(); hint.style.display = 'none'; };
+  addEventListener('pointerdown', unlock);
+  setTimeout(() => { hint.style.display = 'none'; }, 12000);
+  addEventListener('keydown', (e) => { unlock(); if (e.key === 'f' || e.key === 'F') document.documentElement.requestFullscreen?.(); });
+</script>
+</body>
+</html>

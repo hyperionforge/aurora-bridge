@@ -1,0 +1,296 @@
+// ============================================================================
+// host.js - the game host (runs in the hosting phone's app, or any browser)
+// ============================================================================
+// Owns the Sim, the lobby (players, station layout, claims) and talks to
+// every station through the relay server:
+//   relay -> host   "J <cid>"  a connection opened
+//                   "L <cid>"  a connection closed
+//                   "M <cid> <json>"  a message from a connection
+//   host -> relay   "B <json>"  broadcast to every connection
+//                   "T <cid> <json>"  send to one connection
+//                   "I <json>"  public info for the /info endpoint (discovery)
+import * as K from './config.js';
+import { Sim } from './sim.js';
+
+const TICK = 0.02;        // simulation step (s)
+const FAST_MS = 100;      // ship / contacts / projectiles
+const SLOW_MS = 500;      // mission, messages, orders, trails, lobby
+
+const r1 = (v) => Math.round(v * 10) / 10;
+
+export class Host {
+  constructor(opts = {}) {
+    this.sim = new Sim(opts.rand || Math.random);
+    this.players = new Map();   // pid -> {pid, name, cid, station, kind, joinedAt}
+    this.conns = new Map();     // cid -> pid
+    this.layoutCrew = 0;
+    this.stations = [];
+    this.ws = null;
+    this.url = opts.url;
+    this.lastFast = 0;
+    this.lastSlow = 0;
+    this.slowDirty = true;
+    this.lobbyDirty = true;
+    this.lastMVer = -1;
+    this.lastGame = -1;
+    this.joinSeq = 0;
+    this.gameName = opts.name || 'AURORA';
+    this.out = opts.send || null; // test hook: send(line)
+    this.recomputeLayout();
+  }
+
+  // ---------------------------------------------------------------- relay link
+  connect() {
+    const ws = new WebSocket(this.url);
+    this.ws = ws;
+    ws.onmessage = (e) => this.onLine(String(e.data));
+    ws.onclose = () => { this.ws = null; setTimeout(() => this.connect(), 1000); };
+    ws.onerror = () => {};
+  }
+  send(line) {
+    if (this.out) this.out(line);
+    else if (this.ws && this.ws.readyState === 1) this.ws.send(line);
+  }
+  to(cid, obj) { this.send('T ' + cid + ' ' + JSON.stringify(obj)); }
+  all(obj) { this.send('B ' + JSON.stringify(obj)); }
+  onLine(line) {
+    const sp = line.indexOf(' ');
+    const op = line.slice(0, sp < 0 ? line.length : sp);
+    const rest = sp < 0 ? '' : line.slice(sp + 1);
+    if (op === 'J') { this.to(rest.trim(), { t: 'who' }); return; } // ask it to say hello
+    if (op === 'L') return this.onLeave(rest.trim());
+    if (op === 'M') {
+      const sp2 = rest.indexOf(' ');
+      const cid = rest.slice(0, sp2);
+      let msg;
+      try { msg = JSON.parse(rest.slice(sp2 + 1)); } catch { return; }
+      this.onMessage(cid, msg);
+    }
+  }
+
+  start() {
+    if (this.url) this.connect();
+    let last = performance.now(), acc = 0;
+    this.timer = setInterval(() => {
+      const t = performance.now();
+      acc += Math.min(0.25, (t - last) / 1000);
+      last = t;
+      while (acc >= TICK) { this.step(TICK); acc -= TICK; }
+    }, 20);
+  }
+
+  // ---------------------------------------------------------------- one simulation step
+  step(dt) {
+    const sim = this.sim;
+    sim.tick(dt);
+    if (sim.game !== this.lastGame) {
+      this.lastGame = sim.game;
+      if (sim.game === K.GS_TITLE) this.recomputeLayout();
+      this.lobbyDirty = true;
+      this.slowDirty = true;
+    }
+    if (sim.events.length) {
+      if (sim.events.some((e) => e.type === K.EV_MESSAGE || e.type === K.EV_ORDER)) this.slowDirty = true;
+      this.all({ t: 'ev', e: sim.events });
+      sim.events = [];
+    }
+    if (sim.M.ver !== this.lastMVer) { this.lastMVer = sim.M.ver; this.slowDirty = true; }
+    if (sim.now - this.lastFast >= FAST_MS) { this.lastFast = sim.now; this.all(this.buildFast()); }
+    if (this.slowDirty || sim.now - this.lastSlow >= SLOW_MS) {
+      this.slowDirty = false;
+      this.lastSlow = sim.now;
+      this.all(this.buildSlow());
+    }
+    if (this.lobbyDirty) { this.lobbyDirty = false; this.all(this.buildLobby()); this.publishInfo(); }
+  }
+
+  // ---------------------------------------------------------------- lobby
+  activePlayers() {
+    return [...this.players.values()].filter((p) => p.kind === 'player' && p.cid).sort((a, b) => a.joinedAt - b.joinedAt);
+  }
+  recomputeLayout() {
+    const n = this.activePlayers().length;
+    const cap = this.sim.captainMode ? 1 : 0;
+    const crew = Math.max(1, Math.min(4, n - cap));
+    if (crew !== this.layoutCrew || (this.stations.some((s) => s.captain) !== !!cap)) {
+      this.layoutCrew = crew;
+      this.stations = K.LAYOUTS[crew].map((s) => ({ ...s }));
+      if (cap) this.stations.push({ ...K.CAPTAIN_STATION });
+      const keys = new Set(this.stations.map((s) => s.key));
+      for (const p of this.players.values()) if (p.station && !keys.has(p.station)) p.station = null;
+    }
+    this.lobbyDirty = true;
+  }
+  stationOf(key) { return this.stations.find((s) => s.key === key); }
+  ownerOf(key) { for (const p of this.players.values()) if (p.station === key) return p; return null; }
+  ownerOfTab(tab) {
+    const st = this.stations.find((s) => s.tabs.includes(tab));
+    return st ? this.ownerOf(st.key) : null;
+  }
+  canStart() {
+    const act = this.activePlayers();
+    if (!act.length) return { ok: false, why: 'WAITING FOR PLAYERS' };
+    const waiting = act.filter((p) => !p.station);
+    if (waiting.length) return { ok: false, why: 'WAITING FOR ' + waiting.map((p) => p.name).join(', ') + ' TO CHOOSE A STATION' };
+    return { ok: true, why: '' };
+  }
+  buildLobby() {
+    const cs = this.canStart();
+    return {
+      t: 'lobby',
+      name: this.gameName,
+      captain: this.sim.captainMode,
+      crew: this.layoutCrew,
+      stations: this.stations.map((s) => ({ key: s.key, name: s.name, col: s.col, tabs: s.tabs, captain: !!s.captain, desc: s.desc || '' })),
+      players: [...this.players.values()].filter((p) => p.kind === 'player').sort((a, b) => a.joinedAt - b.joinedAt)
+        .map((p) => ({ pid: p.pid, name: p.name, station: p.station, online: !!p.cid })),
+      screens: [...this.players.values()].filter((p) => p.kind === 'screen' && p.cid).length,
+      canStart: cs.ok,
+      why: cs.why,
+      game: this.sim.game,
+    };
+  }
+  publishInfo() {
+    const s = this.sim;
+    this.send('I ' + JSON.stringify({ name: this.gameName, players: this.activePlayers().length, game: s.game,
+      mission: s.game === K.GS_RUN ? K.MT_NAME[s.M.type] : '' }));
+  }
+
+  onLeave(cid) {
+    const pid = this.conns.get(cid);
+    this.conns.delete(cid);
+    const p = pid && this.players.get(pid);
+    if (!p || p.cid !== cid) return;
+    p.cid = null;
+    if (this.sim.game === K.GS_TITLE) {
+      // gone from the lobby: forget them after a short grace period (a page reload keeps the seat)
+      setTimeout(() => {
+        if (!p.cid && this.sim.game === K.GS_TITLE) { this.players.delete(pid); this.recomputeLayout(); }
+      }, 4000);
+    }
+    this.lobbyDirty = true;
+  }
+
+  onMessage(cid, m) {
+    const sim = this.sim;
+    if (m.t === 'hello') {
+      const pid = String(m.pid || cid).slice(0, 40);
+      let p = this.players.get(pid);
+      if (!p) {
+        if (m.kind !== 'screen' && this.activePlayers().length >= K.MAX_PLAYERS) {
+          this.to(cid, { t: 'full' });
+          return;
+        }
+        p = { pid, name: '', cid: null, station: null, kind: m.kind === 'screen' ? 'screen' : 'player', joinedAt: ++this.joinSeq };
+        this.players.set(pid, p);
+      }
+      if (p.cid && p.cid !== cid) this.conns.delete(p.cid);
+      p.cid = cid;
+      p.name = String(m.name || 'CREW').toUpperCase().slice(0, 14) || 'CREW';
+      this.conns.set(cid, pid);
+      this.to(cid, { t: 'welcome', pid, host: !!m.isHost });
+      if (sim.game === K.GS_TITLE) this.recomputeLayout();
+      this.lobbyDirty = true;
+      this.slowDirty = true;
+      this.to(cid, this.buildLobby());
+      return;
+    }
+    const pid = this.conns.get(cid);
+    const p = pid && this.players.get(pid);
+    if (!p) return;
+    switch (m.t) {
+      case 'claim': {
+        const st = this.stationOf(m.key);
+        if (!st || p.kind !== 'player') return;
+        const owner = this.ownerOf(m.key);
+        if (owner && owner !== p && owner.cid) return; // taken by someone who is here
+        if (owner && owner !== p) owner.station = null; // seat left empty by someone who dropped out
+        p.station = m.key;
+        this.lobbyDirty = true;
+        return;
+      }
+      case 'unclaim':
+        p.station = null;
+        this.lobbyDirty = true;
+        return;
+      case 'captain':
+        if (sim.game === K.GS_RUN) return;
+        sim.captainMode = !!m.on;
+        this.recomputeLayout();
+        return;
+      case 'cmd': {
+        const c = { cmd: m.cmd | 0, a: m.a | 0, b: m.b | 0, c: +m.c || 0, d: +m.d || 0 };
+        if (c.cmd === K.CMD.START) {
+          if (!this.canStart().ok) return;
+          this.recomputeLayout();
+        }
+        if (c.cmd === K.CMD.ORDER && !(sim.captainMode && p.station === 'captain')) return;
+        sim.handleCmd(c);
+        if (c.cmd === K.CMD.SELECT || c.cmd === K.CMD.START || c.cmd === K.CMD.RESTART) { this.lobbyDirty = true; this.slowDirty = true; }
+        if (c.cmd === K.CMD.ORDER || c.cmd === K.CMD.ORDER_ACK) this.slowDirty = true;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- snapshots
+  buildFast() {
+    const s = this.sim, P = s.P;
+    const npc = [];
+    for (let id = 0; id < K.MAX_CONTACTS; id++) {
+      const n = s.npc[id];
+      if (!n.active) continue;
+      npc.push({
+        id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
+        hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
+        sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
+      });
+    }
+    return {
+      t: 'f', now: s.now, game: s.game, alert: s.alert, view: s.view, viewId: s.viewId, missionT: r1(s.missionT), kills: s.kills, bonus: s.bonus,
+      sr: Math.round(s.sensorRange()), nebula: s.inNebula(P.x, P.y),
+      P: {
+        x: r1(P.x), y: r1(P.y), hdg: r1(P.hdg), desHdg: r1(P.desHdg), speed: r1(P.speed), throttle: P.throttle, warpSet: P.warpSet,
+        warpCharge: r1(P.warpCharge * 100) / 100, warping: P.warping, evasive: P.evasive, autopilot: P.autopilot, apTarget: P.apTarget,
+        wpValid: P.wpValid, wpx: Math.round(P.wpx), wpy: Math.round(P.wpy), dock: P.dock, dockT: r1(P.dockT), energy: r1(P.energy),
+        energyRate: r1(P.energyRate), hull: r1(P.hull), shield: P.shield.map(r1), shieldMax: [0, 1, 2, 3].map((q) => Math.round(s.shieldCap(q))),
+        shieldsOn: P.shieldsOn, shieldRaise: r1(P.shieldRaise * 100) / 100, reinforce: P.reinforce, phFreq: P.phFreq,
+        health: P.health.map(r1), power: P.power, coolant: P.coolant, heat: P.heat.map(r1), team: P.team,
+        phCharge: Math.round(P.phCharge * 100) / 100, autoFire: P.autoFire, torps: P.torps, tubeState: P.tubeState, tubeType: P.tubeType,
+        tubeTimer: P.tubeTimer.map(r1), target: P.target, sub: P.sub, scanId: P.scanId, scanProg: Math.round(P.scanProg * 100) / 100, lrs: r1(P.lrs),
+      },
+      npc,
+      torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),
+      beams: s.beams.map((b) => ({ from: b.from, to: b.to, hit: b.hit, t0: b.t0 })),
+      booms: s.booms.map((b) => ({ x: Math.round(b.x), y: Math.round(b.y), size: b.size, t0: b.t0 })),
+    };
+  }
+  buildSlow() {
+    const s = this.sim, M = s.M;
+    if (s.captainMode) s.adviseTick();
+    const threat = {}, trails = {};
+    for (let id = 0; id < K.MAX_CONTACTS; id++) {
+      const n = s.npc[id];
+      if (!n.active) continue;
+      if (n.alive && s.visible(id)) threat[id] = s.threatText(id);
+      if (n.trail.length) trails[id] = n.trail;
+    }
+    const orders = s.orders.map((o) => {
+      const owner = this.ownerOfTab(K.ORDERS[o.code].tab);
+      return {
+        id: o.id, code: o.code, arg: o.arg, status: o.status, tab: K.ORDERS[o.code].tab, text: s.orderText(o.code, o.arg),
+        age: Math.round((s.now - o.t0) / 1000), took: o.status === K.ORD_DONE ? Math.round((o.tDone - o.t0) / 1000) : 0,
+        to: owner ? owner.pid : null, toName: owner ? owner.name : '',
+      };
+    });
+    return {
+      t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
+      M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
+        waves: M.waves, frLost: M.frLost, ver: M.ver },
+      msgs: s.msgs,
+      orders,
+      ord: { issued: s.ordIssued, done: s.ordDone, avg: s.ordDone ? s.ordTimeSum / s.ordDone : 0 },
+      advice: s.captainMode ? s.advice.map((a) => ({ ...a, otext: a.code < K.NUM_ORDERS ? s.orderText(a.code, a.arg) : '' })) : [],
+      threat, trails, ptrail: s.ptrail,
+    };
+  }
+}
