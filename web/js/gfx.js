@@ -52,13 +52,21 @@ export class Gfx {
     window.addEventListener('resize', () => this.resize());
     if (opts.touch !== false) this.bindTouch();
   }
+  // keep clear of rounded screen corners: an empty margin (CSS px) left and right
+  setPad(px) {
+    px = Math.max(0, Math.round(px));
+    if (px === (this.padX || 0)) return;
+    this.padX = px;
+    this.resize();
+  }
   resize() {
-    const cssW = window.innerWidth, cssH = window.innerHeight;
+    const pad = this.padX || 0;
+    const cssW = window.innerWidth - 2 * pad, cssH = window.innerHeight;
     if (!this.fixedW) this.W = Math.round(clampf(this.H * cssW / cssH, this.minW, this.maxW));
     const s = Math.min(cssW / this.W, cssH / this.H);
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     this.cssScale = s;
-    this.offX = (cssW - this.W * s) / 2;
+    this.offX = pad + (cssW - this.W * s) / 2;
     this.offY = (cssH - this.H * s) / 2;
     this.cv.style.position = 'absolute';
     this.cv.style.left = this.offX + 'px';

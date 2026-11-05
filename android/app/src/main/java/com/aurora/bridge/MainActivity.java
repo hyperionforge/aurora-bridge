@@ -11,6 +11,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.view.RoundedCorner;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -48,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private final Handler main = new Handler(Looper.getMainLooper());
     private boolean inGame;
+    private volatile float cornerRadiusDp; // rounded screen corners (Android 12+), for the pages' edge margin
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -146,6 +149,22 @@ public class MainActivity extends AppCompatActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) hideSystemBars();
+        if (hasFocus) web.post(this::measureCorners);
+    }
+
+    /** Main thread. Size of the screen's rounded corners in CSS pixels (0 if unknown). */
+    private void measureCorners() {
+        if (Build.VERSION.SDK_INT < 31) return;
+        WindowInsets wi = getWindow().getDecorView().getRootWindowInsets();
+        if (wi == null) return;
+        int max = 0;
+        int[] corners = { RoundedCorner.POSITION_TOP_LEFT, RoundedCorner.POSITION_TOP_RIGHT,
+                RoundedCorner.POSITION_BOTTOM_LEFT, RoundedCorner.POSITION_BOTTOM_RIGHT };
+        for (int pos : corners) {
+            RoundedCorner rc = wi.getRoundedCorner(pos);
+            if (rc != null) max = Math.max(max, rc.getRadius());
+        }
+        cornerRadiusDp = max / getResources().getDisplayMetrics().density;
     }
 
     @Override
@@ -182,6 +201,7 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface public void setName(String n) { prefs.edit().putString("name", n).apply(); }
         @JavascriptInterface public String getPid() { return prefs.getString("pid", "a0"); }
         @JavascriptInterface public int getPort() { return port(); }
+        @JavascriptInterface public float getCornerRadius() { return cornerRadiusDp; }
         @JavascriptInterface public String getLanUrls() {
             StringBuilder sb = new StringBuilder("[");
             int i = 0;

@@ -50,6 +50,9 @@ class App {
     this.joinUrls = [];
     this.qr = null;
     sound.enabled = store('aurora.sound') !== '0';
+    this.edge = store('aurora.edge') || 'auto';
+    this.applyEdge();
+    setInterval(() => this.applyEdge(), 1500);
     this.vibrate = store('aurora.vibrate') !== '0';
     const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
     if (this.isHost) this.startHost(wsUrl);
@@ -80,6 +83,17 @@ class App {
       }
     } catch { /* no /lan endpoint */ }
   }
+  // margin that keeps buttons out of the phone's rounded corners
+  edgePx() {
+    if (this.edge === 'off') return 0;
+    if (this.edge === 'small') return 14;
+    if (this.edge === 'large') return 30;
+    let r = 0;
+    try { if (Native && Native.getCornerRadius) r = +Native.getCornerRadius() || 0; } catch { r = 0; }
+    if (!Native) return 12;          // a phone browser can't tell us, so allow a little
+    return Math.min(40, r * 0.6);
+  }
+  applyEdge() { this.g.setPad(this.edgePx()); }
   send(cmd, a = 0, b = 0, c = 0, d = 0) { this.link.send({ t: 'cmd', cmd, a, b, c, d }); }
 
   // ---------------------------------------------------------------- messages from the host
@@ -417,6 +431,13 @@ class App {
     y += 54;
     g.button('mvib', cx - bw / 2, y, bw, 44, this.vibrate ? 'VIBRATE ON HITS: ON' : 'VIBRATE ON HITS: OFF', this.vibrate ? C.SKY : C.GREY, C.BLACK, 20, () => {
       this.vibrate = !this.vibrate; store('aurora.vibrate', this.vibrate ? '1' : '0');
+    });
+    y += 54;
+    const modes = ['auto', 'off', 'small', 'large'];
+    g.button('medge', cx - bw / 2, y, bw, 44, `SCREEN EDGE MARGIN: ${this.edge.toUpperCase()} (${Math.round(this.edgePx())}PX)`, C.SKY, C.BLACK, 18, () => {
+      this.edge = modes[(modes.indexOf(this.edge) + 1) % modes.length];
+      store('aurora.edge', this.edge);
+      this.applyEdge();
     });
     y += 54;
     if (!Native && document.documentElement.requestFullscreen) {

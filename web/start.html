@@ -94,6 +94,16 @@
 
 <script>
   const N = window.AuroraNative;
+  // keep the right-hand buttons out of the phone's rounded screen corners
+  function edge() {
+    let r = 0;
+    try { r = N && N.getCornerRadius ? +N.getCornerRadius() || 0 : 0; } catch {}
+    const m = Math.min(40, Math.round(r * 0.6));
+    document.querySelector('.main').style.paddingRight = (12 + m) + 'px';
+    document.querySelector('.top .bar').style.marginRight = (8 + m) + 'px';
+  }
+  edge();
+  setInterval(edge, 1500);
   const $ = (id) => document.getElementById(id);
   const nameIn = $('name');
   nameIn.value = N ? N.getName() : (localStorage.getItem('aurora.name') || '');
