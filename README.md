@@ -33,6 +33,8 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 
 **Game modes** (lobby, GAME): **MISSION** is one of the classic missions in the Kalos system. **SANDBOX** is a free voyage across nine star systems: NAV's **GALAXY** chart shows the jump lanes; pick a neighbouring system and **ENGAGE JUMP DRIVE** (you must be undocked, at least 22k from the star, with no hostiles close and 150 energy; more warp power charges it faster). Inside a system you still fly at impulse and warp 1-4. A story campaign is on the way.
 
+**Salvage:** asteroids, comets, wrecks, alien derelicts, ruins, gas pockets, crystal spires and capsules show up on sensors. SCIENCE scans one (a full scan shows what's inside, whether there's an artefact, and how risky it is), then **SAMPLE**s it from up to 6k away (quick, takes a little) or **EXTRACT**s it with the tractor beam (within 2.5k, slow, shields down; takes everything, including any artefact, but things can go wrong). Materials land in DAMAGE's **CARGO & REFINERY**, where you refine them, using energy, into spare parts (repair teams use these and slow down without them), hull plating, antimatter cells and torpedoes. Artefacts go in SCIENCE's **HOLD**: **ANALYSE** to identify one and switch on its effect, **DEEP SCAN** for its story, **JETTISON** anything cursed. Three of them are a puzzle.
+
 If someone's phone drops out, they rejoin from the same phone and get their roles back. During a mission their roles stay reserved, but another player can take them over if they don't come back.
 
 ## 3. The main viewer on the TV

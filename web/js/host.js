@@ -11,6 +11,7 @@
 //                   "I <json>"  public info for the /info endpoint (discovery)
 import * as K from './config.js';
 import { Sim } from './sim.js';
+const r2 = (v) => Math.round(v * 100) / 100;
 import { lanesOf as lanesOfSys } from './galaxy.js';
 
 const TICK = 0.02;        // simulation step (s)
@@ -230,7 +231,7 @@ export class Host {
         id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
         hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
         sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
-        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.poi >= 0 ? { poi: n.poi } : {}),
+        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
       });
     }
     return {
@@ -245,6 +246,8 @@ export class Host {
         health: P.health.map(r1), power: P.power, coolant: P.coolant, heat: P.heat.map(r1), team: P.team,
         phCharge: Math.round(P.phCharge * 100) / 100, autoFire: P.autoFire, torps: P.torps, tubeState: P.tubeState, tubeType: P.tubeType,
         tubeTimer: P.tubeTimer.map(r1), target: P.target, sub: P.sub, scanId: P.scanId, scanProg: Math.round(P.scanProg * 100) / 100, lrs: r1(P.lrs),
+        cargo: P.cargo, arts: P.arts, xId: P.xId, xMode: P.xMode, xProg: r2(P.xProg), refQ: P.refQ, refProg: r2(P.refProg),
+        anaUid: P.anaUid, anaProg: r2(P.anaProg), anaDeep: P.anaDeep, fxPh: this.sim.fx('ph'),
         dockId: P.dockId, jumpTo: P.jumpTo, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
       },
       npc,

@@ -5,16 +5,18 @@
 // host owns the ship, every other ship, the mission script, combat and
 // engineering. Stations only send commands and draw what the host sends.
 import * as K from './config.js';
+import * as G from './cargo.js';
 import { SYSTEMS, SYS_INDEX, SYS_C, WELL_R, CIV_FLEET, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN, CIV_CHORUS, CIV_NONE, SK_RELAY, SK_MONOLITH, SK_HAVEN, planetPos, starPos, inNebulaOf, lanesOf, sysAt } from './galaxy.js';
 import { clampf, wrap360, angDiff, bearingTo, distTo, quadFromRel, sectorName, contactName, shortName, orderText, DEG } from './util.js';
 
 const {
   NO_ID, US, MAX_CONTACTS, NSYS, S_IMPULSE, S_WARP, S_PHASERS, S_TORPS, S_SHIELDS, S_SENSORS,
-  CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTROYER, CT_ANOMALY, CT_BUOY,
+  CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTROYER, CT_ANOMALY, CT_BUOY, CT_POI,
   F_FRIEND, F_NEUTRAL, F_HOSTILE, F_UNKNOWN, GS_TITLE, GS_RUN, GS_WIN, GS_LOST,
   FROM_COMMAND, FROM_COMPUTER, FROM_CREW, ID_BASE, ID_BONUS, ID_FIRST_DYN, SECTOR,
 } = K;
 
+const PK = { ASTEROID: G.PK_ASTEROID, COMET: G.PK_COMET, WRECK: G.PK_WRECK, DERELICT: G.PK_DERELICT, RUINS: G.PK_RUINS, GAS: G.PK_GAS, SPIRE: G.PK_SPIRE, CAPSULE: G.PK_CAPSULE };
 export const AI_STATIC = 0, AI_DRIFT = 1, AI_TRAVEL = 2, AI_WARPIN = 3, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_PATROL = 7;
 const TRAIL = 24, PTRAIL = 120, MAX_TORPS = 10, MAX_BEAMFX = 6, MAX_BOOMS = 10, MSG_KEEP = 12, MAX_ORDERS = 8, MAX_ADVICE = 5;
 const DIFF_DMG = [0.7, 1.0, 1.3];
@@ -28,6 +30,8 @@ function newPlayer() {
     team: [NO_ID, NO_ID], phCharge: 0, autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0],
     target: NO_ID, sub: 0, scanId: NO_ID, scanProg: 0, lrs: 0, restockT: 0, overheatWarnAt: [-1e9, -1e9, -1e9, -1e9, -1e9, -1e9],
     dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0,
+    cargo: [...G.CARGO_START], arts: [], artSeq: 1, xId: NO_ID, xMode: 0, xProg: 0, refQ: [], refProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0,
+    spareUse: 0, noSparesWarned: false,
   };
 }
 function newNpc() {
@@ -35,7 +39,7 @@ function newNpc() {
     active: false, alive: false, type: 0, faction: 0, x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, hull: 0, shields: 0, shMax: 0, armor: 1,
     freq: 0, eng: 0, wpn: 0, sgen: 0, scan: 0, ai: 0, aiTarget: US, aiT: 0, phCd: 0, torpCd: 0, orbitDir: 1, breakOff: 0, jinkAt: 0,
     homeX: 0, homeY: 0, cruise: 60, deadAt: 0, trail: [], trailT: 0,
-    name: '', short: '', kind: 0, civ: 0, poi: -1,
+    name: '', short: '', kind: 0, civ: 0, poi: -1, res: null, art: -1, haz: 0, sampled: 0, poiKey: '',
   };
 }
 
@@ -118,6 +122,7 @@ export class Sim {
       if (st.kind === SK_MONOLITH) { n.shMax = n.shields = 0; n.armor = 0; }
     });
     if (idx === 0) this.spawnNpc(ID_BONUS, CT_ANOMALY, F_UNKNOWN, 120000, 54000, 0);
+    this.spawnPois(idx);
     if (this.onSystemLoaded) this.onSystemLoaded(idx);
   }
   irand(n) { return Math.floor(this.rand() * n); }
@@ -165,7 +170,7 @@ export class Sim {
   inNebula(x, y) { return !!inNebulaOf(this.sysDef, x, y); }
   sensorRange() {
     const P = this.P;
-    let r = K.SENSOR_RANGE * clampf(this.eff(S_SENSORS), 0.3, 1.5);
+    let r = K.SENSOR_RANGE * clampf(this.eff(S_SENSORS), 0.3, 1.5) * this.fx('sensor');
     if (this.inNebula(P.x, P.y)) r *= 0.4;
     if (P.lrs > 0) r *= 3;
     return r;
@@ -368,7 +373,7 @@ export class Sim {
     const hit = this.frand() < p;
     this.beamFx(US, P.target, hit);
     if (hit) {
-      let dmg = K.PH_DAMAGE * clampf(this.eff(S_PHASERS), 0.3, 1.6);
+      let dmg = K.PH_DAMAGE * clampf(this.eff(S_PHASERS), 0.3, 1.6) * this.fx('ph');
       if (P.phFreq === n.freq) dmg *= K.FREQ_BONUS;
       const tid = P.target;
       this.damageNpc(tid, dmg, P.sub, US);
@@ -446,6 +451,11 @@ export class Sim {
       }
       case CMD.UNDOCK: if (P.dock) { P.dock = 0; this.say(FROM_CREW, 0, 'UNDOCKED.'); } break;
       case CMD.JUMP: this.jumpCmd(a); break;
+      case CMD.SAMPLE: case CMD.EXTRACT: this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
+      case CMD.REFINE: this.refineCmd(a, b); break;
+      case CMD.USE: this.useCmd(a); break;
+      case CMD.ANALYSE: this.analyseCmd(a, b); break;
+      case CMD.JETTISON: this.jettisonCmd(a); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
@@ -836,7 +846,7 @@ export class Sim {
     }
     const why = this.jumpBlock(P.jumpTo);
     if (why) { P.jumpTo = NO_ID; P.jumpCharge = 0; this.say(FROM_CREW, 1, 'JUMP ABORTED: ' + why); return false; }
-    P.jumpCharge += dt / K.JUMP_CHARGE_S * clampf(this.eff(S_WARP), 0.3, 1.5);
+    P.jumpCharge += dt / K.JUMP_CHARGE_S * clampf(this.eff(S_WARP), 0.3, 1.5) * this.fx('jump');
     if (P.jumpCharge >= 1) {
       P.jumpCharge = 1;
       P.energy -= K.JUMP_COST;
@@ -864,6 +874,7 @@ export class Sim {
 
   playerTick(dt) {
     const P = this.P, npc = this.npc;
+    this.cargoTick(dt);
     if (P.jumpTo !== NO_ID && this.jumpTick(dt)) { P.speed = K.WARP_SPEED * 6; return; } // in the jump tunnel
     // ---- steering
     if (P.autopilot === K.AP_WAYPOINT && P.wpValid) {
@@ -945,6 +956,7 @@ export class Sim {
       if (P.restockT > 1.5) {
         P.restockT = 0;
         for (let t = 0; t < 2; t++) if (P.torps[t] < K.TORP_START[t]) P.torps[t]++;
+        if (P.cargo[G.R_SPARES] < G.STATION_SPARES) P.cargo[G.R_SPARES]++;
       }
     }
 
@@ -962,7 +974,8 @@ export class Sim {
     // ---- heat
     for (let i = 0; i < NSYS; i++) {
       const over = P.power[i] > 100 ? (P.power[i] - 100) / 100 : 0;
-      const dh = over > 0 ? over * K.HEAT_RATE - P.coolant[i] * K.COOL_PER_UNIT : -(2 + P.coolant[i] * K.COOL_PER_UNIT);
+      const cf = this.fx('cool');
+      const dh = over > 0 ? over * K.HEAT_RATE - P.coolant[i] * K.COOL_PER_UNIT * cf : -(2 + P.coolant[i] * K.COOL_PER_UNIT) * cf;
       P.heat[i] = clampf(P.heat[i] + dh * dt, 0, 100);
       if (P.heat[i] >= 100) {
         const was = P.health[i] > 0;
@@ -980,7 +993,14 @@ export class Sim {
     for (let t = 0; t < K.REPAIR_TEAMS; t++) {
       const s = P.team[t];
       if (s >= NSYS) continue;
-      P.health[s] += K.REPAIR_RATE * dt;
+      const spares = P.cargo[G.R_SPARES] > 0;
+      const rep = K.REPAIR_RATE * (spares ? 1 : 0.45) * dt;
+      P.health[s] += rep;
+      if (spares) {
+        P.spareUse += rep;
+        if (P.spareUse >= 25) { P.spareUse -= 25; P.cargo[G.R_SPARES]--; }
+        P.noSparesWarned = false;
+      } else if (!P.noSparesWarned) { P.noSparesWarned = true; this.say(FROM_CREW, 1, 'OUT OF SPARE PARTS - REPAIR TEAMS ARE JURY-RIGGING. REFINE MORE IN THE CARGO BAY.'); }
       if (P.health[s] >= 100) {
         P.health[s] = 100;
         P.team[t] = NO_ID;
@@ -995,7 +1015,7 @@ export class Sim {
     for (let q = 0; q < 4; q++) {
       const cap = this.shieldCap(q);
       if (P.shield[q] > cap) P.shield[q] = clampf(P.shield[q] - 15 * dt, cap, 999);
-      else if (P.shieldsOn && P.energy > 0) P.shield[q] = clampf(P.shield[q] + K.SHIELD_REGEN * clampf(this.eff(S_SHIELDS), 0, 1.6) * dt, 0, cap);
+      else if (P.shieldsOn && P.energy > 0) P.shield[q] = clampf(P.shield[q] + K.SHIELD_REGEN * clampf(this.eff(S_SHIELDS), 0, 1.6) * this.fx('shRegen') * dt, 0, cap);
     }
 
     // ---- weapons
@@ -1003,7 +1023,7 @@ export class Sim {
     if (P.autoFire && P.phCharge >= 1 && this.targetValid() && npc[P.target].faction === F_HOSTILE) this.firePhasers(false);
     for (let t = 0; t < 2; t++) {
       if (P.tubeState[t] !== K.TUBE_LOADING && P.tubeState[t] !== K.TUBE_UNLOADING) continue;
-      P.tubeTimer[t] -= dt * (P.tubeState[t] === K.TUBE_LOADING ? clampf(this.eff(S_TORPS), 0, 1.6) : 1);
+      P.tubeTimer[t] -= dt * (P.tubeState[t] === K.TUBE_LOADING ? clampf(this.eff(S_TORPS), 0, 1.6) * this.fx('tube') : 1);
       if (P.tubeTimer[t] <= 0) {
         if (P.tubeState[t] === K.TUBE_LOADING) P.tubeState[t] = K.TUBE_LOADED;
         else { P.torps[P.tubeType[t]]++; P.tubeState[t] = K.TUBE_EMPTY; }
@@ -1467,6 +1487,251 @@ export class Sim {
       this.say(FROM_COMMAND, 0, 'AURORA, YOU ARE CLEARED FOR AN OPEN PATROL OF THE FRONTIER. THE JUMP LANES ARE ON YOUR NAV GALAXY CHART. GOOD HUNTING.');
     }
     if (this.onVoyageStart) this.onVoyageStart();
+  }
+  // ================================================================ cargo, salvage, artefacts
+  fx(key) { // combined effect of the artefacts in the hold
+    let v = key === 'hullRegen' || key === 'raid' ? 0 : 1;
+    for (const h of this.P.arts) {
+      const d = G.ART[h.a];
+      if (!(key in d.fx) || (!h.ident && !d.cursed)) continue;
+      if (key === 'hullRegen' || key === 'raid') v += d.fx[key]; else v *= d.fx[key];
+    }
+    return v;
+  }
+  holdUsed() { let n = 0; for (let i = 0; i < G.NRAW; i++) n += this.P.cargo[i]; return n; }
+  spawnPois(idx) {
+    const sd = this.sysDef, spec = G.SYS_POIS[sd.id] || [], fixed = { ...(G.SYS_FIXED_ART[sd.id] || {}) };
+    const found = this.foundArts || (this.foundArts = new Set());
+    const placed = new Set();
+    const pool = (kind) => G.POI_ARTS[kind].filter((id) => !found.has(id) && !placed.has(id) && !G.ART[G.ART_INDEX[id]].set);
+    let k = 0, letter = 0;
+    for (const [kind, count] of spec) {
+      for (let j = 0; j < count; j++, k++) {
+        const key = `${idx}:${k}`;
+        if (this.depleted && this.depleted.has(key)) continue;
+        const id = this.freeSlot();
+        if (id === NO_ID) return;
+        // somewhere sensible: belts for rocks, nebulae for gas, anywhere else otherwise
+        let x = 0, y = 0;
+        for (let tries = 0; tries < 40; tries++) {
+          if ((kind === PK.ASTEROID || kind === PK.SPIRE) && sd.belts.length) {
+            const b = sd.belts[this.irand(sd.belts.length)], a = this.frand() * 6.2832, r = b.orbit + (this.frand() - 0.5) * b.width;
+            x = SYS_C + Math.cos(a) * r; y = SYS_C + Math.sin(a) * r;
+          } else if (kind === PK.GAS && sd.nebulae.length) {
+            const nb = sd.nebulae[this.irand(sd.nebulae.length)], a = this.frand() * 6.2832, r = this.frand() * nb.r * 0.8;
+            x = nb.x + Math.cos(a) * r; y = nb.y + Math.sin(a) * r;
+          } else { x = 10000 + this.frand() * (SECTOR - 20000); y = 10000 + this.frand() * (SECTOR - 20000); }
+          x = this.clampSec(x); y = this.clampSec(y);
+          if (distTo(x, y, SYS_C, SYS_C) > WELL_R && distTo(x, y, this.bx, this.by) > 9000) break;
+        }
+        this.spawnNpc(id, CT_POI, F_NEUTRAL, x, y, this.irand(360));
+        const n = this.npc[id], def = G.POI_DEF[kind];
+        n.poi = kind; n.kind = kind; n.civ = this.irand(9); n.poiKey = key; n.hull = 100; n.shMax = 0; n.armor = 0;
+        n.res = def.res.map((r) => (r ? r[0] + this.irand(r[1] - r[0] + 1) : 0));
+        n.haz = def.haz;
+        n.art = -1;
+        const fx = fixed[kind];
+        if (fx && !found.has(fx) && !placed.has(fx)) { n.art = G.ART_INDEX[fx]; delete fixed[kind]; }
+        else if (this.frand() < def.art) { const p = pool(kind); if (p.length) n.art = G.ART_INDEX[p[this.irand(p.length)]]; }
+        if (n.art >= 0) placed.add(G.ART[n.art].id);
+        const L = String.fromCharCode(65 + letter++);
+        n.short = `${G.POI_NAME[kind]} ${L}`;
+        n.name = `${G.POI_NAME[kind]} ${L} (${sd.name})`;
+        if (kind === PK.COMET) { n.speed = 18; n.ai = AI_DRIFT; n.cruise = 18; }
+      }
+    }
+  }
+  xCmd(id, mode) {
+    const P = this.P;
+    if (id === NO_ID || (P.xId === id && P.xMode === mode)) { if (P.xId !== NO_ID) { P.xId = NO_ID; P.xProg = 0; this.say(FROM_CREW, 0, 'SALVAGE OPERATION STOPPED.'); } return; }
+    const why = this.xBlock(id, mode);
+    if (why) { this.denied(why); return; }
+    const cost = mode === 2 ? G.EXTRACT_COST : G.SAMPLE_COST;
+    P.energy -= cost;
+    P.xId = id; P.xMode = mode; P.xProg = 0;
+    this.say(FROM_CREW, 0, mode === 2 ? `TRACTOR BEAM LOCKED ON ${this.shortName(id)} - FULL EXTRACTION UNDER WAY.` : `TAKING SAMPLES FROM ${this.shortName(id)}.`);
+  }
+  xBlock(id, mode) {
+    const P = this.P, n = id < MAX_CONTACTS ? this.npc[id] : null;
+    if (!n || !n.active || n.type !== CT_POI || !this.visible(id)) return 'SELECT A POINT OF INTEREST ON SENSORS FIRST.';
+    if (n.scan < 1) return 'SCAN IT FIRST TO SEE WHAT IT IS.';
+    if (P.health[S_SENSORS] <= 0) return 'SENSORS OFFLINE.';
+    const d = distTo(P.x, P.y, n.x, n.y);
+    if (mode === 1) {
+      if (d > G.SAMPLE_R) return `TOO FAR TO SAMPLE - GET WITHIN ${G.SAMPLE_R / 1000}K.`;
+      if (P.energy < G.SAMPLE_COST) return 'NOT ENOUGH ENERGY TO TAKE SAMPLES.';
+      if (!n.res.some((v) => v > 0)) return 'NOTHING LEFT TO SAMPLE. EXTRACT IT TO RECOVER WHAT IS INSIDE.';
+    } else {
+      if (d > G.EXTRACT_R) return `TOO FAR FOR THE TRACTOR BEAM - GET WITHIN ${G.EXTRACT_R / 1000}K.`;
+      if (Math.abs(P.speed) > G.EXTRACT_MAX_SPEED) return `TOO FAST FOR A TRACTOR LOCK - SLOW BELOW ${G.EXTRACT_MAX_SPEED} KM/S.`;
+      if (P.shieldRaise > 0.05) return 'LOWER SHIELDS - THE TRACTOR BEAM CANNOT WORK THROUGH THEM.';
+      if (P.energy < G.EXTRACT_COST) return `NOT ENOUGH ENERGY TO EXTRACT (${G.EXTRACT_COST} NEEDED).`;
+    }
+    if (this.holdUsed() >= G.HOLD_CAP && !(mode === 2 && n.art >= 0)) return 'CARGO HOLD FULL - REFINE OR USE SOME MATERIALS FIRST.';
+    return '';
+  }
+  cargoTick(dt) {
+    const P = this.P;
+    // hull nanites
+    const hr = this.fx('hullRegen');
+    if (hr > 0 && P.hull > 0) P.hull = clampf(P.hull + hr * dt, 0, 100);
+    // ---- salvage
+    if (P.xId !== NO_ID) {
+      const n = this.npc[P.xId];
+      const d = n && n.active ? distTo(P.x, P.y, n.x, n.y) : 1e9;
+      const lost = !n || !n.active || d > (P.xMode === 2 ? G.EXTRACT_R * 1.2 : G.SAMPLE_R * 1.1) ||
+        (P.xMode === 2 && (P.shieldRaise > 0.05 || Math.abs(P.speed) > G.EXTRACT_MAX_SPEED * 1.5));
+      if (lost) { this.say(FROM_CREW, 1, P.xMode === 2 ? 'TRACTOR LOCK LOST - EXTRACTION ABORTED.' : 'SAMPLING ABORTED.'); P.xId = NO_ID; P.xProg = 0; }
+      else {
+        P.xProg += dt / (P.xMode === 2 ? G.EXTRACT_S : G.SAMPLE_S) * clampf(this.eff(S_SENSORS), 0.4, 1.4);
+        if (P.xMode === 2) { n.x += (P.x - n.x) * dt * 0.05; n.y += (P.y - n.y) * dt * 0.05; n.speed = 0; } // reel it in
+        if (P.xProg >= 1) this.xDone(P.xId, P.xMode);
+      }
+    }
+    // ---- refinery
+    if (P.refQ.length) {
+      const r = G.RECIPES[P.refQ[0]];
+      if (P.refProg === 0) {
+        const miss = r.in.find(([res, k]) => P.cargo[res] < k);
+        if (miss) { this.denied(`REFINERY: NOT ENOUGH ${G.RES_NAME[miss[0]]} FOR ${r.name}.`); P.refQ.shift(); }
+        else if (P.energy >= r.energy + 20) {
+          for (const [res, k] of r.in) P.cargo[res] -= k;
+          P.energy -= r.energy;
+          P.refProg = 0.0001;
+        }
+      } else {
+        P.refProg += dt / r.time;
+        if (P.refProg >= 1) {
+          if (r.out === 'photon') P.torps[0]++; else if (r.out === 'quantum') P.torps[1]++; else P.cargo[r.out]++;
+          this.say(FROM_CREW, 3, `REFINERY: ${r.name} READY.`);
+          this.emit(K.EV_REFINED, P.refQ[0]);
+          P.refQ.shift(); P.refProg = 0;
+        }
+      }
+    }
+    // ---- artefact analysis
+    if (P.anaUid) {
+      const h = P.arts.find((q) => q.uid === P.anaUid);
+      if (!h || P.health[S_SENSORS] <= 0) { P.anaUid = 0; P.anaProg = 0; }
+      else {
+        P.anaProg += dt / (P.anaDeep ? G.DEEP_S : G.ANALYSE_S) * clampf(this.eff(S_SENSORS), 0.4, 1.4);
+        if (P.anaProg >= 1) this.analyseDone(h, P.anaDeep);
+      }
+    }
+  }
+  xDone(id, mode) {
+    const P = this.P, n = this.npc[id], def = G.POI_DEF[n.poi];
+    P.xId = NO_ID; P.xProg = 0;
+    const got = [];
+    for (let r = 0; r < G.NRAW; r++) {
+      if (!n.res[r]) continue;
+      let take = mode === 2 ? n.res[r] : Math.max(1, Math.ceil(n.res[r] * 0.3));
+      take = Math.min(take, G.HOLD_CAP - this.holdUsed());
+      if (take <= 0) break;
+      n.res[r] -= take; P.cargo[r] += take;
+      got.push(`${take} ${G.RES_SHORT[r]}`);
+    }
+    n.sampled++;
+    n.scan = 2;
+    const parts = [got.length ? 'RECOVERED ' + got.join(', ') + '.' : 'NO MATERIALS RECOVERED.'];
+    if (mode === 2) {
+      if (n.art >= 0 && P.arts.length < G.MAX_ARTS) {
+        P.arts.push({ a: n.art, uid: P.artSeq++, ident: 0 });
+        (this.foundArts || (this.foundArts = new Set())).add(G.ART[n.art].id);
+        parts.push(`AND AN UNIDENTIFIED OBJECT: ${G.ART[n.art].unk}. SCIENCE CAN ANALYSE IT.`);
+        this.emit(K.EV_FOUND, n.art);
+      }
+      (this.depleted || (this.depleted = new Set())).add(n.poiKey);
+      n.active = false; n.alive = false;
+      if (P.target === id) P.target = NO_ID;
+      if (P.scanId === id) P.scanId = NO_ID;
+    } else if (n.art >= 0) parts.push('THE SAMPLES SHOW AN ARTEFACT SIGNATURE INSIDE - EXTRACT TO RECOVER IT.');
+    this.say(FROM_CREW, 3, (mode === 2 ? 'EXTRACTION COMPLETE. ' : 'SAMPLES IN. ') + parts.join(' '));
+    // something goes wrong?
+    const hz = n.haz * (mode === 2 ? 1 : 0.25) * (0.8 + 0.2 * (this.M.diff % 3));
+    if (this.frand() < hz) this.hazard(n, mode);
+  }
+  hazard(n, mode) {
+    const P = this.P, def = G.POI_DEF[n.poi], k = mode === 2 ? 1 : 0.4;
+    this.say(FROM_CREW, 2, def.hazText);
+    this.emit(K.EV_HAZARD, n.poi);
+    this.boomAt(n.x, n.y, 1);
+    switch (n.poi) {
+      case PK.DERELICT: {
+        const id = this.spawnFoe(CT_RAIDER, this.clampSec(n.x + 2500), this.clampSec(n.y - 2500), US, AI_ATTACK);
+        if (id !== NO_ID) Object.assign(this.npc[id], { name: 'DEFENCE DRONE', short: 'DRONE', scan: 1 });
+        break;
+      }
+      case PK.RUINS: case PK.SPIRE: P.health[S_SENSORS] = clampf(P.health[S_SENSORS] - 45 * k, 0, 100); break;
+      case PK.GAS: P.hull = clampf(P.hull - 16 * k, 0, 100); P.heat[S_IMPULSE] = clampf(P.heat[S_IMPULSE] + 40 * k, 0, 100); break;
+      case PK.WRECK: { P.hull = clampf(P.hull - 9 * k, 0, 100); const s = this.irand(NSYS); P.health[s] = clampf(P.health[s] - 35 * k, 0, 100); break; }
+      default: P.hull = clampf(P.hull - 7 * k, 0, 100);
+    }
+    if (P.hull <= 0 && this.game === GS_RUN) this.endMission(false, K.FAIL_SHIP);
+  }
+  refineCmd(a, b) {
+    const P = this.P;
+    if (a < 0) { // cancel queue entry b (the running one can't be undone)
+      const i = b | 0;
+      if (i === 0 && P.refProg > 0) { this.denied('THAT JOB IS ALREADY IN THE REFINERY.'); return; }
+      P.refQ.splice(i, 1);
+      return;
+    }
+    if (a >= G.RECIPES.length) return;
+    if (P.refQ.length >= G.REF_QUEUE) { this.denied('REFINERY QUEUE FULL.'); return; }
+    const r = G.RECIPES[a];
+    const miss = r.in.find(([res, k]) => P.cargo[res] < k);
+    if (miss && !P.refQ.length) { this.denied(`NOT ENOUGH ${G.RES_NAME[miss[0]]} FOR ${r.name}.`); return; }
+    P.refQ.push(a);
+  }
+  useCmd(a) {
+    const P = this.P;
+    if (a === 0) {
+      if (P.cargo[G.R_PLATING] <= 0) { this.denied('NO HULL PLATING IN THE HOLD.'); return; }
+      if (P.hull >= 100) { this.denied('THE HULL IS INTACT.'); return; }
+      P.cargo[G.R_PLATING]--; P.hull = clampf(P.hull + G.PLATING_HULL, 0, 100);
+      this.say(FROM_CREW, 3, `HULL PLATING FITTED. HULL AT ${Math.round(P.hull)}%.`);
+    } else if (a === 1) {
+      if (P.cargo[G.R_CELL] <= 0) { this.denied('NO ANTIMATTER CELLS IN THE HOLD.'); return; }
+      if (P.energy > K.ENERGY_MAX - 50) { this.denied('ENERGY RESERVES ARE ALREADY FULL.'); return; }
+      P.cargo[G.R_CELL]--; P.energy = clampf(P.energy + G.CELL_ENERGY, 0, K.ENERGY_MAX);
+      this.say(FROM_CREW, 3, 'ANTIMATTER CELL LOADED INTO THE MAIN RESERVE.');
+    }
+  }
+  analyseCmd(uid, deep) {
+    const P = this.P, h = P.arts.find((q) => q.uid === uid);
+    if (!h) return;
+    if (P.anaUid === uid) { P.anaUid = 0; P.anaProg = 0; return; }
+    if (P.health[S_SENSORS] <= 0) { this.denied('SENSORS OFFLINE.'); return; }
+    if (h.ident >= (deep ? 2 : 1)) { this.denied('ALREADY DONE.'); return; }
+    const cost = deep ? G.DEEP_COST : G.ANALYSE_COST;
+    if (P.energy < cost) { this.denied(`NOT ENOUGH ENERGY (${cost} NEEDED).`); return; }
+    P.energy -= cost;
+    P.anaUid = uid; P.anaDeep = deep ? 1 : 0; P.anaProg = 0;
+  }
+  analyseDone(h, deep) {
+    const P = this.P, d = G.ART[h.a];
+    P.anaUid = 0; P.anaProg = 0;
+    const was = h.ident;
+    h.ident = Math.max(h.ident, deep ? 2 : 1);
+    if (!was) this.say(FROM_CREW, d.cursed ? 2 : 3, `ANALYSIS: THE ${d.unk} IS A ${d.name}. ${d.effect}`);
+    if (deep) this.say(FROM_CREW, 0, `DEEP ANALYSIS - ${d.name}: ${d.lore}`);
+    if (deep && d.set === 'chorus') {
+      const all = ['shard1', 'shard2', 'shard3'].every((id) => P.arts.some((q) => G.ART[q.a].id === id && q.ident >= 2));
+      const ci = SYS_INDEX.chorus;
+      if (all && !this.revealed.has(ci)) {
+        this.revealed.add(ci);
+        this.say(FROM_CREW, 2, 'THE THREE SHARDS ARE SINGING IN UNISON. THEIR VECTOR IS PLOTTED: A HIDDEN JUMP LANE FROM ORRA PRIME TO THE SILENT CHOIR. IT IS ON THE GALAXY CHART.');
+      }
+    }
+  }
+  jettisonCmd(uid) {
+    const P = this.P, i = P.arts.findIndex((q) => q.uid === uid);
+    if (i < 0) return;
+    const h = P.arts[i], d = G.ART[h.a];
+    P.arts.splice(i, 1);
+    if (P.anaUid === uid) { P.anaUid = 0; P.anaProg = 0; }
+    this.say(FROM_CREW, 0, `${h.ident ? d.name : d.unk} JETTISONED.`);
   }
   missionOnDestroyed(id) {
     if (this.game !== GS_RUN) return;

@@ -1,10 +1,10 @@
 // ships.js - ship artwork (original designs), planets, map markers.
 // Ships are lists of simple shapes, nose pointing UP (-y), about -85..+85.
-import { C, CT_RAIDER, CT_DESTROYER, CT_FREIGHTER, CT_STARBASE, CT_ANOMALY, CT_BUOY, F_FRIEND, F_NEUTRAL, F_HOSTILE,
+import { C, CT_RAIDER, CT_DESTROYER, CT_FREIGHTER, CT_STARBASE, CT_ANOMALY, CT_BUOY, CT_POI, F_FRIEND, F_NEUTRAL, F_HOSTILE,
   MK_BEACON, MK_AREA, MK_POINT, MK_RENDEZVOUS } from './config.js';
 import { DEG } from './util.js';
 import { dim, flash } from './gfx.js';
-import { drawStation } from './sysdraw.js';
+import { drawStation, drawPoi } from './sysdraw.js';
 
 const TRI = 0, RECT = 1, CIRC = 2, LINE = 3, MIR = 0x80;
 const L = 0, Mi = 1, D = 2, A = 3, G = 4, O = 5, R = 6, W = 7, Pn = 8, X = 9;
@@ -129,6 +129,7 @@ export const factionColor = (f) => (f === F_FRIEND ? C.GREEN : f === F_NEUTRAL ?
 export function drawContact(g, type, cx, cy, scale, hdg, t, dimF = 1, kind, civ) {
   if (type === CT_STARBASE) { if (kind !== undefined && kind !== null) drawStation(g, kind, cx, cy, scale, t, civ); else drawStarbase(g, cx, cy, scale, t / 100, t); }
   else if (type === CT_ANOMALY) drawAnomaly(g, cx, cy, scale, t);
+  else if (type === CT_POI) drawPoi(g, kind ?? 0, cx, cy, scale, t, (civ ?? 0) * 0.7);
   else if (type === CT_BUOY) {
     const r = Math.max(3, 14 * scale * 4);
     g.circle(cx, cy, r, '#787e8c');

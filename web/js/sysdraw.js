@@ -276,3 +276,93 @@ export function drawJumpTunnel(g, r, t, charge, jumping) {
     for (let i = 0; i < 3; i++) g.circle(cx, cy, R * (1 + i * 0.25) + Math.sin(t / 120 + i) * 4 * u, dim('#3c96dc', 0.4 + 0.6 * charge), false, (1 + charge * 2) * u);
   }
 }
+
+// ---------------------------------------------------------------- points of interest
+// kind = PK_* from cargo.js; same scale convention as the stations (70*scale = radius)
+export function drawPoi(g, kind, cx, cy, scale, t, seed = 0) {
+  const R = Math.max(3, 55 * scale), c = g.ctx, lw = Math.max(1, R / 20);
+  const rot = t / 4000 + seed;
+  const blob = (n, r0, wob, col, rr = rot) => {
+    c.fillStyle = col; c.beginPath();
+    for (let i = 0; i < n; i++) {
+      const a = rr + i / n * Math.PI * 2, r = r0 * (1 + wob * Math.sin(i * 2.3 + seed * 3) * Math.cos(i * 1.7));
+      if (i) c.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); else c.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    c.closePath(); c.fill();
+  };
+  switch (kind) {
+    case 0: // asteroid
+      blob(11, R * 0.75, 0.25, '#6e645a');
+      blob(9, R * 0.5, 0.2, '#857a6e', rot + 0.4);
+      if (R > 8) { g.circle(cx - R * 0.2, cy - R * 0.1, R * 0.12, '#554c44'); g.circle(cx + R * 0.25, cy + R * 0.2, R * 0.08, '#554c44'); }
+      return;
+    case 1: { // comet: tail streams away (seed carries the direction)
+      const a = seed;
+      for (let i = 6; i > 0; i--) {
+        const d = R * i * 0.45;
+        c.globalAlpha = 0.12 + 0.05 * (6 - i);
+        g.circle(cx + Math.cos(a) * d, cy + Math.sin(a) * d, R * (0.25 + i * 0.08), '#9ec8ff');
+      }
+      c.globalAlpha = 1;
+      blob(9, R * 0.35, 0.2, '#d8f0ff');
+      g.circle(cx, cy, R * 0.15, C.WHITE);
+      return;
+    }
+    case 2: { // shipwreck: a broken hull in two halves, sparking
+      c.save(); c.translate(cx, cy); c.rotate(rot * 0.3);
+      c.fillStyle = '#5a5e68';
+      c.beginPath(); c.moveTo(-R * 0.9, -R * 0.15); c.lineTo(-R * 0.1, -R * 0.25); c.lineTo(-R * 0.2, R * 0.05); c.lineTo(-R * 0.05, R * 0.22); c.lineTo(-R * 0.9, R * 0.18); c.closePath(); c.fill();
+      c.fillStyle = '#4a4e58';
+      c.beginPath(); c.moveTo(R * 0.15, -R * 0.3); c.lineTo(R * 0.85, -R * 0.12); c.lineTo(R * 0.9, R * 0.12); c.lineTo(R * 0.2, R * 0.3); c.lineTo(R * 0.05, 0); c.closePath(); c.fill();
+      c.strokeStyle = '#2a2c32'; c.lineWidth = lw; c.stroke();
+      c.restore();
+      if (Math.floor(t / 180 + seed * 5) % 7 === 0) g.circle(cx + R * 0.02, cy, R * 0.08 + 1, C.YELLOW);
+      return;
+    }
+    case 3: { // alien derelict: a long curved shell with dim teal lights
+      c.save(); c.translate(cx, cy); c.rotate(rot * 0.2);
+      c.fillStyle = '#1e2e30';
+      c.beginPath(); c.ellipse(0, 0, R, R * 0.35, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#3c6a6a'; c.lineWidth = lw; c.stroke();
+      c.beginPath(); c.arc(0, R * 0.9, R * 1.05, Math.PI * 1.25, Math.PI * 1.75); c.stroke();
+      c.restore();
+      for (let i = -2; i <= 2; i++) g.circle(cx + i * R * 0.3, cy, R * 0.05 + 1, (Math.floor(t / 600) + i) % 3 ? '#2c5a5a' : '#9ff0e6');
+      return;
+    }
+    case 4: // ancient ruins: a rock with an arch on it
+      blob(10, R * 0.6, 0.15, '#4a4640');
+      c.strokeStyle = '#b4a078'; c.lineWidth = lw * 2;
+      c.beginPath(); c.arc(cx, cy - R * 0.05, R * 0.35, Math.PI, 0); c.stroke();
+      g.rect(cx - R * 0.38, cy - R * 0.05, lw * 2, R * 0.35, '#b4a078');
+      g.rect(cx + R * 0.35, cy - R * 0.05, lw * 2, R * 0.35, '#b4a078');
+      g.circle(cx, cy - R * 0.1, R * 0.07 + 1, (Math.floor(t / 900) % 2) ? '#9ff0e6' : '#3c6a6a');
+      return;
+    case 5: // gas pocket
+      for (let i = 0; i < 5; i++) {
+        const a = rot * 2 + i * 1.3;
+        c.globalAlpha = 0.25;
+        g.circle(cx + Math.cos(a) * R * 0.35, cy + Math.sin(a) * R * 0.3, R * (0.45 + 0.1 * Math.sin(t / 700 + i)), i % 2 ? '#ff8a5a' : '#c8501e');
+      }
+      c.globalAlpha = 1;
+      g.circle(cx, cy, R * 0.12 + 1, '#ffc896');
+      return;
+    case 6: // crystal spire
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i - 2) * 0.35, l = R * (0.6 + 0.35 * ((i * 7) % 3) / 2);
+        const bx = cx + Math.cos(a + Math.PI / 2) * R * 0.08 * (i - 2);
+        c.fillStyle = i % 2 ? '#a078dc' : '#c8a0ff';
+        c.beginPath(); c.moveTo(bx - R * 0.07, cy + R * 0.3); c.lineTo(bx + Math.cos(a) * l, cy + R * 0.3 + Math.sin(a) * l); c.lineTo(bx + R * 0.07, cy + R * 0.3); c.closePath(); c.fill();
+      }
+      c.globalAlpha = 0.3 + 0.3 * Math.sin(t / 300);
+      g.circle(cx, cy, R * 0.5, '#c8a0ff', false, lw);
+      c.globalAlpha = 1;
+      return;
+    case 7: default: // drifting capsule
+      c.save(); c.translate(cx, cy); c.rotate(rot);
+      c.fillStyle = '#a0a8b4';
+      c.beginPath(); c.roundRect(-R * 0.45, -R * 0.18, R * 0.9, R * 0.36, R * 0.18); c.fill();
+      c.restore();
+      g.circle(cx, cy, R * 0.07 + 1, Math.floor(t / 400) % 2 ? C.RED : '#501414');
+      return;
+  }
+}

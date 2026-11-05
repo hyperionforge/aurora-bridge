@@ -8,7 +8,8 @@ import { C } from './config.js';
 import { DEG, clampf, wrap360, angDiff, bearingTo, distTo, fmtDist, pad3, sectorName, mmss } from './util.js';
 import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
-import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawJumpTunnel } from './sysdraw.js';
+import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel } from './sysdraw.js';
+import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
 import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME } from './galaxy.js';
 
 const NSTARS = 160;
@@ -276,7 +277,7 @@ export class Scene {
       const sc = (n.type === K.CT_STARBASE ? clampf(1500 * k / u / 70, 0.25, 1.2) : 0.28) * u;
       drawContact(g, n.type, sx, sy, sc, n.hdg, t, 1, n.kind, n.civ);
       g.text(sx, sy + 26 * u, w.shortName(n.id, known), 11 * u, fc, 'center');
-      if (n.scan >= 2 && n.type !== K.CT_ANOMALY) {
+      if (n.scan >= 2 && n.type !== K.CT_ANOMALY && n.type !== K.CT_POI) {
         g.rect(sx - 15 * u, sy + 40 * u, 30 * u, 3 * u, C.SEG_OFF);
         g.rect(sx - 15 * u, sy + 40 * u, 30 * u * n.hull / 100, 3 * u, healthColor(n.hull));
         if (n.shMax > 0) g.rect(sx - 15 * u, sy + 44 * u, 30 * u * n.shields / n.shMax, 2 * u, C.SKY);
@@ -300,6 +301,13 @@ export class Scene {
         const col = performance.now() < this.shieldFlashUntil ? C.WHITE : lerpCol(SHIELD_DIM, SHIELD_BRIGHT, tt);
         g.arcSeg(cx, cy, 36 * u, (33 - tt * 4) * u, wrap360(a - 40), wrap360(a + 40), col);
       }
+    }
+    if (P.xId !== K.NO_ID && w.n(P.xId)) {
+      const [sx, sy] = w2t(w.n(P.xId).x, w.n(P.xId).y);
+      g.ctx.save(); g.ctx.setLineDash([6 * u, 4 * u]); g.ctx.lineDashOffset = -performance.now() / 30;
+      g.line(cx, cy, sx, sy, P.xMode === 2 ? '#78c8ff' : '#c8a0ff', 2.5 * u);
+      g.ctx.restore();
+      g.text((cx + sx) / 2, (cy + sy) / 2 - 16 * u, `${P.xMode === 2 ? 'TRACTOR BEAM' : 'SAMPLING'} ${Math.round(P.xProg * 100)}%`, 12 * u, C.SKY, 'center');
     }
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, 0.3 * u, P.hdg);
     for (const tp of w.torp) {
@@ -354,6 +362,7 @@ export class Scene {
       const known = n.scan > 0 || n.type === K.CT_STARBASE;
       const col = factionColor(known ? n.faction : K.F_UNKNOWN);
       if (n.type === K.CT_STARBASE) drawStation(g, n.kind ?? 0, x, y, 0.14 * u, w.now, n.civ);
+      else if (n.type === K.CT_POI) drawPoi(g, n.kind ?? 0, x, y, 0.1 * u, w.now, (n.civ ?? 0) * 0.7);
       else g.circle(x, y, 3 * u, col);
       g.text(x + 9 * u, y + 3 * u, w.shortName(n.id, known), 11 * u, col);
     }
@@ -411,10 +420,10 @@ export class Scene {
     g.textFit(x, y, w.shortName(id, known), 30 * u, factionColor(known ? c.faction : K.F_UNKNOWN), 'left', tw);
     y += 38 * u;
     g.text(x, y, w.contactName(id, known), 13 * u, C.PEACH); y += 18 * u;
-    g.text(x, y, `${known ? (c.type === K.CT_STARBASE && c.kind != null ? SK_NAME[c.kind] : K.CT_NAME[c.type]) : 'UNKNOWN TYPE'}  ${K.FACTION_NAME[known ? c.faction : K.F_UNKNOWN]}`, 13 * u, C.GREY_TXT); y += 28 * u;
+    g.text(x, y, `${known ? (c.type === K.CT_STARBASE && c.kind != null ? SK_NAME[c.kind] : c.type === K.CT_POI ? POI_NAME[c.kind ?? 0] : K.CT_NAME[c.type]) : 'UNKNOWN TYPE'}  ${K.FACTION_NAME[known ? c.faction : K.F_UNKNOWN]}`, 13 * u, C.GREY_TXT); y += 28 * u;
     g.text(x, y, `RANGE ${fmtDist(distTo(P.x, P.y, c.x, c.y))}  BEARING ${pad3(bearingTo(P.x, P.y, c.x, c.y))}`, 18 * u, C.SKY); y += 24 * u;
     g.text(x, y, `HEADING ${pad3(c.hdg)}  SPEED ${Math.round(c.speed)}`, 18 * u, C.SKY); y += 36 * u;
-    if (c.scan >= 2 && c.type !== K.CT_ANOMALY) {
+    if (c.scan >= 2 && c.type !== K.CT_ANOMALY && c.type !== K.CT_POI && c.type !== K.CT_STARBASE) {
       const nm = ['HULL', 'SHIELDS', 'ENGINES', 'WEAPONS'];
       const v = [c.hull, c.shMax > 0 ? c.shields * 100 / c.shMax : 0, c.eng, c.wpn];
       const bw = Math.min(170 * u, tw - 150 * u);
@@ -425,6 +434,15 @@ export class Scene {
         y += 26 * u;
       }
       g.text(x, y + 4 * u, 'SHIELD FREQUENCY ' + K.FREQ_CHAR[c.freq], 18 * u, C.GREEN);
+    } else if (c.type === K.CT_POI) {
+      y = g.wrap(x, y, tw, POI_TIP[c.kind ?? 0], 15 * u, C.PEACH, 1.25, 3) + 6 * u;
+      if (c.res) {
+        const got = c.res.map((v, i) => (v ? `${v} ${RES_SHORT[i]}` : '')).filter(Boolean);
+        g.wrap(x, y, tw, 'CONTAINS: ' + (got.length ? got.join(', ') : 'NOTHING USEFUL'), 15 * u, C.SKY, 1.25, 2);
+        y += 44 * u;
+        if (c.art) g.text(x, y, 'ARTEFACT SIGNATURE DETECTED', 17 * u, flash(500) ? C.WHITE : C.LILAC), y += 24 * u;
+        g.text(x, y, 'EXTRACTION HAZARD: ' + hazWord(c.haz), 15 * u, c.haz > 0.25 ? C.RED : c.haz > 0.12 ? C.YELLOW : C.GREEN);
+      } else g.text(x, y, 'FULL SCAN FOR CONTENTS', 16 * u, C.YELLOW);
     } else if (c.type === K.CT_ANOMALY) {
       g.wrap(x, y, tw, c.scan >= 2 ? 'TETRYON EMISSIONS, UNSTABLE SUBSPACE FOLD. DATA SENT TO FLEET COMMAND.' : 'FULL SCAN NEEDED TO ANALYSE.', 17 * u, c.scan >= 2 ? C.LILAC : C.GREY_TXT);
     } else if (flash(500)) g.text(x, y, 'DETAILED SCAN REQUIRED', 18 * u, C.YELLOW);
@@ -584,7 +602,7 @@ export class Scene {
       g.textFit(lx, ly, w.shortName(id, k), 15 * u, factionColor(k ? n.faction : K.F_UNKNOWN), 'left', lwid - 56 * u);
       g.text(lx + lwid, ly, fmtDist(distTo(P.x, P.y, n.x, n.y)), 14 * u, C.GREY_TXT, 'right');
       g.textFit(lx, ly + 15 * u, tt, 12 * u, tt.startsWith('ATTACKING') ? C.RED : C.GREY_TXT, 'left', lwid - 56 * u);
-      if (n.scan >= 2 && n.type !== K.CT_ANOMALY && n.type !== K.CT_BUOY) g.bar(lx + lwid - 50 * u, ly + 19 * u, 50 * u, 5 * u, n.hull, healthColor(n.hull));
+      if (n.scan >= 2 && n.type !== K.CT_ANOMALY && n.type !== K.CT_BUOY && n.type !== K.CT_POI) g.bar(lx + lwid - 50 * u, ly + 19 * u, 50 * u, 5 * u, n.hull, healthColor(n.hull));
       ly += 28 * u;
       shown++;
     }

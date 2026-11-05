@@ -4,7 +4,8 @@ import { C, CMD } from '../config.js';
 import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, angDiff, mmss } from '../util.js';
 import { dim, flash, healthColor } from '../gfx.js';
 import { drawShip, drawMarker, factionColor, ART_CRUISER } from '../ships.js';
-import { drawSystemLayer, drawGalaxy, drawStation, galaxyKnown } from '../sysdraw.js';
+import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown } from '../sysdraw.js';
+import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
 import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, CIV_NAME, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
 import { drawRadar, radarPick } from './common.js';
 
@@ -166,6 +167,7 @@ export const nav = {
         const [sx, sy] = p2(c.x, c.y);
         const col = factionColor(c.faction);
         if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, this.zoom ? 0.3 : 0.13, w.now, c.civ);
+        else if (c.type === K.CT_POI) drawPoi(g, c.kind ?? 0, sx, sy, this.zoom ? 0.22 : 0.1, w.now, (c.civ ?? 0) * 0.7);
         else g.circle(sx, sy, 3.5, col);
         g.text(sx + 8, sy + 3, w.shortName(c.id, c.known), 11, col);
       }
@@ -289,41 +291,48 @@ export const nav = {
 // ============================================================================ SCIENCE
 const SCI_RANGE = [5000, 10000, 20000, 40000];
 export const science = {
-  sel: K.NO_ID, rangeI: 1,
+  sel: K.NO_ID, rangeI: 1, hold: false, artSel: 0,
   draw(g, w, app, L) {
     const P = w.P, B = L.BIG, cx = L.bx + B / 2, cy = L.by + B / 2, R = B / 2 - 4;
+    const rl = ['5K', '10K', '20K', '40K'], bw = (L.uw - 30) / 6;
+    rl.forEach((l, i) => g.button('sr' + i, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, !this.hold && this.rangeI === i ? C.SKY : C.GREY, C.BLACK, 17, () => { this.rangeI = i; this.hold = false; }));
+    g.button('lrs', L.ux + 4 * (bw + 6), L.uy, bw, L.uh, 'LRS', P.lrs > 0 ? C.YELLOW : C.LILAC, C.BLACK, 17, () => app.send(CMD.LRS));
+    const nArt = (P.arts || []).length, unread = (P.arts || []).some((h) => !h.ident);
+    g.button('hold', L.ux + 5 * (bw + 6), L.uy, bw, L.uh, `HOLD ${nArt || ''}`, this.hold ? C.LILAC : unread && flash(600) ? C.YELLOW : C.GREY, C.BLACK, 17, () => { this.hold = !this.hold; }, { sound: 'toggle' });
+    if (this.hold) { this.drawHold(g, w, app, L); return; }
     if (this.sel !== K.NO_ID && !w.findC(this.sel)) this.sel = K.NO_ID;
     drawRadar(g, w, cx, cy, R, SCI_RANGE[this.rangeI], false, this.sel, true);
     g.text(L.bx, L.by, 'N ^  SENSOR SWEEP', 12, C.GREY_TXT);
     if (P.lrs > 0) g.text(L.bx + B, L.by, `LONG RANGE SCAN ${Math.ceil(P.lrs)}s`, 12, C.YELLOW, 'right');
     if (w.inNebula) g.text(L.bx, L.by + B - 14, 'IN NEBULA - SENSOR RANGE REDUCED', 12, C.LILAC);
+    if (P.xId !== K.NO_ID) g.text(L.bx + B, L.by + B - 14, `${P.xMode === 2 ? 'EXTRACTING' : 'SAMPLING'} ${Math.round(P.xProg * 100)}%`, 12, C.YELLOW, 'right');
     g.hitCircle(cx, cy, R, { down: (x, y) => {
       const id = radarPick(w, x, y, cx, cy, R, SCI_RANGE[this.rangeI], false);
       if (id !== K.NO_ID) { this.sel = id; app.sound.toggle(); }
     } });
-    const rl = ['5K', '10K', '20K', '40K'], bw = (L.uw - 30) / 5;
-    rl.forEach((l, i) => g.button('sr' + i, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, this.rangeI === i ? C.SKY : C.GREY, C.BLACK, 17, () => { this.rangeI = i; }));
-    g.button('lrs', L.ux + 4 * (bw + 6), L.uy, bw, L.uh, 'LRS', P.lrs > 0 ? C.YELLOW : C.LILAC, C.BLACK, 17, () => app.send(CMD.LRS));
     // detail
     const x = L.rx, rw = L.rw;
     let y = L.y0;
     const c = w.findC(this.sel);
     if (!c) {
       g.text(x, y + 4, 'NO CONTACT SELECTED', 19, C.GREY_TXT);
-      y = g.wrap(x, y + 34, rw, 'TAP A CONTACT ON THE SENSOR DISPLAY TO SELECT IT. SCAN ONCE TO IDENTIFY IT, TWICE FOR A FULL ANALYSIS (SHIELDS, SYSTEMS, SHIELD FREQUENCY).', 13, C.GREY_TXT);
-      y = g.wrap(x, y + 10, rw, 'LONG RANGE SCAN (LRS) TRIPLES SENSOR RANGE FOR 10 SECONDS AND COSTS 60 ENERGY.', 13, C.GREY_TXT);
+      y = g.wrap(x, y + 34, rw, 'TAP A CONTACT ON THE SENSOR DISPLAY. SCAN ONCE TO IDENTIFY IT, TWICE FOR A FULL ANALYSIS. ASTEROIDS, WRECKS AND OTHER OBJECTS CAN BE SAMPLED OR EXTRACTED FOR MATERIALS AND ARTEFACTS.', 13, C.GREY_TXT);
+      y = g.wrap(x, y + 8, rw, 'LONG RANGE SCAN (LRS) TRIPLES SENSOR RANGE FOR 10 SECONDS AND COSTS 60 ENERGY.', 13, C.GREY_TXT);
       const list = w.contacts().filter((cc) => cc.alive && cc.id !== K.ID_BASE).sort((a, b) => w.range(a) - w.range(b)).slice(0, 4);
-      y += 12;
+      y += 10;
       for (const cc of list) {
+        if (y > L.y1 - 34) break;
         g.button('pick' + cc.id, x, y, rw, 30, `${w.shortName(cc.id, cc.known)}  ${fmtDist(w.range(cc))}`, C.GREY, factionColor(cc.faction), 15, () => { this.sel = cc.id; });
         y += 36;
       }
       return;
     }
-    g.textFit(x, y, w.shortName(c.id, c.known), 22, factionColor(c.faction), 'left', rw);
-    g.text(x, y + 26, w.contactName(c.id, c.known), 13, C.PEACH);
-    g.text(x, y + 42, `${c.known ? K.CT_NAME[c.type] : 'UNKNOWN'} / ${K.FACTION_NAME[c.faction]}`, 12, C.GREY_TXT);
-    g.text(x, y + 60, `RANGE ${fmtDist(w.range(c))}  BRG ${pad3(w.bearing(c))}  HDG ${pad3(c.hdg)}  SPD ${Math.round(c.speed)}`, 15, C.SKY);
+    const poi = c.type === K.CT_POI;
+    g.textFit(x, y, w.shortName(c.id, c.known), 22, poi ? C.TAN : factionColor(c.faction), 'left', rw);
+    g.textFit(x, y + 26, w.contactName(c.id, c.known), 13, C.PEACH, 'left', rw);
+    const tn = !c.known ? 'UNKNOWN' : c.type === K.CT_STARBASE ? SK_NAME[c.kind ?? 0] : poi ? POI_NAME[c.kind ?? 0] : K.CT_NAME[c.type];
+    g.text(x, y + 42, poi ? tn : `${tn} / ${K.FACTION_NAME[c.faction]}`, 12, C.GREY_TXT);
+    g.text(x, y + 60, `RANGE ${fmtDist(w.range(c))}  BRG ${pad3(w.bearing(c))}${poi ? '' : `  HDG ${pad3(c.hdg)}  SPD ${Math.round(c.speed)}`}`, 15, C.SKY);
     const lvl = c.scan >= 2 ? 2 : c.scan;
     g.text(x, y + 84, 'SCAN LEVEL: ' + ['NOT SCANNED', 'IDENTIFIED', 'FULL SCAN'][lvl], 17, lvl === 2 ? C.GREEN : C.YELLOW);
     const scanning = P.scanId === c.id;
@@ -331,6 +340,7 @@ export const science = {
     g.button('scan', x, y + 122, rw, 38, scanning ? 'SCANNING...' : lvl === 0 ? 'SCAN (IDENTIFY)' : lvl === 1 ? 'SCAN (FULL)' : 'SCAN COMPLETE',
       scanning ? C.YELLOW : lvl < 2 ? C.SKY : C.GREY, C.BLACK, 19, () => app.send(CMD.SCAN, c.id));
     y += 170;
+    if (poi) { this.drawPoiPanel(g, w, app, L, c, y); return; }
     if (lvl === 2 && c.type !== K.CT_ANOMALY && c.type !== K.CT_STARBASE && c.type !== K.CT_BUOY) {
       const rows = [['HULL', c.hull, healthColor(c.hull)], ['SHIELDS', c.shields, C.SKY], ['ENGINES', c.eng, healthColor(c.eng)],
         ['WEAPONS', c.wpn, healthColor(c.wpn)], ['SHLD GEN', c.sgen, healthColor(c.sgen)]];
@@ -346,13 +356,85 @@ export const science = {
     else if (c.type === K.CT_STARBASE) g.wrap(x, y, rw, `${SK_NAME[c.kind ?? 0]}${CIV_NAME[c.civ] ? ' (' + CIV_NAME[c.civ] + ')' : ''}. ` +
       (c.faction === K.F_HOSTILE ? 'HOSTILE - KEEP CLEAR OF ITS GUNS.' : c.kind === SK_RELAY || c.kind === SK_MONOLITH ? 'NO DOCKING FACILITIES.' : 'DOCK HERE FOR REPAIRS, ENERGY AND TORPEDOES.'), 13, factionColor(c.faction));
     else g.wrap(x, y, rw, 'FULL SCAN NEEDED FOR SHIELDS, HULL, SYSTEMS AND SHIELD FREQUENCY.', 13, C.GREY_TXT);
-    const by = L.y1 - 38;
+    this.bottomButtons(g, w, app, L, c);
+  },
+  bottomButtons(g, w, app, L, c) {
+    const P = w.P, x = L.rx, rw = L.rw, by = L.y1 - 38;
     g.text(x, by - 18, `SENSORS ${Math.round(P.health[K.S_SENSORS])}% HEALTH, ${P.power[K.S_SENSORS]}% POWER`, 12, P.health[K.S_SENSORS] < 50 ? C.RED : C.GREY_TXT);
     const hw = (rw - 6) / 2;
     g.button('sview', x, by, hw, 36, 'ON VIEWER', C.ORANGE, C.BLACK, 17, () => app.send(CMD.VIEW, K.VM_TARGET, c.id));
     const ic = P.autopilot === K.AP_TARGET && P.apTarget === c.id;
     g.button('sint', x + hw + 6, by, hw, 36, ic ? 'INTERCEPTING' : 'INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 17,
       () => app.send(CMD.AUTOPILOT, ic ? K.AP_OFF : K.AP_TARGET, c.id));
+  },
+  drawPoiPanel(g, w, app, L, c, y) {
+    const P = w.P, x = L.rx, rw = L.rw, d = w.range(c);
+    y = g.wrap(x, y - 4, rw, POI_TIP[c.kind ?? 0], 12, C.GREY_TXT, 1.2, 2) + 2;
+    if (c.res) {
+      const got = c.res.map((v, i) => (v ? `${v} ${RES_SHORT[i]}` : '')).filter(Boolean);
+      y = g.wrap(x, y, rw, 'CONTAINS: ' + (got.length ? got.join(', ') : 'NO USEFUL MATERIALS LEFT'), 13, C.SKY, 1.2, 2) + 2;
+      g.text(x, y, c.art ? 'ARTEFACT SIGNATURE!' : 'NO ARTEFACT SIGNATURE', 13, c.art ? (flash(500) ? C.WHITE : C.LILAC) : C.GREY_TXT);
+      g.text(x + rw, y, 'HAZARD: ' + hazWord(c.haz), 13, c.haz > 0.25 ? C.RED : c.haz > 0.12 ? C.YELLOW : C.GREEN, 'right');
+      y += 18;
+    } else { g.text(x, y, c.scan ? 'FULL SCAN TO SEE WHAT IT HOLDS AND HOW RISKY IT IS.' : 'SCAN IT TO IDENTIFY IT.', 12, C.YELLOW); y += 18; }
+    const by = L.y1 - 38, hw = (rw - 6) / 2;
+    const on = P.xId === c.id;
+    if (on) g.progress(x, by - 16, rw, 10, P.xProg, P.xMode === 2 ? C.ORANGE : C.SKY);
+    else {
+      const hint = d > SAMPLE_R ? `SAMPLE < ${SAMPLE_R / 1000}K, EXTRACT < ${EXTRACT_R / 1000}K` :
+        d > EXTRACT_R ? `EXTRACT: CLOSE TO ${EXTRACT_R / 1000}K, SHIELDS DOWN, SLOW` : P.shieldRaise > 0.05 ? 'EXTRACT: LOWER SHIELDS FIRST' : 'IN TRACTOR RANGE';
+      g.textFit(x, by - 18, hint, 12, C.GREY_TXT, 'left', rw);
+    }
+    const sOn = on && P.xMode === 1, eOn = on && P.xMode === 2;
+    g.button('smp', x, by, hw, 36, sOn ? `SAMPLING ${Math.round(P.xProg * 100)}%` : 'SAMPLE', sOn ? C.YELLOW : d <= SAMPLE_R ? C.SKY : C.GREY, C.BLACK, 17,
+      () => app.send(CMD.SAMPLE, sOn ? K.NO_ID : c.id));
+    g.button('ext', x + hw + 6, by, hw, 36, eOn ? `EXTRACT ${Math.round(P.xProg * 100)}%` : 'EXTRACT', eOn ? C.YELLOW : d <= EXTRACT_R ? C.ORANGE : C.GREY, C.BLACK, 17,
+      () => app.send(CMD.EXTRACT, eOn ? K.NO_ID : c.id));
+    if (y < by - 60) {
+      const ic = P.autopilot === K.AP_TARGET && P.apTarget === c.id;
+      g.button('sint', x, by - 64, hw, 30, ic ? 'APPROACHING' : 'APPROACH', ic ? C.VIOLET : C.LILAC, C.BLACK, 15, () => app.send(CMD.AUTOPILOT, ic ? K.AP_OFF : K.AP_TARGET, c.id));
+      g.button('sview', x + hw + 6, by - 64, hw, 30, 'ON VIEWER', C.TAN, C.BLACK, 15, () => app.send(CMD.VIEW, K.VM_TARGET, c.id));
+    }
+  },
+  // ---- the artefact hold
+  drawHold(g, w, app, L) {
+    const P = w.P, arts = P.arts || [], B = L.BIG;
+    let x = L.bx, y = L.by;
+    g.header(x, y, B, 'ARTEFACT HOLD', C.LILAC);
+    y += 28;
+    if (!arts.length) g.wrap(x, y, B, 'NOTHING HERE YET. EXTRACT WRECKS, DERELICTS, RUINS AND CAPSULES TO FIND ARTEFACTS. A FULL SCAN SHOWS WHETHER SOMETHING IS INSIDE.', 13, C.GREY_TXT);
+    if (this.artSel >= arts.length) this.artSel = Math.max(0, arts.length - 1);
+    arts.forEach((h, i) => {
+      const d = ART[h.a], sel = i === this.artSel;
+      const col = !h.ident ? C.GREY : d.cursed ? C.RED : h.ident >= 2 ? C.LILAC : C.SKY;
+      const nm = h.ident ? d.name : d.unk;
+      g.button('art' + h.uid, x, y, B, 28, (sel ? '> ' : '') + nm + (h.ident ? '' : '  (?)'), sel ? col : dim(col, 0.6), C.BLACK, 15, () => { this.artSel = i; }, { sound: 'toggle' });
+      y += 32;
+    });
+    // detail
+    const rx = L.rx, rw = L.rw;
+    y = L.y0;
+    const h = arts[this.artSel];
+    if (!h) {
+      g.header(rx, y, rw, 'ACTIVE EFFECTS', C.LILAC);
+      g.text(rx, y + 28, 'NONE', 15, C.GREY_TXT);
+      return;
+    }
+    const d = ART[h.a];
+    g.textFit(rx, y, h.ident ? d.name : d.unk, 22, d.cursed && h.ident ? C.RED : C.LILAC, 'left', rw, true);
+    y += 30;
+    g.text(rx, y, ['UNIDENTIFIED', 'IDENTIFIED', 'FULLY ANALYSED'][h.ident], 13, h.ident ? C.GREEN : C.YELLOW);
+    y += 22;
+    if (h.ident) { y = g.wrap(rx, y, rw, d.effect, 15, d.cursed ? C.RED : C.SKY, 1.2, 3) + 8; }
+    else y = g.wrap(rx, y, rw, 'ANALYSE IT TO FIND OUT WHAT IT IS AND WHAT IT DOES. ITS EFFECT ONLY WORKS ONCE WE UNDERSTAND IT.', 13, C.GREY_TXT, 1.2, 3) + 8;
+    if (h.ident >= 2) y = g.wrap(rx, y, rw, d.lore, 13, C.PEACH, 1.25, 6) + 6;
+    const by = L.y1 - 38, bw3 = (rw - 12) / 3;
+    const busy = P.anaUid === h.uid;
+    if (busy) g.progress(rx, by - 16, rw, 10, P.anaProg, C.YELLOW);
+    else g.text(rx, by - 18, `ANALYSE ${ANALYSE_COST} EN   DEEP ANALYSIS ${DEEP_COST} EN`, 12, C.GREY_TXT);
+    g.button('ana', rx, by, bw3, 36, busy && !P.anaDeep ? `${Math.round(P.anaProg * 100)}%` : 'ANALYSE', h.ident ? C.GREY : C.SKY, C.BLACK, 16, () => app.send(CMD.ANALYSE, h.uid, 0));
+    g.button('deep', rx + bw3 + 6, by, bw3, 36, busy && P.anaDeep ? `${Math.round(P.anaProg * 100)}%` : 'DEEP SCAN', h.ident >= 2 ? C.GREY : C.LILAC, C.BLACK, 16, () => app.send(CMD.ANALYSE, h.uid, 1));
+    g.button('jet', rx + 2 * (bw3 + 6), by, bw3, 36, 'JETTISON', C.RED_DIM, C.PEACH, 16, () => app.send(CMD.JETTISON, h.uid));
   },
 };
 

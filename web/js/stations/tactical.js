@@ -5,6 +5,7 @@ import { DEG, wrap360, angDiff, fmtDist, pad3, clampf } from '../util.js';
 import { dim, flash, healthColor, lerpCol } from '../gfx.js';
 import { drawShip, factionColor, ART_CRUISER } from '../ships.js';
 import { drawRadar, radarPick } from './common.js';
+import * as G from '../cargo.js';
 
 // ============================================================================ TACTICAL
 const TAC_RANGE = [5000, 10000, 20000];
@@ -205,8 +206,14 @@ export const engineer = {
 const DBOX = [[10, 300], [262, 300], [262, 40], [10, 170], [262, 170], [10, 40]];
 const DPT = [[-14, 52], [14, 52], [10, -60], [-50, 22], [50, 22], [-10, -60]];
 export const damage = {
+  view: 0,
   draw(g, w, app, L) {
-    const P = w.P, B = L.BIG, s = B / 392, cx = L.bx + B / 2, cy = L.by + B / 2;
+    const P = w.P;
+    const hw = (L.uw - 6) / 2, low = P.cargo && P.cargo[G.R_SPARES] <= 1;
+    g.button('dv0', L.ux, L.uy, hw, L.uh, 'SYSTEMS', this.view === 0 ? C.TAN : C.GREY, C.BLACK, 17, () => { this.view = 0; }, { sound: 'toggle' });
+    g.button('dv1', L.ux + hw + 6, L.uy, hw, L.uh, 'CARGO & REFINERY', this.view === 1 ? C.TAN : low && flash(600) ? C.YELLOW : C.GREY, C.BLACK, 17, () => { this.view = 1; }, { sound: 'toggle' });
+    if (this.view === 1 && P.cargo) { this.drawCargo(g, w, app, L); return; }
+    const B = L.BIG, s = B / 392, cx = L.bx + B / 2, cy = L.by + B / 2;
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, 1.7 * s, 0, 0.55);
     const DBW = 120 * s, DBH = 50 * s;
     for (let i = 0; i < K.NSYS; i++) {
@@ -261,6 +268,54 @@ export const damage = {
       g.text(x + rw, y, h > 0 ? Math.round(h) + '%' : 'OFF', 13, healthColor(h), 'right');
       y += 22;
     }
-    g.wrap(x, y + 6, rw, 'TWO TEAMS. EACH REPAIRS 3% PER SECOND; BOTH ON ONE SYSTEM DOUBLES THE SPEED. A SYSTEM AT 0% DOES NOTHING. THE HULL IS ONLY REPAIRED BY DOCKING AT STARBASE 12. OVERHEATING ALSO CAUSES DAMAGE.', 12, C.GREY_TXT, 1.2, 5);
+    const sp = P.cargo ? P.cargo[G.R_SPARES] : 0;
+    g.text(x, y + 6, `SPARE PARTS: ${sp}`, 15, sp > 1 ? C.YELLOW : flash(500) ? C.RED : C.ORANGE);
+    g.wrap(x, y + 26, rw, sp > 0 ? 'TEAMS USE ONE SPARE PER 25% REPAIRED. BOTH TEAMS ON ONE SYSTEM DOUBLES THE SPEED. HULL: DOCK, OR FIT PLATING FROM CARGO.'
+      : 'NO SPARES - TEAMS ARE JURY-RIGGING AT LESS THAN HALF SPEED. REFINE SPARE PARTS IN CARGO & REFINERY, OR DOCK AT A FRIENDLY STATION.', 12, sp > 0 ? C.GREY_TXT : C.ORANGE, 1.2, 4);
+  },
+  drawCargo(g, w, app, L) {
+    const P = w.P, B = L.BIG;
+    let x = L.bx, y = L.by;
+    let used = 0; for (let i = 0; i < G.NRAW; i++) used += P.cargo[i];
+    g.header(x, y, B, 'CARGO HOLD', C.TAN);
+    y += 26;
+    g.text(x, y, `RAW MATERIALS ${used} / ${G.HOLD_CAP}`, 13, used >= G.HOLD_CAP ? C.RED : C.PEACH);
+    g.bar(x + 170, y + 3, B - 170, 9, used * 100 / G.HOLD_CAP, used >= G.HOLD_CAP ? C.RED : C.TAN);
+    y += 20;
+    const tw = (B - 12) / 3, th = (B - (y - L.by) - 34) / 3;
+    for (let i = 0; i < G.NRES; i++) {
+      const tx = x + (i % 3) * (tw + 6), ty = y + Math.floor(i / 3) * (th + 6), v = P.cargo[i];
+      g.rrect(tx, ty, tw, th, 10, v ? dim(G.RES_COL[i], 0.35) : '#14161e');
+      g.rect(tx, ty + 4, 5, th - 8, G.RES_COL[i]);
+      g.textFit(tx + 12, ty + 6, G.RES_NAME[i], 12, v ? G.RES_COL[i] : C.GREY_TXT, 'left', tw - 16);
+      g.text(tx + tw - 10, ty + th - 34, String(v), 28, v ? C.WHITE : C.GREY_TXT, 'right', true);
+      if (i === G.NRAW) g.text(tx + 12, ty + th - 18, 'REFINED', 10, C.GREY_TXT);
+    }
+    const na = (P.arts || []).length;
+    g.text(x, L.by + B - 14, `ARTEFACTS: ${na}  (SCIENCE > HOLD TO ANALYSE)   TORPEDOES: ${P.torps[0]} PHOTON, ${P.torps[1]} QUANTUM`, 11, C.GREY_TXT);
+    // ---- refinery
+    const rx = L.rx, rw = L.rw;
+    y = L.y0;
+    g.header(rx, y, rw, 'REFINERY', C.TAN);
+    y += 26;
+    const bwM = 84;
+    G.RECIPES.forEach((r, i) => {
+      const ok = r.in.every(([res, k]) => P.cargo[res] >= k) && P.energy >= r.energy;
+      g.text(rx, y, r.name, 15, ok ? C.PEACH : C.GREY_TXT);
+      g.textFit(rx, y + 18, r.in.map(([res, k]) => `${k} ${G.RES_SHORT[res]}`).join(' + ') + `  +${r.energy} EN  ${r.time}s  -  ${r.note}`, 11, C.GREY_TXT, 'left', rw - bwM - 8);
+      g.button('mk' + i, rx + rw - bwM, y + 1, bwM, 30, 'MAKE', ok ? C.TAN : C.GREY, ok ? C.BLACK : C.GREY_TXT, 15, () => app.send(CMD.REFINE, i));
+      y += 38;
+    });
+    y += 2;
+    g.text(rx, y, P.refQ.length ? 'QUEUE (TAP TO CANCEL):' : 'REFINERY IDLE', 12, P.refQ.length ? C.YELLOW : C.GREY_TXT);
+    y += 16;
+    const qw = (rw - 6 * (G.REF_QUEUE - 1)) / G.REF_QUEUE;
+    P.refQ.forEach((ri, i) => {
+      const lab = G.RECIPES[ri].name.split(' ')[0] + (i === 0 && P.refProg > 0 ? ` ${Math.round(P.refProg * 100)}%` : '');
+      g.button('rq' + i, rx + i * (qw + 6), y, qw, 26, lab, i === 0 && P.refProg > 0 ? C.YELLOW : C.GREY, C.BLACK, 12, () => app.send(CMD.REFINE, -1, i));
+    });
+    const by = L.y1 - 38, hw = (rw - 6) / 2;
+    g.button('plate', rx, by, hw, 36, `FIT PLATING (${P.cargo[G.R_PLATING]})`, P.cargo[G.R_PLATING] && P.hull < 100 ? C.SKY : C.GREY, C.BLACK, 15, () => app.send(CMD.USE, 0));
+    g.button('cell', rx + hw + 6, by, hw, 36, `LOAD CELL (${P.cargo[G.R_CELL]})`, P.cargo[G.R_CELL] ? C.GREEN : C.GREY, C.BLACK, 15, () => app.send(CMD.USE, 1));
   },
 };
