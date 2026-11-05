@@ -40,9 +40,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk AuroraBridge.apk
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest AuroraBridge.apk --title "Aurora Bridge (latest build)" --latest \
-            --notes "Newest build of the app. Open this page on your phone, tap AuroraBridge.apk to download, then open it to install. Built from ${GITHUB_SHA::7}."
+          NOTES="Newest build of the app. Open this page on your phone, tap AuroraBridge.apk to download, then open it to install. Built from ${GITHUB_SHA::7}."
+          # replace the file in the existing release (deleting and re-creating the tag can race)
+          for try in 1 2 3; do
+            if gh release view latest >/dev/null 2>&1; then
+              gh release upload latest AuroraBridge.apk --clobber && gh release edit latest --notes "$NOTES" && exit 0
+            else
+              gh release create latest AuroraBridge.apk --title "Aurora Bridge (latest build)" --latest --notes "$NOTES" && exit 0
+            fi
+            sleep 15
+          done
+          exit 1
 
   pages:
     runs-on: ubuntu-latest
