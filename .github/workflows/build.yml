@@ -21,10 +21,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      # the GitHub runner already has the Android SDK installed (ANDROID_HOME)
       - name: Build APK
         working-directory: android
         run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
