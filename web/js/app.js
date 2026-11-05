@@ -56,7 +56,7 @@ class App {
     this.link = new Link(wsUrl, (m, raw) => this.onMsg(m, raw), (up) => { if (!up) this.status = 'connecting'; });
     this.link.setHello({ t: 'hello', pid: this.pid, name: this.name, kind: 'player', isHost: this.isHost });
     window.onCastState = (on) => { this.casting = !!on; if (on) this.castCatchUp(); };
-    if (Native && Native.castState) this.casting = !!Native.castState();
+    try { if (Native && Native.castState) this.casting = !!Native.castState(); } catch { this.casting = false; }
     this.fetchJoin();
     document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
     requestAnimationFrame(() => this.frame());
@@ -97,14 +97,16 @@ class App {
       }
     }
     if (m.t === 's' && m.msgs.length && m.msgs[0].id > this.newestMsg) { this.newestMsg = m.msgs[0].id; this.unread = true; }
-    if (this.casting && Native && raw && (m.t === 'f' || m.t === 's' || m.t === 'lobby' || m.t === 'ev')) Native.castSend(raw);
+    if (this.casting && Native && raw && (m.t === 'f' || m.t === 's' || m.t === 'lobby' || m.t === 'ev')) { try { Native.castSend(raw); } catch { /* TV gone */ } }
   }
   castCatchUp() {
     const w = this.w;
     if (!Native) return;
+    try {
     if (w.lobby) Native.castSend(JSON.stringify(w.lobby));
     if (w.slow) Native.castSend(JSON.stringify(w.slow));
     if (this.joinUrls[0]) Native.castSend(JSON.stringify({ t: 'join', url: this.joinUrls[0] }));
+    } catch { /* TV gone */ }
   }
   buzz(p) {
     if (!this.vibrate) return;
@@ -169,7 +171,7 @@ class App {
     let x = g.W - 6;
     const btn = (id, wd, label, col, tc, fn) => { x -= wd; g.button(id, x, 2, wd, TOP_H - 6, label, col, tc, 15, fn); x -= 6; };
     btn('menu', 44, '☰', C.PEACH, C.BLACK, () => { this.menu = true; });
-    if (Native && Native.castAvailable && Native.castAvailable())
+    if (Native && Native.castAvailable && (() => { try { return Native.castAvailable(); } catch { return false; } })())
       btn('cast', 76, this.casting ? 'CASTING' : 'CAST TV', this.casting ? C.SKY : C.GREY, this.casting ? C.BLACK : C.SKY, () => Native.castToggle());
     if (w.game === K.GS_RUN) btn('viewer', 76, 'VIEWER', this.viewerPage ? C.ORANGE : C.GREY, this.viewerPage ? C.BLACK : C.ORANGE, () => { this.viewerPage = !this.viewerPage; });
     g.circle(x - 6, TOP_H / 2 - 2, 5, w.hostOK() ? C.GREEN : C.RED);

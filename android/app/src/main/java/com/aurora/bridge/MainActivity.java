@@ -121,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showStart() {
         inGame = false;
+        if (cast != null) cast.stop();
         discovery.stopAdvertising();
         web.loadUrl("http://127.0.0.1:" + port() + "/start.html");
     }
@@ -161,6 +162,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        cast.stop();
         discovery.stopAll();
         if (relay != null) relay.stop();
         if (web != null) web.destroy();
