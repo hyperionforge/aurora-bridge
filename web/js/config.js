@@ -106,7 +106,7 @@ export const FREIGHTER_NAMES = ['MERIDIAN', 'HALCYON', 'ORINOCO', 'TALISMAN', 'W
 // game modes
 export const MODE_MISSION = 0, MODE_SANDBOX = 1, MODE_CAMPAIGN = 2;
 export const MODE_NAME = ['MISSION', 'SANDBOX', 'CAMPAIGN'];
-export const MODES_READY = 2;   // modes offered in the lobby (campaign switched on when it's written)
+export const MODES_READY = 3;   // modes offered in the lobby (campaign switched on when it's written)
 export const MODE_DESC = [
   'ONE OF THE CLASSIC MISSIONS IN THE KALOS SYSTEM.',
   'AN OPEN-ENDED VOYAGE. ROAM THE STARS, ANSWER HAILS, TAKE CONTRACTS FROM STATIONS, SALVAGE WHAT YOU FIND. IT ENDS ONLY IF THE AURORA IS LOST.',

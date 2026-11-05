@@ -4,6 +4,7 @@
 // URL parameters:  ?host=1  this page also runs the game (the hosting phone)
 //                  &name=..  &pid=..  (set by the Android app)
 import * as K from './config.js';
+import { CHAPTERS, CHAPTER_DESC } from './campaign.js';
 import { C, CMD } from './config.js';
 import { Gfx, loadFonts, dim, flash, healthColor } from './gfx.js';
 import { World, Link } from './world.js';
@@ -237,6 +238,13 @@ class App {
     g.textFit(lx + lw / 2, y + 5, K.MODE_NAME[sm], 20, C.ORANGE, 'center', lw - 2 * arrow - 8, true);
     if (inTitle) g.button('gn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(st, sd, (sm + 1) % NM), { sound: 'toggle' });
     y += 36;
+    if (sm === K.MODE_CAMPAIGN) {
+      const cm = Math.max(1, Math.min(5, (s && s.campMax) || 1)), ch = st % cm;
+      if (inTitle) g.button('cp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel((ch + cm - 1) % cm, sd, sm), { sound: 'toggle' });
+      g.textFit(lx + lw / 2, y + 5, `CH ${ch + 1}: ${CHAPTERS[ch]}`, 19, C.SKY, 'center', lw - 2 * arrow - 8);
+      if (inTitle) g.button('cn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel((ch + 1) % cm, sd, sm), { sound: 'toggle' });
+      y += 36;
+    }
     if (sm === K.MODE_MISSION) {
       if (inTitle) g.button('mp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel((st + K.NUM_MT - 1) % K.NUM_MT, sd, sm), { sound: 'toggle' });
       g.textFit(lx + lw / 2, y + 5, K.MT_NAME[st], 20, C.SKY, 'center', lw - 2 * arrow - 8);
@@ -247,7 +255,8 @@ class App {
     g.text(lx + lw / 2, y + 5, 'DIFFICULTY: ' + K.DIFF_NAME[sd], 20, C.SKY, 'center');
     if (inTitle) g.button('dn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(st, (sd + 1) % 3, sm), { sound: 'toggle' });
     y += 38;
-    y = g.wrap(lx, y, lw, sm === K.MODE_MISSION ? K.MT_DESC[st] : K.MODE_DESC[sm], 12, C.PEACH, 1.2, sm === K.MODE_MISSION ? 3 : 4) + 6;
+    const cdesc = sm === K.MODE_CAMPAIGN ? (st % Math.max(1, (s && s.campMax) || 1) ? CHAPTER_DESC[st % 5] + ' (EARLIER CHOICES ARE REMEMBERED.)' : K.MODE_DESC[sm] + ((s && s.campMax) > 1 ? ' UNLOCKED CHAPTERS CAN BE STARTED DIRECTLY.' : '')) : null;
+    y = g.wrap(lx, y, lw, sm === K.MODE_MISSION ? K.MT_DESC[st] : cdesc || K.MODE_DESC[sm], 12, C.PEACH, 1.2, sm === K.MODE_MISSION ? 3 : 4) + 6;
     if (inTitle) {
       g.header(lx, y, lw, 'ROLES', C.LILAC);
       y += 24;

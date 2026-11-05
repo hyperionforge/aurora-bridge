@@ -252,7 +252,7 @@ export function installVoyage(Sim) {
         }
       }
       M.ver++;
-      this.setObjective(job.objective);
+      this.jobObjective(job.objective);
       this.say(FROM_CREW, 0, 'CONTRACT ACCEPTED: ' + job.objective + '.');
     },
     jobDone() {
@@ -265,7 +265,7 @@ export function installVoyage(Sim) {
       this.msgs[0].who = job.charWho || job.who;
       this.grant(job.reward, job.who);
       if (job.charWho === 'lin') this.flags.linSaved = true;
-      this.setObjective(this.voyageObjective());
+      this.restoreObjective();
     },
     jobFail(why) {
       const job = this.job;
@@ -274,8 +274,11 @@ export function installVoyage(Sim) {
       this.clearMarkers();
       if (job.civ) this.repAdd(job.civ, -4);
       this.say(FROM_CREW, 1, 'CONTRACT FAILED: ' + why);
-      this.setObjective(this.voyageObjective());
+      this.restoreObjective();
     },
+    // in the campaign the story's objective stays on screen; the contract is a side job
+    jobObjective(t) { if (this.job) this.job.objective = t; if (this.mode !== K.MODE_CAMPAIGN) this.setObjective(t); },
+    restoreObjective() { if (this.mode === K.MODE_CAMPAIGN && this.camp) this.campStep(this.camp.step, true); else this.setObjective(this.voyageObjective()); },
     voyageObjective() { return this.job ? this.job.objective : 'FREE VOYAGE - EXPLORE, SALVAGE, ANSWER HAILS, ASK STATIONS FOR WORK'; },
     jobHandIn(id) {
       const job = this.job;
@@ -319,7 +322,7 @@ export function installVoyage(Sim) {
       if (!job) return;
       if (job.type === J_BOUNTY) {
         const left = job.ids.filter((id) => this.npc[id].active && this.npc[id].alive && this.npc[id].ai !== AI_SURRENDER && this.npc[id].faction === F_HOSTILE).length;
-        this.setObjective(`BOUNTY: DEAL WITH THE KESSARI IN SECTOR ${this.sec(job.x, job.y)} (${left} LEFT)`);
+        this.jobObjective(`BOUNTY: DEAL WITH THE KESSARI IN SECTOR ${this.sec(job.x, job.y)} (${left} LEFT)`);
         if (!left) this.jobDone();
       } else if (job.type === J_RESCUE) {
         const n = this.npc[job.ids[0]];
@@ -328,7 +331,7 @@ export function installVoyage(Sim) {
         if (job.state === 0 && d < 7000) {
           job.state = 1; job.repairT = 45;
           this.clearMarkers();
-          this.setObjective(`RESCUE: PROTECT THE ${n.short} WHILE THEY REPAIR`);
+          this.jobObjective(`RESCUE: PROTECT THE ${n.short} WHILE THEY REPAIR`);
           if (!this.dlg) this.startDialog('stranded', job.ids[0], { who: job.charWho || 'hauler' });
           if (this.frand() < 0.6) this.after(8, () => { if (this.job === job) this.warpInGroup(1 + (this.M.diff % 3), 0, n.x, n.y, 6000, job.ids[0], US); });
         } else if (job.state === 1) {
@@ -340,12 +343,13 @@ export function installVoyage(Sim) {
             n.cruise = 120;
             n.talk = 'freighter'; n.talkCtx = { name: n.short, lin: job.charWho === 'lin', who: job.charWho || 'hauler' };
             this.jobDone();
-          } else this.setObjective(`RESCUE: PROTECT THE ${n.short} - REPAIRS ${Math.ceil(job.repairT)}s`);
+          } else this.jobObjective(`RESCUE: PROTECT THE ${n.short} - REPAIRS ${Math.ceil(job.repairT)}s`);
         }
       }
     },
     // ---- the director
     voyageTick(dt) {
+      if (this.mode === K.MODE_CAMPAIGN) { this.jobTick(dt); return; }
       if (this.mode !== K.MODE_SANDBOX) return;
       this.jobTick(dt);
       const P = this.P;

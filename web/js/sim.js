@@ -18,7 +18,7 @@ const {
 } = K;
 
 const PK = { ASTEROID: G.PK_ASTEROID, COMET: G.PK_COMET, WRECK: G.PK_WRECK, DERELICT: G.PK_DERELICT, RUINS: G.PK_RUINS, GAS: G.PK_GAS, SPIRE: G.PK_SPIRE, CAPSULE: G.PK_CAPSULE };
-export const AI_STATIC = 0, AI_DRIFT = 1, AI_TRAVEL = 2, AI_WARPIN = 3, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_PATROL = 7;
+export const AI_STATIC = 0, AI_DRIFT = 1, AI_TRAVEL = 2, AI_WARPIN = 3, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_PATROL = 7, AI_ALLY = 8;
 const TRAIL = 24, PTRAIL = 120, MAX_TORPS = 10, MAX_BEAMFX = 6, MAX_BOOMS = 10, MSG_KEEP = 12, MAX_ORDERS = 8, MAX_ADVICE = 5;
 const DIFF_DMG = [0.7, 1.0, 1.3];
 
@@ -45,6 +45,7 @@ function newNpc() {
 }
 
 import { installVoyage } from './voyage.js';
+import { installCampaign } from './campaign.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -295,6 +296,7 @@ export class Sim {
     this.timers = [];
     this.dlg = null;
     this.job = null;
+    this.camp = null;
     this.stats = {};
     this.nextEventAt = undefined;
     this.loadSystem(0);
@@ -652,7 +654,13 @@ export class Sim {
     const n = this.npc[id], P = this.P, game = this.game;
     if (!n.active || !n.alive) return;
     let targetSpeed = 0, turn = 45, fight = false;
-    let tp = this.targetPos(n.aiTarget);
+    let ai = n.ai;
+    if (ai === AI_ALLY) { // friends: fight the nearest hostile, otherwise fly with us
+      n.allyT = (n.allyT || 0) - dt;
+      if (n.allyT <= 0 || !(n.aiTarget < MAX_CONTACTS && this.hostileAlive(n.aiTarget))) { n.allyT = 3; this.allyRetarget(n); }
+      ai = n.aiTarget < MAX_CONTACTS ? AI_ATTACK : -1;
+    }
+    let tp = ai === -1 ? [P.x, P.y] : this.targetPos(n.aiTarget);
     if (!tp) { n.aiTarget = US; tp = [P.x, P.y]; }
     const [tx, ty] = tp;
     const d = distTo(n.x, n.y, tx, ty), brg = bearingTo(n.x, n.y, tx, ty);
@@ -661,7 +669,13 @@ export class Sim {
     const full = (destroyer ? 95 : 135) * engF;
     n.aiT += dt;
 
-    switch (n.ai) {
+    switch (ai) {
+      case -1: { // keep station on the Aurora
+        const dp = distTo(n.x, n.y, P.x, P.y);
+        n.desHdg = dp > 2500 ? brg : P.hdg;
+        targetSpeed = dp > 4000 ? full : clampf(Math.abs(P.speed), 0, full);
+        break;
+      }
       case AI_STATIC:
         if (n.type === CT_STARBASE && game === GS_RUN && n.kind !== SK_RELAY && n.kind !== SK_MONOLITH) { // station defence phasers
           n.phCd -= dt;
@@ -918,7 +932,7 @@ export class Sim {
     this.emit(K.EV_ARRIVE, to);
     this.say(FROM_CREW, 0, `ARRIVED: ${this.sysDef.name}. ${this.sysDef.desc}`);
     const sid = this.sysDef.id;
-    if (this.mode !== K.MODE_MISSION && (sid === 'drift' || sid === 'shroud') && this.attitudeOf(CIV_KESSARI) === F_HOSTILE && this.frand() < (sid === 'drift' ? 0.6 : 0.3))
+    if (this.mode === K.MODE_SANDBOX && (sid === 'drift' || sid === 'shroud') && this.attitudeOf(CIV_KESSARI) === F_HOSTILE && this.frand() < (sid === 'drift' ? 0.6 : 0.3))
       this.after(20 + this.frand() * 25, () => { if (this.sysIdx === to && this.game === GS_RUN && !this.dlg) this.kessariDemand(2 + (this.M.diff % 3 === 2 ? 1 : 0), this.hasArt('idol') && this.frand() < 0.5); });
     if (this.onArrive) this.onArrive(to, from);
   }
@@ -1102,6 +1116,7 @@ export class Sim {
           const sid = P.scanId;
           P.scanId = NO_ID;
           if (this.jobOnScan) this.jobOnScan(sid);
+          if (this.campOnScan) this.campOnScan(sid);
         }
       }
     }
@@ -1537,6 +1552,7 @@ export class Sim {
     const P = this.P;
     P.dock = 2; P.dockId = ID_BASE; P.dockT = K.DOCK_TIME_S;
     P.x = this.bx + 400; P.y = this.by - 400;
+    if (this.mode === K.MODE_CAMPAIGN) { this.startCampaign((this.selType % Math.max(1, Math.min(5, (this.campSave && this.campSave.maxCh) || 1))) + 1); if (this.onVoyageStart) this.onVoyageStart(); return; }
     if (this.mode === K.MODE_SANDBOX) {
       this.setObjective(this.voyageObjective());
       this.say(FROM_COMMAND, 0, 'AURORA, YOU ARE CLEARED FOR AN OPEN PATROL OF THE FRONTIER. THE JUMP LANES ARE ON YOUR NAV GALAXY CHART. GOOD HUNTING.');
@@ -1555,7 +1571,7 @@ export class Sim {
   }
   holdUsed() { let n = 0; for (let i = 0; i < G.NRAW; i++) n += this.P.cargo[i]; return n; }
   spawnPois(idx) {
-    const sd = this.sysDef, spec = G.SYS_POIS[sd.id] || [], fixed = { ...(G.SYS_FIXED_ART[sd.id] || {}) };
+    const sd = this.sysDef, spec = G.SYS_POIS[sd.id] || [], fixed = this.mode === K.MODE_CAMPAIGN ? {} : { ...(G.SYS_FIXED_ART[sd.id] || {}) };
     const found = this.foundArts || (this.foundArts = new Set());
     const placed = new Set();
     const pool = (kind) => G.POI_ARTS[kind].filter((id) => !found.has(id) && !placed.has(id) && !G.ART[G.ART_INDEX[id]].set);
@@ -1610,6 +1626,7 @@ export class Sim {
     const P = this.P, n = id < MAX_CONTACTS ? this.npc[id] : null;
     if (!n || !n.active || n.type !== CT_POI || !this.visible(id)) return 'SELECT A POINT OF INTEREST ON SENSORS FIRST.';
     if (n.scan < 1) return 'SCAN IT FIRST TO SEE WHAT IT IS.';
+    if (n.vault) return 'THE WRECK\'S VAULT IS SEALED BY A HARMONIC LOCK. HAIL THE WRECK FROM COMMS.';
     if (P.health[S_SENSORS] <= 0) return 'SENSORS OFFLINE.';
     const d = distTo(P.x, P.y, n.x, n.y);
     if (mode === 1) {
@@ -1688,6 +1705,7 @@ export class Sim {
     }
     n.sampled++;
     n.scan = 2;
+    if (n.log && !n.logRead) { n.logRead = true; this.say(FROM_CREW, 0, n.log); this.msgs[0].who = 'teo'; }
     const parts = [got.length ? 'RECOVERED ' + got.join(', ') + '.' : 'NO MATERIALS RECOVERED.'];
     if (mode === 2) {
       if (n.art >= 0 && P.arts.length < G.MAX_ARTS) {
@@ -1858,6 +1876,7 @@ export class Sim {
       }
     }
     if (this.duel) this.duelTick();
+    if (this.camp && this.mode === K.MODE_CAMPAIGN) this.campTick(dt);
   }
   after(sec, fn) { this.timers.push({ at: this.now + sec * 1000, fn }); }
   // ---- helpers the dialogue trees use
@@ -1938,6 +1957,7 @@ export class Sim {
     const won = !n.active || !n.alive || n.hull < 30, lost = P.hull < 35;
     if (!won && !lost) return;
     this.duel = null;
+    this.lastDuel = won ? 'won' : 'lost';
     if (n.active && n.alive) { n.ai = AI_FLEE; n.aiT = 0; n.faction = F_NEUTRAL; }
     const from = dd.from;
     this.dlg = null;
@@ -2169,3 +2189,4 @@ export class Sim {
   }
 }
 installVoyage(Sim);
+installCampaign(Sim);

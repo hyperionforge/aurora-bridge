@@ -23,6 +23,9 @@ const r1 = (v) => Math.round(v * 10) / 10;
 export class Host {
   constructor(opts = {}) {
     this.sim = new Sim(opts.rand || Math.random);
+    // campaign progress survives restarts (browser / app WebView only)
+    try { const v = globalThis.localStorage && globalThis.localStorage.getItem('aurora.campaign'); if (v) this.sim.campSave = JSON.parse(v); } catch { /* no storage */ }
+    if (!this.sim.campSave) this.sim.campSave = { maxCh: 1, f: {} };
     this.players = new Map();   // pid -> {pid, name, cid, station, kind, joinedAt}
     this.conns = new Map();     // cid -> pid
     this.layoutCrew = 0;
@@ -93,6 +96,10 @@ export class Host {
     }
     if (sim.events.length) {
       if (sim.events.some((e) => e.type === K.EV_MESSAGE || e.type === K.EV_ORDER)) this.slowDirty = true;
+      if (sim.campSaveDirty) {
+        sim.campSaveDirty = false;
+        try { if (globalThis.localStorage) globalThis.localStorage.setItem('aurora.campaign', JSON.stringify(sim.campSave)); } catch { /* no storage */ }
+      }
       this.all({ t: 'ev', e: sim.events });
       sim.events = [];
     }
@@ -283,6 +290,7 @@ export class Host {
     });
     return {
       t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, selMode: s.selMode, mode: s.mode, sys: s.sysIdx,
+      campMax: (s.campSave && s.campSave.maxCh) || 1, camp: s.camp ? { ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null } : null, stats: s.stats, visitedN: s.visited.size,
       visited: [...s.visited], revealed: [...s.revealed], jumpWhy: s.P.jumpTo === K.NO_ID ? this.jumpReasons() : {}, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
       M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
         waves: M.waves, frLost: M.frLost, ver: M.ver },

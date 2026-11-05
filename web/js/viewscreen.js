@@ -11,6 +11,7 @@ import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula
 import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
 import { CHARS } from './dialogue.js';
+import { CHAPTERS, CHAPTER_DESC } from './campaign.js';
 import { drawPortrait, drawGlyphs, translated, msgAge } from './portraits.js';
 import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME, CIV_COL } from './galaxy.js';
 
@@ -96,8 +97,19 @@ export class Scene {
         g.text(x + 8 * u, y + ht - 22 * u, 'RED ALERT', 18 * u, C.RED);
         g.text(x + wd - 8 * u, y + ht - 22 * u, 'RED ALERT', 18 * u, C.RED, 'right');
       }
-      if (P.dock === 1) g.text(x + wd / 2, y + 80 * u, 'DOCKING...', 18 * u, C.GREEN, 'center');
-      if (P.dock === 2) g.text(x + wd / 2, y + 80 * u, 'DOCKED - REPAIRING AND RESUPPLYING', 18 * u, C.GREEN, 'center');
+      const vw = opts.view ?? w.view;
+      if (P.dock === 1 && vw !== K.VM_COMMS) g.text(x + wd / 2, y + 80 * u, 'DOCKING...', 18 * u, C.GREEN, 'center');
+      if (P.dock === 2 && vw !== K.VM_COMMS) g.text(x + wd / 2, y + 80 * u, 'DOCKED - REPAIRING AND RESUPPLYING', 18 * u, C.GREEN, 'center');
+      // a new campaign chapter: its title over whatever is on screen
+      const cp = w.slow && w.slow.camp;
+      if (cp && cp.ch && w.now - cp.t0 < 7000) {
+        const a = clampf(Math.min((w.now - cp.t0) / 600, (7000 - (w.now - cp.t0)) / 900), 0, 1);
+        g.ctx.globalAlpha = a * 0.85; g.rect(x, y + ht * 0.3, wd, ht * 0.4, '#000'); g.ctx.globalAlpha = a;
+        g.text(x + wd / 2, y + ht * 0.36, 'ECHOES OF THE CHORUS', 16 * u, C.LILAC, 'center');
+        g.text(x + wd / 2, y + ht * 0.42, `CHAPTER ${['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'][cp.ch - 1]}`, 22 * u, C.ORANGE, 'center');
+        g.text(x + wd / 2, y + ht * 0.5, CHAPTERS[cp.ch - 1], 44 * u, C.PEACH, 'center', true);
+        g.ctx.globalAlpha = 1;
+      }
     } else {
       this.starsUpdate(dt, this.lastStarHdg + dt * 3, w.game === K.GS_TITLE ? 40 : 10);
       this.starsDraw(g, r, false);
@@ -674,6 +686,28 @@ export class Scene {
       g.circle(cx, r.y + r.h / 2, rr, t < 0.4 ? C.WHITE : t < 1.2 ? C.YELLOW : C.ORANGE);
       g.circle(cx, r.y + r.h / 2, rr + 8 * u, C.RED, false, 2 * u);
     }
+    const cp = s && s.camp;
+    if (won && cp && cp.ending) { // campaign epilogue
+      const e = cp.ending;
+      g.text(cx, r.y + 30 * u, 'ECHOES OF THE CHORUS - EPILOGUE', 16 * u, C.LILAC, 'center');
+      g.text(cx, r.y + 56 * u, e.title, 50 * u, C.PEACH, 'center', true);
+      let yy = g.wrap(r.x + r.w * 0.12, r.y + 130 * u, r.w * 0.76, e.text, 19 * u, C.WHITE, 1.35, 8) + 16 * u;
+      g.wrap(r.x + r.w * 0.12, yy, r.w * 0.76, e.allies.length ? 'THEY ANSWERED YOUR CALL: ' + e.allies.join(', ') + '.' : 'NOBODY CAME TO HELP. YOU STOOD ALONE.', 16 * u, e.allies.length ? C.GREEN : C.GREY_TXT, 1.3, 3);
+      g.text(cx, r.y + r.h - 40 * u, `TIME ${mmss(w.missionT)}   ENEMIES DEFEATED ${w.kills}   HULL ${Math.round(P.hull)}%`, 15 * u, C.SKY, 'center');
+      return;
+    }
+    if (w.mode) { // a voyage: how far you got
+      g.text(cx, r.y + 40 * u, won ? 'VOYAGE COMPLETE' : 'THE AURORA IS LOST', 50 * u, won ? C.GREEN : C.RED, 'center', true);
+      let yy = r.y + 130 * u;
+      const line = (txt, col) => { g.text(cx, yy, txt, 19 * u, col, 'center'); yy += 28 * u; };
+      if (cp && cp.ch) line(`ECHOES OF THE CHORUS - REACHED CHAPTER ${cp.ch}: ${CHAPTERS[cp.ch - 1]}`, C.LILAC);
+      line(`VOYAGE TIME   ${mmss(w.missionT)}`, C.SKY);
+      line(`STAR SYSTEMS VISITED  ${s ? s.visitedN : 1}`, C.SKY);
+      line(`CONTRACTS COMPLETED  ${(s && s.stats && s.stats.jobs) || 0}`, C.SKY);
+      line(`ARTEFACTS IN THE HOLD  ${(P.arts || []).length}`, C.SKY);
+      line(`ENEMIES DEFEATED  ${w.kills}`, C.SKY);
+      return;
+    }
     g.text(cx, r.y + 40 * u, won ? 'MISSION COMPLETE' : K.FAIL_TEXT[M.fail] || 'MISSION FAILED', 50 * u, won ? C.GREEN : C.RED, 'center', true);
     g.text(cx, r.y + 104 * u, `${K.MT_NAME[M.type]} - ${K.DIFF_NAME[M.diff]}`, 18 * u, C.PEACH, 'center');
     if (!won) g.text(cx, r.y + 128 * u, M.fail === K.FAIL_SHIP ? 'ALL HANDS LOST.' : 'MISSION FAILED.', 18 * u, C.PEACH, 'center');
@@ -701,7 +735,8 @@ export function drawViewer(g, w, scene, opts = {}) {
   g.text(98 * u, 7 * u, w.alert === K.AL_RED ? 'RED ALERT' : w.alert === K.AL_YELLOW ? 'YELLOW ALERT' : 'CONDITION GREEN', 22 * u, C.BLACK, 'center', true);
   if (w.game === K.GS_RUN) {
     g.textFit(200 * u, 3 * u, w.M.objective, 17 * u, C.ORANGE, 'left', W - 210 * u);
-    g.textFit(200 * u, 21 * u, w.bonus ? 'BONUS COMPLETE: ANOMALY DATA RECOVERED' : K.BONUS_TEXT, 13 * u, w.bonus ? C.GREEN_DIM : C.LILAC, 'left', W - 210 * u);
+    if (w.mode) { const j = w.slow && w.slow.job; if (j && w.mode === K.MODE_CAMPAIGN) g.textFit(200 * u, 21 * u, 'CONTRACT: ' + j.objective, 13 * u, C.YELLOW, 'left', W - 210 * u); }
+    else g.textFit(200 * u, 21 * u, w.bonus ? 'BONUS COMPLETE: ANOMALY DATA RECOVERED' : K.BONUS_TEXT, 13 * u, w.bonus ? C.GREEN_DIM : C.LILAC, 'left', W - 210 * u);
   } else g.text(200 * u, 7 * u, 'STARSHIP AURORA - MAIN VIEWER', 22 * u, C.ORANGE);
   scene.draw(g, w, 0, top, W, H - top - bot, opts);
   // bottom bar
@@ -732,8 +767,13 @@ export function drawTitleCard(g, w, r, joinUrl) {
   const s = w.slow;
   if (s) {
     const sm = s.selMode || 0;
-    g.text(cx, r.y + 222 * u, sm ? `${K.MODE_NAME[sm]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}` : `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
-    g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, sm ? K.MODE_DESC[sm] : K.MT_DESC[s.selType], 13 * u, C.GREY_TXT, 1.3, 2);
+    if (sm === K.MODE_CAMPAIGN) {
+      g.text(cx, r.y + 222 * u, `ECHOES OF THE CHORUS - CHAPTER ${(s.selType % Math.max(1, s.campMax || 1)) + 1}: ${CHAPTERS[s.selType % Math.max(1, s.campMax || 1)]}   -   ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
+      g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, CHAPTER_DESC[s.selType % Math.max(1, s.campMax || 1)], 13 * u, C.GREY_TXT, 1.3, 2);
+    } else {
+      g.text(cx, r.y + 222 * u, sm ? `${K.MODE_NAME[sm]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}` : `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
+      g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, sm ? K.MODE_DESC[sm] : K.MT_DESC[s.selType], 13 * u, C.GREY_TXT, 1.3, 2);
+    }
   }
   // the 8 roles and who holds them
   const byPid = new Map(lb.players.map((p) => [p.pid, p]));
