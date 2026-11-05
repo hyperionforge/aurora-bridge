@@ -136,9 +136,12 @@ export const ST_RETURN = 90, ST_AMBUSH = 91, ST_DOCK = 92;
 // ---------------------------------------------------------------- station tabs (phone consoles)
 // Every console "tab" of the hardware build is one sub-station here. The
 // game groups them into stations according to how many crew there are.
-export const T_HELM = 0, T_NAV = 1, T_SCI = 2, T_COMMS = 3, T_TAC = 4, T_SHIELDS = 5, T_ENG = 6, T_DMG = 7;
-export const TAB_NAME = ['HELM', 'NAV', 'SCIENCE', 'COMMS', 'TACTICAL', 'SHIELDS', 'ENGINEER', 'DAMAGE'];
-export const TAB_COL = [C.ORANGE, C.VIOLET, C.SKY, C.LILAC, C.RED, C.SKY, C.ORANGE, C.TAN];
+export const T_HELM = 0, T_NAV = 1, T_SCI = 2, T_COMMS = 3, T_TAC = 4, T_SHIELDS = 5, T_ENG = 6, T_DMG = 7, T_CAPTAIN = 8;
+export const NUM_CORE = 8;           // roles that must be filled; the captain (8) is optional
+export const T_CAP_ORDERS = 9, T_CAP_HAILS = 10; // the captain's extra tabs (not roles of their own)
+export const TAB_NAME = ['HELM', 'NAV', 'SCIENCE', 'COMMS', 'TACTICAL', 'SHIELDS', 'ENGINEER', 'DAMAGE', 'CAPTAIN'];
+export const TAB_LABEL = [...TAB_NAME, 'ORDERS', 'HAILS'];
+export const TAB_COL = [C.ORANGE, C.VIOLET, C.SKY, C.LILAC, C.RED, C.SKY, C.ORANGE, C.TAN, C.PEACH, C.ORANGE, C.LILAC];
 export const TAB_DESC = [
   'STEER, IMPULSE, WARP, EVASIVE, DOCKING',
   'SECTOR MAP, WAYPOINTS, AUTOPILOT, INTERCEPT',
@@ -148,6 +151,7 @@ export const TAB_DESC = [
   'SHIELD QUARTERS, REINFORCE, ALERT',
   'POWER, HEAT, COOLANT',
   'DAMAGE CONTROL, REPAIR TEAMS',
+  'SHIP STATUS, FIRST OFFICER, ORDERS, HAILS',
 ];
 // station layouts for 1-4 crew (the captain is extra and optional)
 export const LAYOUTS = {
@@ -194,7 +198,7 @@ export const ORDERS = [
   { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'AHEAD FULL' },
   { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'ALL STOP' },
   { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'ENGAGE WARP' },
-  { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'DOCK AT STARBASE 12' },
+  { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'DOCK AT THE STATION' },
   { st: OS_SCI, subj: SUBJ_CONTACT, tab: T_SCI, label: 'SCAN %s' },
   { st: OS_SCI, subj: SUBJ_CONTACT, tab: T_SCI, label: 'FULL SCAN OF %s' },
   { st: OS_SCI, subj: SUBJ_NONE, tab: T_SCI, label: 'LONG RANGE SCAN' },

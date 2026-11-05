@@ -11,7 +11,7 @@
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div id="hint">CLICK / TAP FOR SOUND - PRESS F FOR FULL SCREEN</div>
+<div id="hint">CLICK / TAP FOR SOUND AND VOICES - F: FULL SCREEN - V: VOICES ON/OFF</div>
 <script type="module">
   // Main viewer in any browser on the same Wi-Fi: a smart TV, a laptop on HDMI, a tablet...
   import { TvApp, loadFonts, sound } from './js/tv.js';
@@ -23,10 +23,14 @@
   link.setHello({ t: 'hello', pid, name: 'VIEWSCREEN', kind: 'screen' });
   fetch('/lan').then((r) => r.json()).then((j) => { if (j.urls && j.urls[0]) app.joinUrl = j.urls[0]; }).catch(() => {});
   const hint = document.getElementById('hint');
-  const unlock = () => { sound.unlock(); hint.style.display = 'none'; };
+  const unlock = () => { sound.unlock(); hint.style.display = 'none'; try { if (!app.voiceUnlocked) { app.voiceUnlocked = true; speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } } catch {} };
   addEventListener('pointerdown', unlock);
   setTimeout(() => { hint.style.display = 'none'; }, 12000);
-  addEventListener('keydown', (e) => { unlock(); if (e.key === 'f' || e.key === 'F') document.documentElement.requestFullscreen?.(); });
+  addEventListener('keydown', (e) => {
+    unlock();
+    if (e.key === 'f' || e.key === 'F') document.documentElement.requestFullscreen?.();
+    if (e.key === 'v' || e.key === 'V') { app.narrator.enabled = !app.narrator.enabled; if (!app.narrator.enabled) app.voice.stop(); }
+  });
 </script>
 </body>
 </html>

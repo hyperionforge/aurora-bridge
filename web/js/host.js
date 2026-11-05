@@ -138,14 +138,16 @@ export class Host {
     const act = this.activePlayers();
     if (!act.length) return;
     const split = K.AUTO_SPLIT[Math.min(act.length, 5)];
+    const cap = this.ownerOfTab(K.T_CAPTAIN); // whoever chose to captain keeps it
     for (const p of this.players.values()) p.roles = [];
     act.forEach((p, i) => { p.roles = i < split.length ? [...split[i]] : []; });
+    if (cap && cap.cid) cap.roles = [...cap.roles, K.T_CAPTAIN];
     this.lobbyDirty = true;
   }
   canStart() {
     const act = this.activePlayers();
     if (!act.length) return { ok: false, why: 'WAITING FOR PLAYERS' };
-    const open = K.TAB_NAME.filter((_, t) => { const o = this.ownerOfTab(t); return !o || !o.cid; });
+    const open = K.TAB_NAME.slice(0, K.NUM_CORE).filter((_, t) => { const o = this.ownerOfTab(t); return !o || !o.cid; });
     if (open.length) return { ok: false, why: 'STILL TO ASSIGN: ' + open.join(', ') };
     const idle = act.filter((p) => !p.roles.length);
     if (idle.length) return { ok: false, why: idle.map((p) => p.name).join(', ') + (idle.length > 1 ? ' HAVE' : ' HAS') + ' NO ROLE YET' };
@@ -219,7 +221,8 @@ export class Host {
       case 'cmd': {
         const c = { cmd: m.cmd | 0, a: m.a | 0, b: m.b | 0, c: +m.c || 0, d: +m.d || 0 };
         if (c.cmd === K.CMD.START && !this.canStart().ok) return;
-        if (c.cmd === K.CMD.ORDER) return; // no captain station any more
+        if (c.cmd === K.CMD.ORDER && !p.roles.includes(K.T_CAPTAIN)) return; // only the captain gives orders
+        if (c.cmd === K.CMD.START) { const cap = this.ownerOfTab(K.T_CAPTAIN); sim.captainMode = !!(cap && cap.cid); }
         sim.handleCmd(c);
         if (c.cmd === K.CMD.SELECT || c.cmd === K.CMD.START || c.cmd === K.CMD.RESTART) { this.lobbyDirty = true; this.slowDirty = true; }
         if (c.cmd === K.CMD.ORDER || c.cmd === K.CMD.ORDER_ACK) this.slowDirty = true;

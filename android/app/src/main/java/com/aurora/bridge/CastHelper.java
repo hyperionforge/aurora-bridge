@@ -24,6 +24,9 @@ class CastHelper {
     static final String NAMESPACE = "urn:x-cast:com.aurora.bridge";
 
     interface StateListener { void onState(boolean connected); }
+    interface MessageListener { void onMessage(String json); }
+    private volatile MessageListener msgListener;
+    void setMessageListener(MessageListener l) { msgListener = l; }
 
     private final AppCompatActivity activity;
     private final SharedPreferences prefs;
@@ -36,8 +39,8 @@ class CastHelper {
     private boolean fastScheduled;
 
     private final SessionManagerListener<CastSession> sessions = new SessionManagerListener<CastSession>() {
-        @Override public void onSessionStarted(CastSession s, String id) { session = s; on = true; listener.onState(true); }
-        @Override public void onSessionResumed(CastSession s, boolean b) { session = s; on = true; listener.onState(true); }
+        @Override public void onSessionStarted(CastSession s, String id) { session = s; on = true; listen(s); listener.onState(true); }
+        @Override public void onSessionResumed(CastSession s, boolean b) { session = s; on = true; listen(s); listener.onState(true); }
         @Override public void onSessionEnded(CastSession s, int e) { session = null; on = false; listener.onState(false); }
         @Override public void onSessionSuspended(CastSession s, int r) { }
         @Override public void onSessionStarting(CastSession s) { }
@@ -71,7 +74,7 @@ class CastHelper {
         SessionManager sm = ctx.getSessionManager();
         sm.addSessionManagerListener(sessions, CastSession.class);
         CastSession s = sm.getCurrentCastSession();
-        if (s != null && s.isConnected()) { session = s; on = true; listener.onState(true); }
+        if (s != null && s.isConnected()) { session = s; on = true; listen(s); listener.onState(true); }
     }
 
     /** Main thread: stop casting (the app is closing), so the TV doesn't keep showing an old picture. */
@@ -118,6 +121,16 @@ class CastHelper {
         } else {
             main.post(() -> sendNow(json));
         }
+    }
+
+    /** Messages from the TV (e.g. whether it can speak). */
+    private void listen(CastSession s) {
+        try {
+            s.setMessageReceivedCallbacks(NAMESPACE, (device, ns, message) -> {
+                MessageListener l = msgListener;
+                if (l != null) l.onMessage(message);
+            });
+        } catch (Exception ignored) { }
     }
 
     private void sendNow(String json) {

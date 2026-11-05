@@ -11,10 +11,12 @@ import { World, Link } from './world.js';
 import { sound } from './sound.js';
 import { Scene } from './viewscreen.js';
 import { mmss } from './util.js';
+import { Narrator, WebVoice, NativeVoice } from './voice.js';
 import { helm, nav, science, comms } from './stations/helm.js';
 import { tactical, shields, engineer, damage } from './stations/tactical.js';
+import { capStatus, capOrders, capHails } from './stations/captain.js';
 
-const TABS = [helm, nav, science, comms, tactical, shields, engineer, damage];
+const TABS = [helm, nav, science, comms, tactical, shields, engineer, damage, capStatus, capOrders, capHails];
 const params = new URLSearchParams(location.search);
 const Native = window.AuroraNative || null; // the Android app's bridge (absent in a browser)
 const SB_W = 100, TOP_H = 34;
@@ -54,11 +56,16 @@ class App {
     this.applyEdge();
     setInterval(() => this.applyEdge(), 1500);
     this.vibrate = store('aurora.vibrate') !== '0';
+    // hail voices on this phone: auto = only while casting to a TV that can't speak; on; off
+    this.voiceMode = store('aurora.voice') || 'auto';
+    this.tvVoice = null; // what the Chromecast said about its own speech
+    this.narrator = new Narrator(Native && Native.speak ? new NativeVoice(Native) : new WebVoice());
+    window.onCastMessage = (json) => { try { const m = typeof json === 'string' ? JSON.parse(json) : json; if (m && m.t === 'voice') this.tvVoice = !!m.ok; } catch { /* ignore */ } };
     const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
     if (this.isHost) this.startHost(wsUrl);
     this.link = new Link(wsUrl, (m, raw) => this.onMsg(m, raw), (up) => { if (!up) this.status = 'connecting'; });
     this.link.setHello({ t: 'hello', pid: this.pid, name: this.name, kind: 'player', isHost: this.isHost });
-    window.onCastState = (on) => { this.casting = !!on; if (on) this.castCatchUp(); };
+    window.onCastState = (on) => { this.casting = !!on; this.tvVoice = null; if (on) this.castCatchUp(); };
     try { if (Native && Native.castState) this.casting = !!Native.castState(); } catch { this.casting = false; }
     this.fetchJoin();
     document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
@@ -132,7 +139,8 @@ class App {
   myStation() {
     const me = this.me();
     if (!me || !me.roles || !me.roles.length) return null;
-    return { key: me.roles.join(','), name: me.roles.map((t) => K.TAB_NAME[t]).join(' + '), tabs: me.roles, col: me.col };
+    const tabs = me.roles.flatMap((t) => (t === K.T_CAPTAIN ? [K.T_CAPTAIN, K.T_CAP_ORDERS, K.T_CAP_HAILS] : [t]));
+    return { key: me.roles.join(','), name: me.roles.map((t) => K.TAB_NAME[t]).join(' + '), tabs, col: me.col };
   }
   myTabs() { const s = this.myStation(); return s ? s.tabs : []; }
 
@@ -141,6 +149,8 @@ class App {
     requestAnimationFrame(() => this.frame());
     const g = this.g, w = this.w;
     w.update();
+    this.narrator.enabled = this.voiceMode === 'on' || (this.voiceMode === 'auto' && this.casting && this.tvVoice !== true);
+    this.narrator.hear(w);
     g.begin();
     if (innerHeight > innerWidth * 1.05) { this.drawRotate(); return; }
     if (this.status !== 'ok' || !w.lobby) this.drawConnecting();
@@ -276,14 +286,27 @@ class App {
     y += 24;
     const joinH = this.joinUrls.length ? 44 : 0;
     const cols = 4, rows = 2, gap = 6;
-    const cw = (rw - (cols - 1) * gap) / cols, ch = (H - y - 6 - joinH - (rows - 1) * gap) / rows;
+    const capH = 40;
+    const cw = (rw - (cols - 1) * gap) / cols, ch = (H - y - 6 - joinH - (rows - 1) * gap - capH - gap) / rows;
     const byPid = new Map(lb.players.map((p) => [p.pid, p]));
     for (let t = 0; t < K.TAB_NAME.length; t++) {
-      const cx = rx + (t % cols) * (cw + gap), cy = y + Math.floor(t / cols) * (ch + gap);
+      const capt = t === K.T_CAPTAIN;
+      const cx = capt ? rx : rx + (t % cols) * (cw + gap), cy = capt ? y + rows * (ch + gap) : y + Math.floor(t / cols) * (ch + gap);
       const owner = lb.roles[t] ? byPid.get(lb.roles[t]) : null;
       const mine = owner && owner.pid === this.pid;
       const free = !owner || !owner.online;
       const col = K.TAB_COL[t];
+      if (capt) { // the optional captain: a strip under the cards
+        const cwid = rw, chh = capH;
+        g.rrect(cx, cy, cwid, chh, 12, mine ? col : C.PANEL);
+        g.ctx.strokeStyle = owner && !mine ? owner.col : col; g.ctx.lineWidth = 2;
+        g.ctx.beginPath(); g.ctx.roundRect(cx + 1, cy + 1, cwid - 2, chh - 2, 12); g.ctx.stroke();
+        g.text(cx + 12, cy + 9, 'CAPTAIN', 19, mine ? C.BLACK : col, 'left', true);
+        g.textFit(cx + 110, cy + 12, '(OPTIONAL) ' + K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 'left', cwid - 300);
+        g.textFit(cx + cwid - 12, cy + 10, owner ? owner.name + (owner.online ? '' : ' (GONE)') : 'OPEN', 16, mine ? C.BLACK : owner ? owner.col : C.GREEN, 'right', 170, true);
+        g.hit(cx, cy, cwid, chh, { down: () => { if (!mine && !free) { sound.denied(); return; } sound.toggle(); this.link.send({ t: 'role', tab: t }); } });
+        continue;
+      }
       g.rrect(cx, cy, cw, ch, 12, mine ? col : C.PANEL);
       const c = g.ctx;
       c.strokeStyle = owner && !mine ? owner.col : col; c.lineWidth = 2;
@@ -335,7 +358,7 @@ class App {
   }
   drawRun() {
     const g = this.g, w = this.w, stn = this.myStation();
-    const names = stn.tabs.map((t) => K.TAB_NAME[t]);
+    const names = stn.tabs.map((t) => K.TAB_LABEL[t]);
     const cols = stn.tabs.map((t) => K.TAB_COL[t]);
     if (this.lastTabKey !== stn.key) { // roles changed: stay on the same one if I still have it
       const keep = this.curTab;
@@ -429,41 +452,47 @@ class App {
     const g = this.g, cx = g.W / 2;
     this.elbow(C.PEACH);
     g.text(SB_W + 56, 0, 'SETTINGS', 27, C.ORANGE, 'left', true);
-    let y = 70;
-    const bw = 340;
-    g.button('msnd', cx - bw / 2, y, bw, 44, sound.enabled ? 'SOUND: ON' : 'SOUND: OFF', sound.enabled ? C.SKY : C.GREY, C.BLACK, 20, () => {
+    const bw = Math.min(340, (g.W - 2 * SB_W) / 2);
+    let y = 70, bx = cx - bw - 8; // two columns: settings on the left, actions on the right
+    g.button('msnd', bx, y, bw, 44, sound.enabled ? 'SOUND: ON' : 'SOUND: OFF', sound.enabled ? C.SKY : C.GREY, C.BLACK, 20, () => {
       sound.enabled = !sound.enabled; store('aurora.sound', sound.enabled ? '1' : '0');
     });
     y += 54;
-    g.button('mvib', cx - bw / 2, y, bw, 44, this.vibrate ? 'VIBRATE ON HITS: ON' : 'VIBRATE ON HITS: OFF', this.vibrate ? C.SKY : C.GREY, C.BLACK, 20, () => {
+    const vm = { auto: 'HAIL VOICES HERE: WHEN CASTING', on: 'HAIL VOICES HERE: ON', off: 'HAIL VOICES HERE: OFF' };
+    g.button('mvoice', bx, y, bw, 44, vm[this.voiceMode], this.voiceMode === 'off' ? C.GREY : C.SKY, C.BLACK, 18, () => {
+      this.voiceMode = { auto: 'on', on: 'off', off: 'auto' }[this.voiceMode]; store('aurora.voice', this.voiceMode);
+      if (this.voiceMode === 'off') this.narrator.engine.stop();
+    });
+    y += 54;
+    g.button('mvib', bx, y, bw, 44, this.vibrate ? 'VIBRATE ON HITS: ON' : 'VIBRATE ON HITS: OFF', this.vibrate ? C.SKY : C.GREY, C.BLACK, 20, () => {
       this.vibrate = !this.vibrate; store('aurora.vibrate', this.vibrate ? '1' : '0');
     });
     y += 54;
     const modes = ['auto', 'off', 'small', 'large'];
-    g.button('medge', cx - bw / 2, y, bw, 44, `SCREEN EDGE MARGIN: ${this.edge.toUpperCase()} (${Math.round(this.edgePx())}PX)`, C.SKY, C.BLACK, 18, () => {
+    g.button('medge', bx, y, bw, 44, `SCREEN EDGE MARGIN: ${this.edge.toUpperCase()} (${Math.round(this.edgePx())}PX)`, C.SKY, C.BLACK, 18, () => {
       this.edge = modes[(modes.indexOf(this.edge) + 1) % modes.length];
       store('aurora.edge', this.edge);
       this.applyEdge();
     });
-    y += 54;
+    y = 70; bx = cx + 8;
     if (!Native && document.documentElement.requestFullscreen) {
-      g.button('mfs', cx - bw / 2, y, bw, 44, 'FULL SCREEN', C.LILAC, C.BLACK, 20, () => {
+      g.button('mfs', bx, y, bw, 44, 'FULL SCREEN', C.LILAC, C.BLACK, 20, () => {
         document.documentElement.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
         this.menu = false;
       });
       y += 54;
     }
     if (this.w.game === K.GS_RUN) {
-      g.button('mswap', cx - bw / 2, y, bw, 44, 'GIVE BACK MY ROLES (PICK AGAIN)', C.TAN, C.BLACK, 18, () => {
+      g.button('mswap', bx, y, bw, 44, 'GIVE BACK MY ROLES (PICK AGAIN)', C.TAN, C.BLACK, 18, () => {
         this.link.send({ t: 'unclaim' }); this.menu = false;
       });
       y += 54;
     }
-    g.button('mleave', cx - bw / 2, y, bw, 44, this.isHost ? 'END GAME AND LEAVE' : 'LEAVE GAME', C.RED, C.BLACK, 20, () => {
+    g.button('mleave', bx, y, bw, 44, this.isHost ? 'END GAME AND LEAVE' : 'LEAVE GAME', C.RED, C.BLACK, 20, () => {
       if (Native) Native.leave(); else { store('aurora.name', ''); location.href = location.pathname; }
     });
-    y += 64;
-    g.button('mclose', cx - bw / 2, y, bw, 44, 'BACK TO THE BRIDGE', C.ORANGE, C.BLACK, 20, () => { this.menu = false; });
+    y += 54;
+    g.button('mclose', bx, y, bw, 44, 'BACK TO THE BRIDGE', C.ORANGE, C.BLACK, 20, () => { this.menu = false; });
     if (this.isHost) g.text(cx, g.H - 22, 'YOU ARE HOSTING: KEEP THIS APP OPEN AND THE SCREEN ON WHILE YOU PLAY', 13, C.YELLOW, 'center');
   }
 }

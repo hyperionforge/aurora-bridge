@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.VibrationEffect;
+import android.speech.tts.TextToSpeech;
 import android.os.Vibrator;
 import android.view.RoundedCorner;
 import android.view.WindowInsets;
@@ -31,6 +32,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -47,6 +49,9 @@ public class MainActivity extends AppCompatActivity {
     private RelayServer relay;
     private Discovery discovery;
     private CastHelper cast;
+    private TextToSpeech tts;          // reads hails aloud when the TV can't
+    private volatile boolean ttsReady;
+    private int ttsSeq;
     private SharedPreferences prefs;
     private final Handler main = new Handler(Looper.getMainLooper());
     private boolean inGame;
@@ -69,6 +74,8 @@ public class MainActivity extends AppCompatActivity {
         discovery = new Discovery(this);
         discovery.startBrowsing();
         cast = new CastHelper(this, prefs, (on) -> runJs("window.onCastState && window.onCastState(" + on + ")"));
+        cast.setMessageListener((msg) -> runJs("window.onCastMessage && window.onCastMessage(" + org.json.JSONObject.quote(msg) + ")"));
+        tts = new TextToSpeech(this, (status) -> ttsReady = status == TextToSpeech.SUCCESS);
 
         web = new WebView(this);
         web.setBackgroundColor(0xFF000000);
@@ -182,6 +189,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         cast.stop();
+        if (tts != null) tts.shutdown();
         discovery.stopAll();
         if (relay != null) relay.stop();
         if (web != null) web.destroy();
@@ -246,5 +254,20 @@ public class MainActivity extends AppCompatActivity {
             else v.vibrate(Math.max(10, Math.min(ms, 500)));
         }
         @JavascriptInterface public String version() { return BuildConfig.VERSION_NAME; }
+        /** Queue a line of speech. lang like "en-GB"; pitch/rate 1.0 = normal. */
+        @JavascriptInterface public void speak(String text, String lang, float pitch, float rate) {
+            main.post(() -> {
+                if (tts == null || !ttsReady) return;
+                try {
+                    Locale loc = Locale.forLanguageTag(lang == null ? "en-US" : lang);
+                    if (tts.isLanguageAvailable(loc) < TextToSpeech.LANG_AVAILABLE) loc = Locale.US;
+                    tts.setLanguage(loc);
+                    tts.setPitch(Math.max(0.1f, Math.min(2f, pitch)));
+                    tts.setSpeechRate(Math.max(0.4f, Math.min(2f, rate)));
+                    tts.speak(text, TextToSpeech.QUEUE_ADD, null, "aurora" + (ttsSeq++));
+                } catch (Exception ignored) { }
+            });
+        }
+        @JavascriptInterface public void stopSpeaking() { main.post(() -> { if (tts != null) tts.stop(); }); }
     }
 }

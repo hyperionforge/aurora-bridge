@@ -29,6 +29,16 @@
   options.skipPlayersLoad = true;              // no media player needed
   options.customNamespaces = { [NS]: cast.framework.system.MessageType.JSON };
   ctx.start(options);
+  // can this Chromecast speak? tell the casting phone, which reads the hails itself if not
+  const report = (ok) => { try { ctx.sendCustomMessage(NS, undefined, { t: 'voice', ok }); } catch {} };
+  app.narrator.enabled = false;
+  setTimeout(() => {
+    const ok = app.voice.hasVoices();
+    app.narrator.enabled = ok;
+    if (ok) { const u = app.voice.say(' ', { lang: 'en-US', pitch: 1, rate: 1 }, 1, () => { app.narrator.enabled = false; report(false); }); }
+    report(ok);
+  }, 4000);
+  ctx.addEventListener(cast.framework.system.EventType.SENDER_CONNECTED, () => setTimeout(() => report(app.narrator.enabled), 1500));
 </script>
 </body>
 </html>

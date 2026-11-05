@@ -8,6 +8,7 @@ import { Gfx, loadFonts } from './gfx.js';
 import { World } from './world.js';
 import { Scene, drawViewer, drawTitleCard } from './viewscreen.js';
 import { sound } from './sound.js';
+import { Narrator, WebVoice } from './voice.js';
 
 export class TvApp {
   constructor(canvas, opts = {}) {
@@ -18,6 +19,9 @@ export class TvApp {
     this.status = opts.status || '';
     sound.volume = 0.035;
     sound.wave = 'triangle';
+    this.voice = new WebVoice();
+    this.narrator = new Narrator(this.voice);
+    this.narrator.enabled = opts.voice !== false;
     requestAnimationFrame(() => this.frame());
   }
   onMsg(m) {
@@ -31,6 +35,7 @@ export class TvApp {
     requestAnimationFrame(() => this.frame());
     const g = this.g, w = this.w;
     w.update();
+    this.narrator.hear(w);
     g.begin();
     if (!w.have) {
       const u = g.H / 540;

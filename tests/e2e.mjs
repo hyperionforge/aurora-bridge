@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
 const relay = process.argv[2] || 'node';
 const crew = +(process.argv[3] || 2);
 const manual = process.argv[4] === '1';
-const captain = false;
+const captain = true;  // the host phone also takes the optional captain role
 const PORT = 8800 + Math.floor(Math.random() * 100);
 const OUT = process.env.SHOTS || 'shots';
 fs.mkdirSync(OUT, { recursive: true });
@@ -67,6 +67,7 @@ if (manual) {
 } else {
   await host.evaluate(() => window.auroraApp.link.send({ t: 'auto' }));
 }
+if (captain) await host.evaluate(() => window.auroraApp.link.send({ t: 'role', tab: 8 }));
 await sleep(800);
 await host.screenshot({ path: `${OUT}/p02_lobby_ready.png` });
 await tv.screenshot({ path: `${OUT}/tv01_title.png` });
@@ -124,7 +125,7 @@ for (let i = 0; i < n; i++) {
 // captain order -> banner on the crew phone that owns the tab
 if (captain) {
   let ci = 0;
-  for (let i = 0; i < n; i++) if (await phones[i].evaluate(() => !!window.auroraApp.myStation().captain)) ci = i;
+  for (let i = 0; i < n; i++) if (await phones[i].evaluate(() => window.auroraApp.myStation().tabs.includes(8))) ci = i;
   await phones[ci].evaluate(() => window.auroraApp.send(34, 3, 0));   // ORDER: evasive manoeuvres
   await phones[ci].evaluate(() => window.auroraApp.send(34, 21, 0));  // ORDER: power to shields
   await sleep(700);
@@ -135,9 +136,11 @@ if (captain) {
     if (o) { await phones[i].evaluate((id) => { const a = window.auroraApp; a.send(33, id); a.send(6, 1); }, o); }
   }
   await sleep(1200);
-  await phones[ci].evaluate(() => { window.auroraApp.capTab = 1; });
-  await sleep(300);
-  await phones[ci].screenshot({ path: `${OUT}/p35_captain_log.png` });
+  for (const [t, nm] of [[8, 'status'], [9, 'orders'], [10, 'hails']]) {
+    await phones[ci].evaluate((t) => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(t); }, t);
+    await sleep(400);
+    await phones[ci].screenshot({ path: `${OUT}/p35_captain_${nm}.png` });
+  }
   const ol = await host.evaluate(() => window.auroraHost.sim.orders.map((o) => `${o.code}:${o.status}`).join(' '));
   console.log('orders after crew response:', ol);
 }

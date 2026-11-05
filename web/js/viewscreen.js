@@ -779,13 +779,17 @@ export function drawTitleCard(g, w, r, joinUrl) {
   const byPid = new Map(lb.players.map((p) => [p.pid, p]));
   const cols = 4, bw = Math.min(205 * u, (r.w - 40 * u) / cols - 10 * u), bh = 30 * u;
   const x0 = cx - (cols * (bw + 10 * u) - 10 * u) / 2;
-  for (let t = 0; t < K.TAB_NAME.length; t++) {
+  {
+    const co = lb.roles[K.T_CAPTAIN] ? byPid.get(lb.roles[K.T_CAPTAIN]) : null;
+    g.text(cx, r.y + 368 * u, co ? `CAPTAIN: ${co.name}` : 'CAPTAIN: OPEN (OPTIONAL)', 14 * u, co ? co.col : C.GREY_TXT, 'center');
+  }
+  for (let t = 0; t < K.NUM_CORE; t++) {
     const x = x0 + (t % cols) * (bw + 10 * u), y = r.y + 290 * u + Math.floor(t / cols) * (bh + 8 * u);
     const o = lb.roles[t] ? byPid.get(lb.roles[t]) : null;
     g.rrect(x, y, bw, bh, bh / 2, o ? o.col : dim(K.TAB_COL[t], 0.3));
     g.textFit(x + 14 * u, y + 6 * u, K.TAB_NAME[t], 15 * u, C.BLACK, 'left', bw * 0.5, true);
     g.textFit(x + bw - 14 * u, y + 6 * u, o ? o.name : 'OPEN', 15 * u, o ? C.BLACK : C.GREY_TXT, 'right', bw * 0.45);
   }
-  g.text(cx, r.y + 372 * u, lb.canStart ? 'ALL ROLES ASSIGNED - START THE MISSION FROM ANY PHONE' : lb.why, 15 * u, lb.canStart ? C.GREEN : C.YELLOW, 'center');
+  g.text(cx, r.y + 390 * u, lb.canStart ? 'ALL ROLES ASSIGNED - START THE MISSION FROM ANY PHONE' : lb.why, 15 * u, lb.canStart ? C.GREEN : C.YELLOW, 'center');
   if (joinUrl) g.text(cx, r.y + 394 * u, 'JOIN FROM A PHONE BROWSER:  ' + joinUrl, 13 * u, C.GREY_TXT, 'center');
 }
