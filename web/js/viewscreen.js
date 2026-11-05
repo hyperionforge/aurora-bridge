@@ -407,28 +407,57 @@ export class Scene {
 
   // ---------------------------------------------------------------- incoming transmission
   drawComms(g, w, r) {
-    const u = r.u, m = w.msgs[0];
-    if (!m) return;
+    const u = r.u, msgs = w.msgs;
+    // the latest real transmission (a ship, the starbase or fleet command), not bridge chatter
+    const m = msgs.find((x) => x.from < K.MAX_CONTACTS || x.from === K.FROM_COMMAND);
     for (let i = 0; i < 6; i++) g.rect(r.x, r.y + ((performance.now() / 7 + i * 70 * u) % r.h), r.w, u, '#141e32');
-    const px = r.x + r.w * 0.21, py = r.y + r.h / 2 - 20 * u;
-    g.ctx.strokeStyle = C.GRID; g.ctx.lineWidth = u;
-    g.ctx.beginPath(); g.ctx.roundRect(px - 130 * u, py - 140 * u, 260 * u, 280 * u, 20 * u); g.ctx.stroke();
-    if (m.from < K.MAX_CONTACTS) drawContact(g, w.typeOf(m.from), px, py, 1.4 * u, (performance.now() / 40) % 360, w.now);
-    else { // fleet emblem: an original five-point star in a ring
-      g.circle(px, py, 80 * u, '#14285a');
-      g.circle(px, py, 80 * u, C.SKY, false, 1.5 * u);
-      g.circle(px, py, 70 * u, C.SKY, false, 1.5 * u);
-      for (let i = 0; i < 5; i++) {
-        const a = (i * 72 - 90) * DEG;
-        const ox = px + Math.cos(a) * 55 * u, oy = py + Math.sin(a) * 55 * u;
-        for (const s2 of [-1, 1]) { const b = a + s2 * 0.6283; g.tri(px, py, ox, oy, px + Math.cos(b) * 22 * u, py + Math.sin(b) * 22 * u, C.SKY); }
+    const bw = Math.min(r.w * 0.3, 280 * u), bh = Math.min(r.h - 40 * u, 300 * u);
+    const bx = r.x + 30 * u, by = r.y + (r.h - bh) / 2, px = bx + bw / 2, py = by + bh / 2;
+    g.ctx.strokeStyle = C.GRID; g.ctx.lineWidth = 1.5 * u;
+    g.ctx.beginPath(); g.ctx.roundRect(bx, by, bw, bh, 20 * u); g.ctx.stroke();
+    const x = bx + bw + 30 * u, tw = r.x + r.w - x - 24 * u;
+    if (!m) {
+      g.text(px, py - 12 * u, 'NO', 22 * u, C.GREY_TXT, 'center');
+      g.text(px, py + 14 * u, 'TRANSMISSIONS', 22 * u, C.GREY_TXT, 'center');
+    } else {
+      g.clip(bx + 2 * u, by + 2 * u, bw - 4 * u, bh - 4 * u);
+      if (m.from < K.MAX_CONTACTS) {
+        const type = w.typeOf(m.from);
+        const sc = (type === K.CT_STARBASE || type === K.CT_ANOMALY ? 1.3 : 1.15) * Math.min(bw, bh) / 300;
+        drawContact(g, type, px, py, sc, (performance.now() / 40) % 360, w.now);
+      } else { // fleet emblem: an original five-point star in a ring
+        const R = Math.min(bw, bh) * 0.3;
+        g.circle(px, py, R, '#14285a');
+        g.circle(px, py, R, C.SKY, false, 1.5 * u);
+        g.circle(px, py, R * 0.87, C.SKY, false, 1.5 * u);
+        for (let i = 0; i < 5; i++) {
+          const a = (i * 72 - 90) * DEG;
+          const ox = px + Math.cos(a) * R * 0.69, oy = py + Math.sin(a) * R * 0.69;
+          for (const s2 of [-1, 1]) { const b2 = a + s2 * 0.6283; g.tri(px, py, ox, oy, px + Math.cos(b2) * R * 0.28, py + Math.sin(b2) * R * 0.28, C.SKY); }
+        }
+      }
+      g.unclip();
+      const fresh = msgs.indexOf(m) === 0;
+      g.text(x, r.y + 34 * u, fresh ? 'INCOMING TRANSMISSION' : 'LAST TRANSMISSION', 13 * u, fresh && flash(600) ? C.ORANGE : C.GREY_TXT);
+      g.textFit(x, r.y + 52 * u, m.from < K.MAX_CONTACTS ? w.contactName(m.from, true) : 'FLEET COMMAND', 30 * u, C.PEACH, 'left', tw);
+      let y = g.wrap(x, r.y + 100 * u, tw, m.text, 22 * u, K.MSG_COL[m.col % 4], 1.25, 4);
+      if (m.opt && m.opt.length && fresh) {
+        g.text(x, y + 6 * u, 'REPLY OPTIONS:  ' + m.opt.map((o) => K.OPT_NAME[o]).join('  /  '), 13 * u, C.GREY_TXT);
       }
     }
-    const from = m.from < K.MAX_CONTACTS ? w.contactName(m.from, true) : m.from === K.FROM_COMMAND ? 'FLEET COMMAND' : 'AURORA';
-    const x = r.x + r.w * 0.41, tw = r.x + r.w - x - 20 * u;
-    g.text(x, r.y + 40 * u, 'INCOMING TRANSMISSION', 12 * u, C.GREY_TXT);
-    g.textFit(x, r.y + 56 * u, from, 30 * u, C.PEACH, 'left', tw);
-    g.wrap(x, r.y + 110 * u, tw, m.text, 21 * u, K.MSG_COL[m.col % 4]);
+    // recent log underneath
+    let y = r.y + r.h * 0.6;
+    g.rect(x, y - 8 * u, tw, u, C.GRID);
+    g.text(x, y, 'RECENT MESSAGES', 12 * u, C.LILAC);
+    y += 18 * u;
+    for (const mm of msgs) {
+      if (mm === m) continue;
+      if (y > r.y + r.h - 18 * u) break;
+      const who = mm.from < K.MAX_CONTACTS ? w.shortName(mm.from) : mm.from === K.FROM_COMMAND ? 'FLEET COMMAND' : mm.from === K.FROM_COMPUTER ? 'COMPUTER' : 'BRIDGE';
+      g.text(x, y, who, 12 * u, C.TAN);
+      g.textFit(x + 110 * u, y, mm.text, 13 * u, dim(K.MSG_COL[mm.col % 4], 0.8), 'left', tw - 110 * u);
+      y += 18 * u;
+    }
   }
 
   // ---------------------------------------------------------------- mission over
