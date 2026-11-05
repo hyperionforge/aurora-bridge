@@ -6,7 +6,8 @@
 // engineering. Stations only send commands and draw what the host sends.
 import * as K from './config.js';
 import * as G from './cargo.js';
-import { SYSTEMS, SYS_INDEX, SYS_C, WELL_R, CIV_FLEET, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN, CIV_CHORUS, CIV_NONE, SK_RELAY, SK_MONOLITH, SK_HAVEN, planetPos, starPos, inNebulaOf, lanesOf, sysAt } from './galaxy.js';
+import { DIALOGS, STATION_DIALOG, CHARS, ALIEN } from './dialogue.js';
+import { SYSTEMS, SYS_INDEX, SYS_C, WELL_R, CIV_FLEET, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN, CIV_CHORUS, CIV_NONE, SK_RELAY, SK_MONOLITH, SK_HAVEN, SK_CITADEL, planetPos, starPos, inNebulaOf, lanesOf, sysAt } from './galaxy.js';
 import { clampf, wrap360, angDiff, bearingTo, distTo, quadFromRel, sectorName, contactName, shortName, orderText, DEG } from './util.js';
 
 const {
@@ -61,6 +62,15 @@ export class Sim {
     this.viewId = NO_ID;
     this.viewBefore = K.VM_FORWARD;
     this.viewRevertAt = 0;
+    this.FROM_CREW = FROM_CREW;
+    this.rep = [0, 50, 10, 0, -40, 0, 0];
+    this.flags = {};
+    this.foundArts = new Set();
+    this.depleted = new Set();
+    this.timers = [];
+    this.dlg = null;
+    this.dlgSeq = 0;
+    this.greeted = new Set();
     this.bonus = false;
     this.kills = 0;
     this.missionT = 0;
@@ -100,13 +110,32 @@ export class Sim {
   get bx() { const b = this.npc[ID_BASE]; return b && b.active ? b.x : (this.sysDef.stations[0] ? this.sysDef.stations[0].x : SYS_C); }
   get by() { const b = this.npc[ID_BASE]; return b && b.active ? b.y : (this.sysDef.stations[0] ? this.sysDef.stations[0].y : SYS_C); }
   get neb() { return this.sysDef.nebulae[0] || { x: SYS_C, y: SYS_C, r: 1 }; }
-  attitudeOf(civ) { return civ === CIV_FLEET || civ === CIV_COLONY ? F_FRIEND : civ === CIV_KESSARI ? F_HOSTILE : F_NEUTRAL; }
+  attitudeOf(civ) {
+    const r = this.rep ? this.rep[civ] : 0;
+    switch (civ) {
+      case CIV_FLEET: return F_FRIEND;
+      case CIV_COLONY: return r >= -20 ? F_FRIEND : F_NEUTRAL;
+      case CIV_VELORI: return r >= 40 ? F_FRIEND : r < -40 ? F_HOSTILE : F_NEUTRAL;
+      case CIV_KESSARI: return r >= 20 ? F_NEUTRAL : F_HOSTILE;
+      case CIV_ORRAN: return r >= 50 ? F_FRIEND : r < -40 ? F_HOSTILE : F_NEUTRAL;
+      default: return F_NEUTRAL;
+    }
+  }
+  repAdd(civ, d) {
+    const was = this.attitudeOf(civ);
+    this.rep[civ] = clampf(this.rep[civ] + d, -100, 100);
+    const now = this.attitudeOf(civ);
+    for (const n of this.npc) if (n.active && n.type === CT_STARBASE && n.civ === civ) n.faction = now;
+    if (now !== was) this.say(FROM_CREW, now === F_HOSTILE ? 2 : 3, `THE ${['', 'FLEET', 'COLONISTS', 'VELORI', 'KESSARI', 'ORRANS', 'CHORUS'][civ]} NOW SEE US AS ${now === F_FRIEND ? 'FRIENDS' : now === F_HOSTILE ? 'ENEMIES' : 'NEUTRAL'}.`);
+  }
   isStation(id) { const n = this.npc[id]; return !!n && n.active && n.type === CT_STARBASE; }
   canDockAt(id) { const n = this.npc[id]; return this.isStation(id) && n.alive && n.faction !== F_HOSTILE && n.kind !== SK_RELAY && n.kind !== SK_MONOLITH; }
   // spawn everything that lives permanently in system idx
   loadSystem(idx) {
     this.sysIdx = idx;
     this.visited.add(idx);
+    this.greeted = new Set();
+    if (this.dlg) this.endDialog(true);
     this.npc = Array.from({ length: MAX_CONTACTS }, newNpc);
     this.torp = [];
     this.beams = [];
@@ -117,7 +146,7 @@ export class Sim {
       const id = k === 0 ? ID_BASE : K.ID_STATION2 + k - 1;
       this.spawnNpc(id, CT_STARBASE, this.attitudeOf(st.civ), st.x, st.y, 0);
       const n = this.npc[id];
-      Object.assign(n, { name: st.name, short: st.short || st.name, kind: st.kind, civ: st.civ, scan: 2 });
+      Object.assign(n, { name: st.name, short: st.short || st.name, kind: st.kind, civ: st.civ, scan: 2, talk: st.talk || STATION_DIALOG[st.kind] });
       if (st.kind === SK_HAVEN) { n.shMax = n.shields = 260; n.armor = 0.3; }
       if (st.kind === SK_MONOLITH) { n.shMax = n.shields = 0; n.armor = 0; }
     });
@@ -256,6 +285,13 @@ export class Sim {
     this.beams = [];
     this.booms = [];
     this.visited = new Set([0]);
+    this.revealed = new Set();
+    this.rep = [0, 50, 10, 0, -40, 0, 0];
+    this.flags = {};
+    this.foundArts = new Set();
+    this.depleted = new Set();
+    this.timers = [];
+    this.dlg = null;
     this.loadSystem(0);
     this.resetPlayer();
     this.missionT = 0;
@@ -456,6 +492,7 @@ export class Sim {
       case CMD.USE: this.useCmd(a); break;
       case CMD.ANALYSE: this.analyseCmd(a, b); break;
       case CMD.JETTISON: this.jettisonCmd(a); break;
+      case CMD.DREPLY: this.dialogReply(a, b); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
@@ -548,6 +585,8 @@ export class Sim {
     const n = this.npc[id], M = this.M;
     if (!n.alive) { this.denied('NO RESPONSE - THE VESSEL HAS BEEN DESTROYED.'); return; }
     if (opt === K.OPT_CLOSE) { this.say(FROM_CREW, 0, 'CHANNEL CLOSED.'); return; }
+    if (opt === 0 && n.talk && DIALOGS[n.talk]) { this.startDialog(n.talk, id); return; }
+    if (n.type === CT_POI) { this.say(FROM_CREW, 0, `IT'S ${/^[AEIOU]/.test(G.POI_NAME[n.poi]) ? 'AN' : 'A'} ${G.POI_NAME[n.poi]}, CAPTAIN. NOBODY TO HAIL - BUT SCIENCE CAN SAMPLE IT.`); return; }
     switch (n.type) {
       case CT_ANOMALY: this.say(FROM_CREW, 0, "IT'S A SUBSPACE ANOMALY, CAPTAIN. THERE IS NOBODY TO HAIL."); return;
       case CT_STARBASE:
@@ -869,6 +908,9 @@ export class Sim {
     if (this.mode !== K.MODE_MISSION) this.clearMarkers();
     this.emit(K.EV_ARRIVE, to);
     this.say(FROM_CREW, 0, `ARRIVED: ${this.sysDef.name}. ${this.sysDef.desc}`);
+    const sid = this.sysDef.id;
+    if (this.mode !== K.MODE_MISSION && (sid === 'drift' || sid === 'shroud') && this.attitudeOf(CIV_KESSARI) === F_HOSTILE && this.frand() < (sid === 'drift' ? 0.6 : 0.3))
+      this.after(20 + this.frand() * 25, () => { if (this.sysIdx === to && this.game === GS_RUN && !this.dlg) this.kessariDemand(2 + (this.M.diff % 3 === 2 ? 1 : 0), this.hasArt('idol') && this.frand() < 0.5); });
     if (this.onArrive) this.onArrive(to, from);
   }
 
@@ -1073,11 +1115,13 @@ export class Sim {
         for (let i = 0; i < MAX_CONTACTS; i++) this.npcTick(i, dt);
         this.torpTick(dt);
         if (this.game === GS_RUN) this.missionTick(dt);
+        if (this.game === GS_RUN) this.worldTick(dt);
       }
     }
     const now = this.now;
     this.beams = this.beams.filter((b) => now - b.t0 <= 600);
     this.booms = this.booms.filter((b) => now - b.t0 <= 1500);
+    if (this.dlg && this.viewRevertAt) this.viewRevertAt = now + 6000; // keep the hail on screen while we talk
     if (this.viewRevertAt && now > this.viewRevertAt) {
       this.viewRevertAt = 0;
       if (this.view === K.VM_COMMS) this.view = this.viewBefore;
@@ -1716,7 +1760,11 @@ export class Sim {
     h.ident = Math.max(h.ident, deep ? 2 : 1);
     if (!was) this.say(FROM_CREW, d.cursed ? 2 : 3, `ANALYSIS: THE ${d.unk} IS A ${d.name}. ${d.effect}`);
     if (deep) this.say(FROM_CREW, 0, `DEEP ANALYSIS - ${d.name}: ${d.lore}`);
-    if (deep && d.set === 'chorus') {
+    if (deep && d.set === 'chorus') this.checkShards();
+  }
+  checkShards() {
+    const P = this.P;
+    {
       const all = ['shard1', 'shard2', 'shard3'].every((id) => P.arts.some((q) => G.ART[q.a].id === id && q.ident >= 2));
       const ci = SYS_INDEX.chorus;
       if (all && !this.revealed.has(ci)) {
@@ -1733,6 +1781,190 @@ export class Sim {
     if (P.anaUid === uid) { P.anaUid = 0; P.anaProg = 0; }
     this.say(FROM_CREW, 0, `${h.ident ? d.name : d.unk} JETTISONED.`);
   }
+  // ================================================================ dialogue
+  sayAs(who, text, col = 3) {
+    const from = this.dlg ? this.dlg.from : FROM_COMMAND;
+    this.say(from, col, text);
+    const m = this.msgs[0], ch = CHARS[who];
+    m.who = who;
+    if (ch && ALIEN.has(ch.civ)) m.lang = ch.civ;
+  }
+  startDialog(key, from, ctx = {}) {
+    const def = DIALOGS[key];
+    if (!def) return;
+    if (this.dlg) this.endDialog(true);
+    this.dlg = { key, from, who: ctx.who || def.who, ctx, seq: ++this.dlgSeq, node: 'start', vis: [], deadline: def.timeout ? this.now + def.timeout * 1000 : 0 };
+    this.presentNode('start');
+  }
+  presentNode(k) {
+    const d = this.dlg, def = DIALOGS[d.key], node = def.nodes[k];
+    if (!node) { this.endDialog(); return; }
+    d.node = k;
+    const text = typeof node.say === 'function' ? node.say(this, d.ctx) : node.say;
+    d.vis = (node.opts || []).filter((o) => !o.if || o.if(this, d.ctx));
+    this.sayAs(d.who, text, node.col ?? (d.key === 'demand' ? 2 : 3));
+    const m = this.msgs[0];
+    m.dseq = d.seq;
+    m.dopt = d.vis.map((o) => o.t);
+    if (!d.vis.length) this.endDialog();
+  }
+  dialogReply(seq, idx) {
+    const d = this.dlg;
+    if (!d || d.seq !== seq) return;
+    const o = d.vis[idx];
+    if (!o) return;
+    this.say(FROM_CREW, 0, `"${o.t}"`);
+    this.msgs[0].reply = true;
+    let next = o.go || null;
+    if (o.do) { const r = o.do(this, d.ctx); if (r !== undefined) next = r; }
+    if (this.dlg !== d) return; // the reply started another conversation
+    if (next) this.presentNode(next); else this.endDialog();
+  }
+  endDialog(silent = false) {
+    if (!this.dlg) return;
+    this.dlg = null;
+    if (!silent) this.viewRevertAt = this.now + 5000;
+  }
+  // things that happen in the world regardless of mission: hails, timers, duels
+  worldTick(dt) {
+    const P = this.P, d = this.dlg;
+    if (d) {
+      if (d.deadline && this.now > d.deadline) {
+        const def = DIALOGS[d.key];
+        this.dlg = null;
+        if (def.onTimeout) def.onTimeout(this, d.ctx);
+      } else if (d.from < MAX_CONTACTS && (!this.npc[d.from].active || !this.npc[d.from].alive)) this.endDialog();
+    }
+    for (let i = this.timers.length - 1; i >= 0; i--) if (this.now >= this.timers[i].at) { const t = this.timers.splice(i, 1)[0]; t.fn(); }
+    if (this.mode === K.MODE_MISSION) return;
+    // stations call us when we come near the first time
+    if (!this.dlg && P.jumpTo === NO_ID) {
+      for (let i = 0; i < MAX_CONTACTS; i++) {
+        const n = this.npc[i];
+        if (!n.active || !n.alive || n.type !== CT_STARBASE || !n.talk || this.greeted.has(i)) continue;
+        if (distTo(P.x, P.y, n.x, n.y) < 14000) { this.greeted.add(i); this.startDialog(n.talk, i); break; }
+      }
+    }
+    if (this.duel) this.duelTick();
+  }
+  after(sec, fn) { this.timers.push({ at: this.now + sec * 1000, fn }); }
+  // ---- helpers the dialogue trees use
+  hasArt(id) { return this.P.arts.some((h) => G.ART[h.a].id === id); }
+  addArt(id, ident = 0) {
+    const a = G.ART_INDEX[id];
+    if (a === undefined || this.P.arts.length >= G.MAX_ARTS) return;
+    this.P.arts.push({ a, uid: this.P.artSeq++, ident });
+    this.foundArts.add(id);
+    this.emit(K.EV_FOUND, a);
+  }
+  removeArt(id) { const i = this.P.arts.findIndex((h) => G.ART[h.a].id === id); if (i >= 0) this.P.arts.splice(i, 1); }
+  tribute(frac) {
+    const P = this.P;
+    for (let r = 0; r < G.NRES; r++) P.cargo[r] -= Math.ceil(P.cargo[r] * frac);
+    if (frac >= 1) {
+      P.arts = P.arts.filter((h) => G.ART[h.a].set);
+      P.torps = P.torps.map((t) => Math.floor(t / 2));
+    }
+    this.say(FROM_CREW, 1, frac >= 1 ? 'THEY HAVE STRIPPED THE HOLD - MATERIALS, ARTEFACTS, HALF OUR TORPEDOES.' : 'HALF OUR MATERIALS HAVE BEEN BEAMED ACROSS.');
+  }
+  kessariAttack(ctx, surprise = false) {
+    for (const id of ctx.ids || []) {
+      const n = this.npc[id];
+      if (!n.active || !n.alive) continue;
+      n.ai = AI_ATTACK; n.aiTarget = US; n.aiT = 0; n.faction = F_HOSTILE;
+      if (surprise) n.phCd = 0;
+    }
+    if (this.alert !== K.AL_RED) { this.alert = K.AL_RED; this.emit(K.EV_ALERT, K.AL_RED); }
+  }
+  kessariLeave(ctx) {
+    for (const id of ctx.ids || []) {
+      const n = this.npc[id];
+      if (!n.active || !n.alive) continue;
+      n.ai = AI_FLEE; n.aiT = 0; n.faction = F_NEUTRAL;
+    }
+  }
+  bluffChance(ctx) {
+    const P = this.P;
+    let c = 0.35;
+    for (const n of this.npc) if (n.active && n.alive && n.type === CT_STARBASE && n.civ === CIV_FLEET && distTo(P.x, P.y, n.x, n.y) < 40000) c += 0.3;
+    if (P.hull > 70 && this.shieldsUp()) c += 0.15;
+    c -= 0.08 * (this.M.diff % 3);
+    if (ctx.draal) c -= 0.25;
+    return clampf(c, 0.05, 0.9);
+  }
+  // a Kessari raiding party warps in and makes demands
+  kessariDemand(n = 2, draal = false) {
+    const P = this.P, ids = [];
+    const [x, y] = this.pointNear(P.x, P.y, 6500);
+    for (let i = 0; i < n; i++) {
+      const id = this.spawnAt(i === 0 && (n > 2 || draal) ? CT_DESTROYER : CT_RAIDER, F_HOSTILE, this.clampSec(x + i * 1400), this.clampSec(y + (i % 2) * 1200), bearingTo(x, y, P.x, P.y));
+      if (id === NO_ID) break;
+      const m = this.npc[id];
+      m.ai = AI_STATIC; m.aiTarget = US; m.scan = 1; m.civ = CIV_KESSARI;
+      if (i === 0 && draal) Object.assign(m, { name: 'DRAAL\'S FLAGSHIP', short: 'DRAAL', hull: 100, shMax: 180, shields: 180 });
+      this.boomAt(m.x, m.y, 2);
+      ids.push(id);
+    }
+    if (!ids.length) return;
+    this.emit(K.EV_WARP_IN ?? K.EV_ALERT, ids[0]);
+    this.startDialog('demand', ids[0], { ids, draal, who: draal ? 'draal' : 'kessari' });
+  }
+  orranDuel() {
+    const st = this.npc.find((n) => n.active && n.kind === SK_CITADEL);
+    const P = this.P;
+    const [x, y] = this.pointNear(st ? st.x : P.x, st ? st.y : P.y, 9000);
+    const id = this.spawnAt(CT_DESTROYER, F_HOSTILE, x, y, bearingTo(x, y, P.x, P.y));
+    if (id === NO_ID) return;
+    const n = this.npc[id];
+    Object.assign(n, { name: 'CHAMPION OF ORR', short: 'CHAMPION', civ: CIV_ORRAN, scan: 2, ai: AI_ATTACK, aiTarget: US, shMax: 160, shields: 160 });
+    this.flags.orranDuel = true;
+    this.duel = { id, from: st ? this.npc.indexOf(st) : id };
+    this.say(FROM_CREW, 2, 'THE ORRAN CHAMPION IS COMING ABOUT. THIS IS A DUEL TO YIELD - BRING THEIR HULL DOWN, OR WE WILL BE THE ONES YIELDING.');
+  }
+  duelTick() {
+    const dd = this.duel, n = this.npc[dd.id], P = this.P;
+    const won = !n.active || !n.alive || n.hull < 30, lost = P.hull < 35;
+    if (!won && !lost) return;
+    this.duel = null;
+    if (n.active && n.alive) { n.ai = AI_FLEE; n.aiT = 0; n.faction = F_NEUTRAL; }
+    const from = dd.from;
+    this.dlg = null;
+    this.dlg = { key: 'citadel', from, who: 'korvath', ctx: {}, seq: ++this.dlgSeq, node: 'x', vis: [], deadline: 0 };
+    if (won) {
+      this.repAdd(CIV_ORRAN, n.alive ? 35 : 20);
+      this.sayAs('korvath', n.alive ? 'ENOUGH! MY CHAMPION YIELDS. YOU FIGHT LIKE AN ORRAN, AURORA. TAKE THIS - IT HAS SAILED WITH HEROES.'
+        : 'MY CHAMPION IS DEAD. THE DUEL WAS TO YIELD, OUTSIDER... BUT HE CHOSE HIS DEATH. TAKE HIS KEEL. IT IS OWED.');
+      if (!this.foundArts.has('keel')) this.addArt('keel', 1);
+    } else {
+      this.repAdd(CIV_ORRAN, 8);
+      this.sayAs('korvath', 'YOU YIELD. NO SHAME IN IT - FEW LAST SO LONG AGAINST MY CHAMPION. GO, AND RETURN STRONGER.');
+    }
+    this.endDialog();
+  }
+  rumour() {
+    const P = this.P;
+    // an artefact in this system nobody has found yet
+    for (let i = 0; i < MAX_CONTACTS; i++) {
+      const n = this.npc[i];
+      if (!n.active || n.type !== CT_POI || n.art < 0 || n.rumoured) continue;
+      n.rumoured = true;
+      if (n.scan < 1) n.scan = 1;
+      this.M.mk.push({ x: Math.round(n.x), y: Math.round(n.y), kind: K.MK_POINT, r: 0 });
+      this.M.ver++;
+      return `A SALVAGER SAW SOMETHING STRANGE INSIDE ${n.short}, SECTOR ${this.sec(n.x, n.y)}. WE'VE MARKED IT ON YOUR NAV MAP.`;
+    }
+    const hints = [
+      'THE KESSARI HAVE BEEN RAIDING HARDER SINCE MAREK DRAAL LOST HIS WAR IDOL. WHOEVER HAS IT HAD BETTER WATCH THEIR BACK.',
+      'THE SHROUD IS FULL OF WRECKS. THERE\'S AN ALIEN DERELICT IN THERE NOBODY HAS DARED TO CRACK OPEN.',
+      'CERULEAN DEEP HAS RUINS ON ITS COMETS AND ICE. OLD ONES. OLDER THAN ANYONE.',
+      'THE VELORI AT THE LANTERN PAY WELL FOR CRYSTAL. AND THEY KNOW MORE THAN THEY SAY ABOUT THE SONG.',
+      'THEY SAY THE ORRANS RESPECT ONLY STRENGTH. CHALLENGE THEIR CHAMPION AND WIN, AND THE BASTION OPENS ITS DOORS.',
+      'DR. MARRIN AT THE EPSILON ARRAY IN HALCYON WILL ANALYSE ANY ARTEFACT YOU BRING HER - AND SHE WANTS EXOTIC MATTER BADLY.',
+    ];
+    this.rumourI = ((this.rumourI ?? -1) + 1) % hints.length;
+    return hints[this.rumourI];
+  }
+  contractOffer() { this.sayAs(this.dlg ? this.dlg.who : 'hale', 'NOTHING ON THE BOARD RIGHT NOW. CHECK BACK LATER.'); return 'start'; }
   missionOnDestroyed(id) {
     if (this.game !== GS_RUN) return;
     if (id === this.M.fr) {

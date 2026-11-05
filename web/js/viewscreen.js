@@ -10,7 +10,9 @@ import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
 import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
-import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME } from './galaxy.js';
+import { CHARS } from './dialogue.js';
+import { drawPortrait, drawGlyphs, translated, msgAge } from './portraits.js';
+import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME, CIV_COL } from './galaxy.js';
 
 const NSTARS = 160;
 const SHIELD_DIM = [25, 55, 140], SHIELD_BRIGHT = [130, 225, 255];
@@ -451,8 +453,51 @@ export class Scene {
 
   // ---------------------------------------------------------------- incoming transmission
   // the comms station on the big screen: message log, who's calling, who's in range
+  // a hail on the main viewer: the speaker's face, the alien original and subtitles
+  drawHail(g, w, r, m) {
+    const u = r.u, d = w.slow && w.slow.dlg, who = m.who, ch = CHARS[who] || CHARS.computer, pad = 16 * u;
+    const tr = translated(m), talking = tr.p < 1 || msgAge(m) < 2500 + m.text.length * 45;
+    const ph = r.h * 0.56, pw = Math.min(r.w * 0.42, ph * 1.2);
+    const px = r.x + pad, py = r.y + pad;
+    drawPortrait(g, who, px, py, pw, ph, performance.now(), talking);
+    g.ctx.strokeStyle = CIV_COL[ch.civ] || C.SKY; g.ctx.lineWidth = 2 * u;
+    g.ctx.beginPath(); g.ctx.roundRect(px, py, pw, ph, Math.min(pw, ph) * 0.06); g.ctx.stroke();
+    let y = py + ph + 10 * u;
+    g.textFit(px, y, ch.name, 26 * u, C.PEACH, 'left', pw, true);
+    g.textFit(px, y + 32 * u, ch.role || '', 15 * u, CIV_COL[ch.civ] || C.GREY_TXT, 'left', pw);
+    // right: header, original language, replies
+    const rx = px + pw + 24 * u, rw = r.x + r.w - rx - pad;
+    y = py;
+    g.header(rx, y, rw, d && d.seq === m.dseq ? 'INCOMING HAIL' : 'TRANSMISSION', flash(700) ? C.ORANGE : C.SKY, 22 * u);
+    y += 36 * u;
+    if (m.lang) {
+      g.text(rx, y, `LANGUAGE: ${CIV_NAME[m.lang]}   ${tr.p < 1 ? 'TRANSLATING' + '.'.repeat(1 + Math.floor(performance.now() / 300) % 3) : 'TRANSLATED'}`, 14 * u, C.LILAC);
+      y += 24 * u;
+      y = drawGlyphs(g, rx, y, m.text.replace(/[{}]/g, ''), 15 * u, dim(CIV_COL[m.lang] || C.LILAC, 0.8), rw, 3) + 6 * u;
+      if (tr.p < 1) g.progress(rx, y, rw, 6 * u, tr.p, C.LILAC);
+      y += 18 * u;
+    }
+    const live = d && d.seq === m.dseq;
+    if (live && m.dopt && m.dopt.length) {
+      g.text(rx, y, 'REPLIES - COMMS STATION', 14 * u, C.GREY_TXT);
+      y += 22 * u;
+      m.dopt.forEach((o, i) => { if (y < r.y + r.h * 0.74) { g.textFit(rx, y, `${i + 1}. ${o}`, 18 * u, C.PEACH, 'left', rw); y += 25 * u; } });
+      if (d.left) { g.text(rx, y + 6 * u, `ANSWER IN ${d.left}s`, 18 * u, flash(400) ? C.RED : C.YELLOW); }
+    }
+    // subtitles across the bottom
+    const sh = r.h * 0.2, sy = r.y + r.h - sh - 6 * u;
+    g.ctx.fillStyle = 'rgba(0,0,0,0.78)'; g.ctx.fillRect(r.x + pad, sy, r.w - 2 * pad, sh);
+    const lines = g.wrapLines(tr.text || ' ', r.w - 6 * pad, 24 * u).slice(0, 3);
+    lines.forEach((l, i) => g.text(r.x + r.w / 2, sy + sh / 2 - lines.length * 15 * u + i * 30 * u, l, 24 * u, m.col === 2 ? '#ffb4a0' : C.WHITE, 'center'));
+    if (!tr.text && m.lang) g.text(r.x + r.w / 2, sy + sh / 2 - 12 * u, '...', 24 * u, C.GREY_TXT, 'center');
+  }
   drawComms(g, w, r) {
     const u = r.u, msgs = w.msgs, P = w.P;
+    {
+      const d = w.slow && w.slow.dlg;
+      const m = msgs.find((q) => q.who && !q.reply);
+      if (m && ((d && d.seq === m.dseq) || (msgs.indexOf(m) <= 1 && msgAge(m) < 9000))) { this.drawHail(g, w, r, m); return; }
+    }
     const fromName = (f) => (f < K.MAX_CONTACTS ? w.shortName(f) : f === K.FROM_COMMAND ? 'FLEET COMMAND' : f === K.FROM_COMPUTER ? 'COMPUTER' : 'BRIDGE');
     const pad = 16 * u, lw = r.w * 0.6;
     // ---- message log (left)

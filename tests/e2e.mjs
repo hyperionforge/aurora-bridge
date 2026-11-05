@@ -219,6 +219,31 @@ await phones[dmgO].evaluate(async () => { const a = window.auroraApp; a.viewerPa
 await phones[dmgO].evaluate(() => { window.auroraApp.send(38, 0); window.auroraApp.send(38, 2); });
 await sleep(2500);
 await phones[dmgO].screenshot({ path: `${OUT}/p73_dmg_cargo.png` });
+// ---- hails: a station greeting, a Kessari surrender demand, and the other faces
+const comO = await ownerOf(3);
+await phones[comO].evaluate(() => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(3); });
+await host.evaluate(() => { const s = window.auroraHost.sim; s.startDialog('outpost', 0); });
+await sleep(3500);
+await tv.screenshot({ path: `${OUT}/tv50_hail_outpost.png` });
+await phones[comO].screenshot({ path: `${OUT}/p80_comms_dialog.png` });
+await phones[comO].evaluate(() => { const a = window.auroraApp; a.send(42, a.w.slow.dlg.seq, 0); });
+await sleep(1500);
+await tv.screenshot({ path: `${OUT}/tv51_hail_trade.png` });
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.P.x += 20000; s.kessariDemand(2); });
+await sleep(500);
+await tv.screenshot({ path: `${OUT}/tv52_demand_glyphs.png` });
+await sleep(3000);
+await tv.screenshot({ path: `${OUT}/tv53_demand_translated.png` });
+await phones[comO].screenshot({ path: `${OUT}/p81_comms_demand.png` });
+await phones[comO].evaluate(() => { const a = window.auroraApp; a.send(42, a.w.slow.dlg.seq, 2); });
+await sleep(1500);
+console.log('bluff ->', await host.evaluate(() => window.auroraHost.sim.msgs[0].text));
+for (const [k, nm] of [['hub', 'velori'], ['citadel', 'orran'], ['monolith', 'chorus'], ['array', 'marrin']]) {
+  await host.evaluate((k) => { const s = window.auroraHost.sim; s.endDialog(true); s.startDialog(k, 0); }, k);
+  await sleep(3200);
+  await tv.screenshot({ path: `${OUT}/tv6_${nm}.png` });
+}
+await host.evaluate(() => window.auroraHost.sim.endDialog(true));
 // end of mission
 await host.evaluate(() => window.auroraHost.sim.endMission(true));
 await sleep(1500);

@@ -5,6 +5,8 @@ import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, ang
 import { dim, flash, healthColor } from '../gfx.js';
 import { drawShip, drawMarker, factionColor, ART_CRUISER } from '../ships.js';
 import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown } from '../sysdraw.js';
+import { CHARS, subtitle } from '../dialogue.js';
+import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
 import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, CIV_NAME, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
 import { drawRadar, radarPick } from './common.js';
@@ -451,12 +453,18 @@ export function drawMsgLog(g, w, x, y, wd, y1, size = 13) {
   for (let i = 0; i < msgs.length && y < y1 - size; i++) {
     const m = msgs[i];
     const col = i === 0 ? K.MSG_COL[m.col % 4] : dim(K.MSG_COL[m.col % 4], 0.7);
-    g.text(x, y, fromName(w, m.from), 12, i === 0 ? C.ORANGE : C.TAN);
-    const lines = g.wrapLines(m.text, wd - 8, size);
+    g.textFit(x, y, (m.who && CHARS[m.who] ? CHARS[m.who].name : fromName(w, m.from)) + (m.lang ? '  (TRANSLATED)' : ''), 12, i === 0 ? C.ORANGE : C.TAN, 'left', wd);
+    const lines = g.wrapLines(subtitle(m.text), wd - 8, size);
     y += 14;
     for (const l of lines) { if (y > y1 - size) break; g.text(x + 6, y, l, size, col); y += size * 1.2; }
     y += 5;
   }
+}
+export function dialogLine(w) { // the conversation in progress, and its newest line
+  const d = w.slow && w.slow.dlg;
+  if (!d) return null;
+  const m = w.msgs.find((q) => q.dseq === d.seq);
+  return m ? { d, m } : null;
 }
 export const comms = {
   sel: K.NO_ID,
@@ -464,6 +472,23 @@ export const comms = {
     drawMsgLog(g, w, L.bx, L.by, L.BIG, L.y1);
     const x = L.rx, rw = L.rw;
     let y = L.y0;
+    const dl = dialogLine(w);
+    if (dl) {
+      const { d, m } = dl, ch = CHARS[d.who] || CHARS.computer, ph = 92;
+      drawPortrait(g, d.who, x, y, ph * 0.9, ph, performance.now(), true);
+      g.textFit(x + ph, y + 2, ch.name, 18, C.PEACH, 'left', rw - ph, true);
+      g.textFit(x + ph, y + 24, ch.role || '', 12, C.GREY_TXT, 'left', rw - ph);
+      if (m.lang) g.text(x + ph, y + 42, 'AUTO-TRANSLATED', 11, C.LILAC);
+      if (d.left) g.text(x + rw, y + 42, `ANSWER IN ${d.left}s`, 13, flash(400) ? C.RED : C.YELLOW, 'right');
+      y = g.wrap(x + ph, y + 58, rw - ph, subtitle(m.text), 13, C.WHITE, 1.2, 4);
+      y = Math.max(y, L.y0 + ph) + 8;
+      g.header(x, y, rw, 'YOUR REPLY', C.LILAC);
+      y += 24;
+      const oh = Math.min(34, (L.y1 - 40 - y) / Math.max(1, m.dopt.length) - 4);
+      m.dopt.forEach((o, i) => { g.button('dopt' + i, x, y, rw, oh, o, i === 0 && d.key === 'demand' ? C.RED : C.PEACH, C.BLACK, oh > 28 ? 15 : 13, () => app.send(CMD.DREPLY, d.seq, i)); y += oh + 4; });
+      g.button('cview', x, L.y1 - 36, rw, 34, 'PUT ON VIEWER', w.view === K.VM_COMMS ? C.ORANGE : C.LILAC, C.BLACK, 17, () => app.send(CMD.VIEW, K.VM_COMMS, K.NO_ID));
+      return;
+    }
     g.header(x, y, rw, 'HAIL', C.LILAC);
     y += 24;
     const list = w.contacts().filter((c) => c.alive).slice(0, 5);
