@@ -4,19 +4,9 @@ The three-screen ESP32 bridge simulator rebuilt as an Android app. It plays on 2
 
 - **One phone hosts.** It runs the simulation (the same missions, AI and balance numbers as the ESP32 build) and a small server on the Wi-Fi.
 - **Other players join from the app.** The host's game shows up in a list automatically. Anyone without the app can join from a phone browser, iPhones included.
-- **The crew is grouped into stations automatically.** The 8 sub-stations are shared out by crew size, and each player taps the station they want. The **Captain** is optional.
-- **The TV main viewer is separate from every phone's controls.** Cast it to a Chromecast from any phone in the app, or open it in any browser (smart TV, laptop on HDMI). Every player can change what it shows (FWD / TAC / MAP / TGT / COMMS), and the captain can too.
+- **Players pick their own roles.** The ship has 8 roles: HELM, NAV, SCIENCE, COMMS, TACTICAL, SHIELDS, ENGINEER and DAMAGE. In the lobby each player taps the role cards they want; each role has one holder. **AUTO-ASSIGN** shares them out evenly. The mission can't start until all 8 roles are taken and every player has at least one.
+- **The TV main viewer is separate from every phone's controls.** Cast it to a Chromecast from any phone in the app, or open it in any browser (smart TV, laptop on HDMI). Any player can change what it shows: FORWARD, TACTICAL, MAP, TARGET, COMMS (message log, who's calling, contacts in range) or **STATUS**, the full ship readout with the first officer's advice.
 - **Landscape on the phones**, in the same LCARS panel style.
-
-| Crew | Stations (sub-stations) |
-|---|---|
-| 1 | Bridge Officer (all 8) |
-| 2 | Helm & Science (HELM, NAV, SCIENCE, COMMS) · Tactical & Engineering (TACTICAL, SHIELDS, ENGINEER, DAMAGE) |
-| 3 | Conn (HELM, NAV, COMMS) · Tactical & Science (TACTICAL, SHIELDS, SCIENCE) · Engineering (ENGINEER, DAMAGE) |
-| 4 | Helm (HELM, NAV) · Science & Comms (SCIENCE, COMMS) · Tactical (TACTICAL, SHIELDS) · Engineering (ENGINEER, DAMAGE) |
-| + Captain | STATUS (first officer advice) · ORDERS · COMMS |
-
-Crew = players − captain. For example, 4 players with the captain switched on gives 3 crew + captain. A captain's order goes to whoever holds the sub-station that carries it out. It flashes on their phone's top bar, and the captain's log shows SENT → ACKNOWLEDGED → DONE with the response time.
 
 ---
 
@@ -37,11 +27,11 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 ## 2. Play
 1. Everyone joins the **same Wi-Fi**. The host's phone hotspot works too.
 2. The host taps **HOST A NEW BRIDGE**. The others open the app and tap the bridge in the list. If the list stays empty, they can type the address the host's lobby shows, or scan its QR code with the phone camera to join in the browser.
-3. In **CREW ASSEMBLY**, decide whether to switch **CAPTAIN STATION** on. Each player then taps a station card. Pick a mission and difficulty, then **START MISSION**. It starts once everyone has a station.
-4. On your phone, the tabs are down the left. **VIEWER** (top right) shows the main viewer and changes it for the whole bridge. **☰** has sound, vibration, *leave my station* (to swap seats) and *leave game*.
+3. In **CREW ASSEMBLY**, each player taps the role cards they want (tap one of yours again to give it back), or someone taps **AUTO-ASSIGN**. Pick a mission and difficulty, then **START MISSION**. It starts once all 8 roles are taken and everyone has at least one.
+4. On your phone, the tabs are down the left. **VIEWER** (top right) shows the main viewer and changes it for the whole bridge. **☰** has sound, vibration, the screen-edge margin for rounded corners, *give back my roles* (to swap) and *leave game*.
 5. **Host:** keep the app open and the screen on during a mission. The game runs on your phone. The app keeps the screen awake for you.
 
-If someone's phone drops out, they rejoin with the same name from the same phone and get their seat back. Their station stays reserved during the mission.
+If someone's phone drops out, they rejoin from the same phone and get their roles back. During a mission their roles stay reserved, but another player can take them over if they don't come back.
 
 ## 3. The main viewer on the TV
 
@@ -91,9 +81,9 @@ Open `http://localhost:8737/?host=1` on the computer (it becomes the host). Phon
 ## Tests
 ```
 node tests/bots.mjs 1,2,3,4,5,6,7,8        # scripted crew plays all 18 missions per seed
-node tests/e2e.mjs node 3 1                # relay + host + 4 phones + TV in headless Chromium, screenshots in shots/
+node tests/e2e.mjs node 3 1                # relay + host + 3 phones (picking roles by hand) + TV in headless Chromium, screenshots in shots/
 javac -d build/relay android/app/src/main/java/com/aurora/bridge/RelayServer.java tools/relay-pc/RelayMain.java
-node tests/e2e.mjs java 4 1                # the same, through the app's Java relay server
+node tests/e2e.mjs java 5 0                # 5 phones with AUTO-ASSIGN, through the app's Java relay server
 ```
 The bot crew wins 113/144 missions on the JS port against 112/144 on the original C++ harness (seeds 1–8), so the balance carried over.
 

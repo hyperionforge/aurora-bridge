@@ -82,11 +82,12 @@ export class Scene {
         case K.VM_MAP: this.drawMap(g, w, r); break;
         case K.VM_TARGET: this.drawTarget(g, w, r); break;
         case K.VM_COMMS: this.drawComms(g, w, r); break;
+        case K.VM_STATUS: this.drawStatus(g, w, r); break;
       }
       const u = r.u;
       if (now < this.hitFlashUntil) for (let i = 0; i < 4; i++) g.strokeRect(x + i * u, y + i * u, wd - 2 * i * u, ht - 2 * i * u, C.RED, u);
       else if (now < this.shieldFlashUntil) for (let i = 0; i < 3; i++) g.strokeRect(x + i * u, y + i * u, wd - 2 * i * u, ht - 2 * i * u, C.SKY, u);
-      if (w.alert === K.AL_RED && flash(500)) {
+      if (w.alert === K.AL_RED && flash(500) && (opts.view ?? w.view) !== K.VM_STATUS) {
         g.text(x + 8 * u, y + ht - 22 * u, 'RED ALERT', 18 * u, C.RED);
         g.text(x + wd - 8 * u, y + ht - 22 * u, 'RED ALERT', 18 * u, C.RED, 'right');
       }
@@ -406,57 +407,172 @@ export class Scene {
   }
 
   // ---------------------------------------------------------------- incoming transmission
+  // the comms station on the big screen: message log, who's calling, who's in range
   drawComms(g, w, r) {
-    const u = r.u, msgs = w.msgs;
-    // the latest real transmission (a ship, the starbase or fleet command), not bridge chatter
-    const m = msgs.find((x) => x.from < K.MAX_CONTACTS || x.from === K.FROM_COMMAND);
-    for (let i = 0; i < 6; i++) g.rect(r.x, r.y + ((performance.now() / 7 + i * 70 * u) % r.h), r.w, u, '#141e32');
-    const bw = Math.min(r.w * 0.3, 280 * u), bh = Math.min(r.h - 40 * u, 300 * u);
-    const bx = r.x + 30 * u, by = r.y + (r.h - bh) / 2, px = bx + bw / 2, py = by + bh / 2;
+    const u = r.u, msgs = w.msgs, P = w.P;
+    const fromName = (f) => (f < K.MAX_CONTACTS ? w.shortName(f) : f === K.FROM_COMMAND ? 'FLEET COMMAND' : f === K.FROM_COMPUTER ? 'COMPUTER' : 'BRIDGE');
+    const pad = 16 * u, lw = r.w * 0.6;
+    // ---- message log (left)
+    let x = r.x + pad, y = r.y + 12 * u;
+    g.header(x, y, lw - pad, 'MESSAGE LOG', C.LILAC, 22 * u);
+    y += 34 * u;
+    if (!msgs.length) g.text(x, y, 'NO MESSAGES YET', 16 * u, C.GREY_TXT);
+    msgs.forEach((m, i) => {
+      if (y > r.y + r.h - 30 * u) return;
+      const col = i === 0 ? K.MSG_COL[m.col % 4] : dim(K.MSG_COL[m.col % 4], 0.7);
+      g.text(x, y, fromName(m.from), 14 * u, i === 0 ? C.ORANGE : C.TAN);
+      y += 18 * u;
+      for (const l of g.wrapLines(m.text, lw - pad * 2 - 10 * u, (i === 0 ? 20 : 16) * u)) {
+        if (y > r.y + r.h - 22 * u) break;
+        g.text(x + 10 * u, y, l, (i === 0 ? 20 : 16) * u, col);
+        y += (i === 0 ? 24 : 19) * u;
+      }
+      y += 8 * u;
+    });
+    // ---- who is calling (right, top)
+    const rx = r.x + lw + pad, rw = r.x + r.w - rx - pad;
+    y = r.y + 12 * u;
+    const m = msgs.find((q) => q.from < K.MAX_CONTACTS || q.from === K.FROM_COMMAND);
+    const fresh = m && msgs.indexOf(m) === 0;
+    g.header(rx, y, rw, fresh ? 'INCOMING TRANSMISSION' : 'LAST TRANSMISSION', fresh && flash(600) ? C.ORANGE : C.SKY, 22 * u);
+    y += 34 * u;
+    const bh = Math.min(170 * u, r.h * 0.38), bw = rw;
     g.ctx.strokeStyle = C.GRID; g.ctx.lineWidth = 1.5 * u;
-    g.ctx.beginPath(); g.ctx.roundRect(bx, by, bw, bh, 20 * u); g.ctx.stroke();
-    const x = bx + bw + 30 * u, tw = r.x + r.w - x - 24 * u;
-    if (!m) {
-      g.text(px, py - 12 * u, 'NO', 22 * u, C.GREY_TXT, 'center');
-      g.text(px, py + 14 * u, 'TRANSMISSIONS', 22 * u, C.GREY_TXT, 'center');
-    } else {
-      g.clip(bx + 2 * u, by + 2 * u, bw - 4 * u, bh - 4 * u);
+    g.ctx.beginPath(); g.ctx.roundRect(rx, y, bw, bh, 16 * u); g.ctx.stroke();
+    const px = rx + bh / 2 + 8 * u, py = y + bh / 2;
+    if (m) {
+      g.clip(rx + 2, y + 2, bw - 4, bh - 4);
       if (m.from < K.MAX_CONTACTS) {
         const type = w.typeOf(m.from);
-        const sc = (type === K.CT_STARBASE || type === K.CT_ANOMALY ? 1.3 : 1.15) * Math.min(bw, bh) / 300;
-        drawContact(g, type, px, py, sc, (performance.now() / 40) % 360, w.now);
+        drawContact(g, type, px, py, (type === K.CT_STARBASE || type === K.CT_ANOMALY ? 1.2 : 0.95) * bh / 220, (performance.now() / 40) % 360, w.now);
       } else { // fleet emblem: an original five-point star in a ring
-        const R = Math.min(bw, bh) * 0.3;
+        const R = bh * 0.36;
         g.circle(px, py, R, '#14285a');
         g.circle(px, py, R, C.SKY, false, 1.5 * u);
-        g.circle(px, py, R * 0.87, C.SKY, false, 1.5 * u);
         for (let i = 0; i < 5; i++) {
-          const a = (i * 72 - 90) * DEG;
-          const ox = px + Math.cos(a) * R * 0.69, oy = py + Math.sin(a) * R * 0.69;
-          for (const s2 of [-1, 1]) { const b2 = a + s2 * 0.6283; g.tri(px, py, ox, oy, px + Math.cos(b2) * R * 0.28, py + Math.sin(b2) * R * 0.28, C.SKY); }
+          const a = (i * 72 - 90) * DEG, ox = px + Math.cos(a) * R * 0.75, oy = py + Math.sin(a) * R * 0.75;
+          for (const s2 of [-1, 1]) { const b2 = a + s2 * 0.6283; g.tri(px, py, ox, oy, px + Math.cos(b2) * R * 0.3, py + Math.sin(b2) * R * 0.3, C.SKY); }
         }
       }
       g.unclip();
-      const fresh = msgs.indexOf(m) === 0;
-      g.text(x, r.y + 34 * u, fresh ? 'INCOMING TRANSMISSION' : 'LAST TRANSMISSION', 13 * u, fresh && flash(600) ? C.ORANGE : C.GREY_TXT);
-      g.textFit(x, r.y + 52 * u, m.from < K.MAX_CONTACTS ? w.contactName(m.from, true) : 'FLEET COMMAND', 30 * u, C.PEACH, 'left', tw);
-      let y = g.wrap(x, r.y + 100 * u, tw, m.text, 22 * u, K.MSG_COL[m.col % 4], 1.25, 4);
-      if (m.opt && m.opt.length && fresh) {
-        g.text(x, y + 6 * u, 'REPLY OPTIONS:  ' + m.opt.map((o) => K.OPT_NAME[o]).join('  /  '), 13 * u, C.GREY_TXT);
+      const tx = rx + bh + 16 * u, tw = rx + bw - tx - 10 * u;
+      g.textFit(tx, y + 14 * u, m.from < K.MAX_CONTACTS ? w.contactName(m.from, true) : 'FLEET COMMAND', 22 * u, C.PEACH, 'left', tw);
+      if (m.from < K.MAX_CONTACTS) {
+        const n = w.n(m.from);
+        if (n) g.text(tx, y + 44 * u, `${K.FACTION_NAME[w.known(m.from) ? n.faction : K.F_UNKNOWN]}   ${fmtDist(distTo(P.x, P.y, n.x, n.y))}`, 14 * u, factionColor(w.known(m.from) ? n.faction : K.F_UNKNOWN));
       }
+      if (fresh && m.opt && m.opt.length) {
+        let oy = y + 70 * u;
+        g.text(tx, oy, 'AWAITING REPLY:', 13 * u, C.GREY_TXT);
+        for (const o of m.opt) { oy += 19 * u; g.textFit(tx, oy, '> ' + K.OPT_NAME[o], 15 * u, C.PEACH, 'left', tw); }
+      }
+    } else g.text(rx + bw / 2, py - 10 * u, 'NO TRANSMISSIONS', 18 * u, C.GREY_TXT, 'center');
+    y += bh + 16 * u;
+    // ---- contacts in range (right, bottom)
+    g.header(rx, y, rw, 'CONTACTS IN RANGE', C.LILAC, 22 * u);
+    y += 32 * u;
+    const list = w.contacts().filter((c) => c.alive).sort((a, b) => w.range(a) - w.range(b));
+    if (!list.length) g.text(rx, y, 'NONE', 15 * u, C.GREY_TXT);
+    for (const c of list) {
+      if (y > r.y + r.h - 22 * u) break;
+      g.textFit(rx, y, w.shortName(c.id, c.known), 17 * u, factionColor(c.faction), 'left', rw * 0.6);
+      g.text(rx + rw, y, fmtDist(w.range(c)), 16 * u, C.GREY_TXT, 'right');
+      y += 23 * u;
     }
-    // recent log underneath
-    let y = r.y + r.h * 0.6;
-    g.rect(x, y - 8 * u, tw, u, C.GRID);
-    g.text(x, y, 'RECENT MESSAGES', 12 * u, C.LILAC);
-    y += 18 * u;
-    for (const mm of msgs) {
-      if (mm === m) continue;
-      if (y > r.y + r.h - 18 * u) break;
-      const who = mm.from < K.MAX_CONTACTS ? w.shortName(mm.from) : mm.from === K.FROM_COMMAND ? 'FLEET COMMAND' : mm.from === K.FROM_COMPUTER ? 'COMPUTER' : 'BRIDGE';
-      g.text(x, y, who, 12 * u, C.TAN);
-      g.textFit(x + 110 * u, y, mm.text, 13 * u, dim(K.MSG_COL[mm.col % 4], 0.8), 'left', tw - 110 * u);
-      y += 18 * u;
+  }
+
+  // ---------------------------------------------------------------- ship status (the captain's readout)
+  drawStatus(g, w, r) {
+    const P = w.P, u = r.u, s = w.slow, pad = 16 * u;
+    const up = w.shieldsUp();
+    const lw = (r.w - pad * 3) / 2;
+    const fs = 14 * u, hh = 18 * u, row = 17 * u;
+    let x = r.x + pad, y = r.y + 10 * u;
+    g.header(x, y, lw, 'SHIP', C.PEACH, hh);
+    y += hh + 6 * u;
+    g.text(x, y, `HULL ${Math.ceil(P.hull)}%`, fs, healthColor(P.hull));
+    g.bar(x + 100 * u, y + 4 * u, lw - 100 * u, 9 * u, P.hull, healthColor(P.hull));
+    y += row;
+    const qw = (lw - 18 * u) / 4;
+    for (let q = 0; q < 4; q++) {
+      g.text(x + q * (qw + 6 * u), y, `${K.QUAD_NAME[q]} ${Math.round(P.shield[q])}`, 14 * u, up ? C.SKY : C.GREY_TXT);
+      g.bar(x + q * (qw + 6 * u), y + 16 * u, qw, 4 * u, P.shield[q] / 1.6, up ? C.SKY : C.GREY);
+    }
+    y += row + 6 * u;
+    g.text(x, y, `ENERGY ${Math.round(P.energy)}  ${P.energyRate >= 0 ? '+' : ''}${P.energyRate.toFixed(1)}/S`, fs, P.energy > 300 ? C.SKY : C.ORANGE);
+    g.bar(x + 200 * u, y + 4 * u, lw - 200 * u, 9 * u, P.energy / 10, P.energy > 300 ? C.SKY : P.energy > 120 ? C.YELLOW : C.RED);
+    y += row;
+    const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : 'MANUAL HELM';
+    g.textFit(x, y, `HDG ${pad3(P.hdg)}  ${P.warping ? 'WARP ' + P.warpSet : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, fs, C.SKY, 'left', lw);
+    y += row + 4 * u;
+    g.header(x, y, lw, 'SYSTEMS', C.TAN, hh);
+    y += hh + 3 * u;
+    g.text(x + lw * 0.55, y, 'PWR      HEAT     TEAM', 11 * u, C.GREY_TXT);
+    y += 13 * u;
+    for (let i = 0; i < K.NSYS; i++) {
+      const col = healthColor(P.health[i]);
+      g.text(x, y, K.SYS_NAME[i], 13 * u, col);
+      g.bar(x + 90 * u, y + 4 * u, lw * 0.55 - 100 * u, 8 * u, P.health[i], col);
+      g.text(x + lw * 0.55, y, `${P.power[i]}%`, 14 * u, C.PEACH);
+      g.text(x + lw * 0.55 + 52 * u, y, `${Math.round(P.heat[i])}%`, 14 * u, P.heat[i] > 75 ? C.RED : C.PEACH);
+      for (let t = 0; t < 2; t++) if (P.team[t] === i) g.text(x + lw * 0.55 + 106 * u + t * 24 * u, y, 'T' + (t + 1), 14 * u, C.YELLOW);
+      y += 16 * u;
+    }
+    y += 4 * u;
+    g.header(x, y, lw, 'WEAPONS', C.RED, hh);
+    y += hh + 4 * u;
+    g.text(x, y, `PHASERS ${P.phCharge >= 1 ? 'READY' : 'CHARGING'}   FREQ ${K.FREQ_CHAR[P.phFreq]}   ${P.autoFire ? 'AUTO-FIRE' : ''}`, fs, P.phCharge >= 1 ? C.ORANGE : C.YELLOW);
+    y += row;
+    const ts = ['EMPTY', 'LOADING', 'READY', 'UNLOADING'];
+    g.text(x, y, `TUBES ${ts[P.tubeState[0]]} / ${ts[P.tubeState[1]]}   TORPEDOES P${P.torps[0]} Q${P.torps[1]}`, fs, C.LILAC);
+    y += row;
+    g.textFit(x, y, w.targetValid() ? `TARGET ${w.shortName(P.target)} - AIMING AT ${K.SUB_NAME[P.sub]}` : 'NO TARGET', fs, w.targetValid() ? C.RED : C.GREY_TXT, 'left', lw);
+    y += row + 4 * u;
+    g.header(x, y, lw, 'MISSION', C.VIOLET, hh);
+    y += hh + 4 * u;
+    g.text(x, y, `${K.MT_NAME[w.M.type]} - ${K.DIFF_NAME[w.M.diff]}   T+${mmss(w.missionT)}`, fs, C.PEACH);
+    y += row;
+    g.wrap(x, y, lw, w.M.objective, fs, C.ORANGE, 1.2, 2);
+
+    // ---- contacts (right, top)
+    const rx = r.x + pad * 2 + lw, rw = r.x + r.w - pad - rx;
+    y = r.y + 10 * u;
+    g.header(rx, y, rw, 'CONTACTS', C.SKY, hh);
+    y += hh + 8 * u;
+    const R = Math.min(78 * u, rw * 0.22), cx = rx + R + 2 * u, cy = y + R, range = 15000;
+    g.circle(cx, cy, R, C.GRID, false, u);
+    g.circle(cx, cy, R / 2, C.GRID, false, u);
+    g.text(cx - R, cy + R - 12 * u, '15K', 12 * u, C.GRID);
+    const ids = w.npc.filter((n) => n.alive && n.vis).map((n) => n.id);
+    for (const id of ids) {
+      const n = w.n(id);
+      if (distTo(P.x, P.y, n.x, n.y) > range) continue;
+      g.circle(cx + (n.x - P.x) / range * R, cy + (n.y - P.y) / range * R, 3.5 * u, factionColor(w.known(id) ? n.faction : K.F_UNKNOWN));
+    }
+    drawShip(g, ART_CRUISER, C.SKY, cx, cy, 0.14 * u, P.hdg);
+    const lx = rx + 2 * R + 18 * u, lwid = rx + rw - lx, threat = (s && s.threat) || {};
+    let ly = y - 2 * u, shown = 0;
+    for (const id of ids) {
+      if (shown >= 6) break;
+      if (id === K.ID_BONUS && !w.known(id)) continue;
+      const n = w.n(id), k = w.known(id), tt = threat[id] || '';
+      g.textFit(lx, ly, w.shortName(id, k), 15 * u, factionColor(k ? n.faction : K.F_UNKNOWN), 'left', lwid - 56 * u);
+      g.text(lx + lwid, ly, fmtDist(distTo(P.x, P.y, n.x, n.y)), 14 * u, C.GREY_TXT, 'right');
+      g.textFit(lx, ly + 15 * u, tt, 12 * u, tt.startsWith('ATTACKING') ? C.RED : C.GREY_TXT, 'left', lwid - 56 * u);
+      if (n.scan >= 2 && n.type !== K.CT_ANOMALY && n.type !== K.CT_BUOY) g.bar(lx + lwid - 50 * u, ly + 19 * u, 50 * u, 5 * u, n.hull, healthColor(n.hull));
+      ly += 28 * u;
+      shown++;
+    }
+    // ---- first officer (right, bottom)
+    y = Math.max(cy + R, ly) + 16 * u;
+    g.header(rx, y, rw, 'FIRST OFFICER', C.LILAC, hh);
+    y += hh + 10 * u;
+    const adv = (s && s.advice) || [];
+    for (const a of adv) {
+      if (y > r.y + r.h - 34 * u) break;
+      g.textFit(rx, y, a.text, 16 * u, a.col, 'left', rw);
+      if (a.otext) g.textFit(rx + 12 * u, y + 19 * u, 'SUGGEST: ' + a.otext, 13 * u, C.GREY_TXT, 'left', rw - 12 * u);
+      y += 42 * u;
     }
   }
 
@@ -530,17 +646,17 @@ export function drawTitleCard(g, w, r, joinUrl) {
     g.text(cx, r.y + 222 * u, `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
     g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, K.MT_DESC[s.selType], 13 * u, C.GREY_TXT, 1.3, 2);
   }
-  const n = lb.stations.length;
-  const bw = Math.min(200 * u, (r.w - 40 * u) / n - 10 * u);
-  let x = cx - (n * (bw + 10 * u) - 10 * u) / 2;
-  const y = r.y + 296 * u;
-  for (const st of lb.stations) {
-    const p = lb.players.find((pp) => pp.station === st.key);
-    g.rrect(x, y, bw, 64 * u, 10 * u, p ? st.col : dim(st.col, 0.3));
-    g.textFit(x + bw / 2, y + 7 * u, st.name, 15 * u, C.BLACK, 'center', bw - 10 * u, true);
-    g.textFit(x + bw / 2, y + 30 * u, p ? p.name : 'OPEN', 22 * u, p ? C.BLACK : C.GREY_TXT, 'center', bw - 10 * u);
-    x += bw + 10 * u;
+  // the 8 roles and who holds them
+  const byPid = new Map(lb.players.map((p) => [p.pid, p]));
+  const cols = 4, bw = Math.min(205 * u, (r.w - 40 * u) / cols - 10 * u), bh = 30 * u;
+  const x0 = cx - (cols * (bw + 10 * u) - 10 * u) / 2;
+  for (let t = 0; t < K.TAB_NAME.length; t++) {
+    const x = x0 + (t % cols) * (bw + 10 * u), y = r.y + 290 * u + Math.floor(t / cols) * (bh + 8 * u);
+    const o = lb.roles[t] ? byPid.get(lb.roles[t]) : null;
+    g.rrect(x, y, bw, bh, bh / 2, o ? o.col : dim(K.TAB_COL[t], 0.3));
+    g.textFit(x + 14 * u, y + 6 * u, K.TAB_NAME[t], 15 * u, C.BLACK, 'left', bw * 0.5, true);
+    g.textFit(x + bw - 14 * u, y + 6 * u, o ? o.name : 'OPEN', 15 * u, o ? C.BLACK : C.GREY_TXT, 'right', bw * 0.45);
   }
-  g.text(cx, r.y + 372 * u, lb.canStart ? 'ALL STATIONS READY - START THE MISSION FROM ANY PHONE' : lb.why, 15 * u, lb.canStart ? C.GREEN : C.YELLOW, 'center');
+  g.text(cx, r.y + 372 * u, lb.canStart ? 'ALL ROLES ASSIGNED - START THE MISSION FROM ANY PHONE' : lb.why, 15 * u, lb.canStart ? C.GREEN : C.YELLOW, 'center');
   if (joinUrl) g.text(cx, r.y + 394 * u, 'JOIN FROM A PHONE BROWSER:  ' + joinUrl, 13 * u, C.GREY_TXT, 'center');
 }

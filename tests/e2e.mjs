@@ -1,7 +1,7 @@
 // End-to-end: relay server + host phone + crew phones + TV page in headless
-// Chromium. Joins, claims stations, starts a mission, flies it with crew
+// Chromium. Joins, picks roles, starts a mission, flies it with crew
 // commands, and saves screenshots of every station tab and the TV.
-//   node tests/e2e.mjs [relay: node|java] [crew 1-4] [captain 0|1]
+//   node tests/e2e.mjs [relay: node|java] [players 1-5] [manual 0|1  (1 = pick roles by hand)]
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -11,7 +11,8 @@ const { chromium } = require('playwright');
 
 const relay = process.argv[2] || 'node';
 const crew = +(process.argv[3] || 2);
-const captain = process.argv[4] === '1';
+const manual = process.argv[4] === '1';
+const captain = false;
 const PORT = 8800 + Math.floor(Math.random() * 100);
 const OUT = process.env.SHOTS || 'shots';
 fs.mkdirSync(OUT, { recursive: true });
@@ -36,7 +37,7 @@ async function phone(name, extra = '') {
 const host = await phone('KIRA', '&host=1');
 await sleep(800);
 const names = ['KIRA', 'JONAS', 'MAI', 'OMAR', 'LEE'];
-const n = crew + (captain ? 1 : 0);
+const n = crew;
 const phones = [host];
 for (let i = 1; i < n; i++) phones.push(await phone(names[i]));
 const tvCtx = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
@@ -46,18 +47,31 @@ await tv.goto(`${base}/screen.html`);
 await sleep(1500);
 
 const lobby = await host.evaluate(() => window.auroraApp.w.lobby);
-console.log('lobby stations:', lobby.stations.map((s) => s.key).join(','), 'players:', lobby.players.length, 'screens:', lobby.screens);
-if (captain) await host.evaluate(() => window.auroraApp.link.send({ t: 'captain', on: true }));
-await sleep(600);
+console.log('players:', lobby.players.length, 'screens:', lobby.screens);
 await host.screenshot({ path: `${OUT}/p01_lobby_empty.png` });
-const lb2 = await host.evaluate(() => window.auroraApp.w.lobby);
-const keys = lb2.stations.map((s) => s.key);
-for (let i = 0; i < n; i++) await phones[i].evaluate((k) => window.auroraApp.link.send({ t: 'claim', key: k }), keys[(i + (captain ? 1 : 0)) % keys.length]);
+if (manual) {
+  // each player taps role cards: player i takes roles i, i+n, ... ; the last role is left open at first
+  for (let t = 0; t < 7; t++) await phones[t % n].evaluate((t) => window.auroraApp.link.send({ t: 'role', tab: t }), t);
+  await sleep(600);
+  const part = await host.evaluate(() => window.auroraApp.w.lobby);
+  console.log('7 of 8 roles taken -> canStart', part.canStart, '|', part.why);
+  await host.screenshot({ path: `${OUT}/p02a_lobby_partial.png` });
+  // someone tries to take a role another player holds: refused
+  if (n > 1) {
+    await phones[1].evaluate(() => window.auroraApp.link.send({ t: 'role', tab: 0 }));
+    await sleep(400);
+    const own = await host.evaluate(() => window.auroraApp.w.lobby.roles[0] === window.auroraApp.pid);
+    console.log('role 0 still held by its first owner:', own);
+  }
+  await phones[n - 1].evaluate(() => window.auroraApp.link.send({ t: 'role', tab: 7 }));
+} else {
+  await host.evaluate(() => window.auroraApp.link.send({ t: 'auto' }));
+}
 await sleep(800);
 await host.screenshot({ path: `${OUT}/p02_lobby_ready.png` });
 await tv.screenshot({ path: `${OUT}/tv01_title.png` });
 const ready = await host.evaluate(() => window.auroraApp.w.lobby);
-console.log('claims:', ready.players.map((p) => `${p.name}=${p.station}`).join(' '), 'canStart', ready.canStart, ready.why);
+console.log('roles:', ready.players.map((p) => `${p.name}=${p.roles.join('/')}`).join(' '), 'canStart', ready.canStart, ready.why);
 await host.evaluate(() => { const K = window.auroraApp; K.send(32, 1, 1); });
 await sleep(300);
 await phones[n - 1].evaluate(() => window.auroraApp.send(1));
@@ -99,10 +113,10 @@ await host.evaluate(() => {
 await sleep(2500);
 const stations = [];
 for (let i = 0; i < n; i++) {
-  const tabs = await phones[i].evaluate(() => { const a = window.auroraApp; const s = a.myStation(); return s ? (s.captain ? 3 : s.tabs.length) : 0; });
+  const tabs = await phones[i].evaluate(() => { const s = window.auroraApp.myStation(); return s ? s.tabs.length : 0; });
   stations.push(tabs);
   for (let t = 0; t < tabs; t++) {
-    await phones[i].evaluate((t) => { const a = window.auroraApp; a.viewerPage = false; if (a.myStation().captain) a.capTab = t; else a.tab = t; }, t);
+    await phones[i].evaluate((t) => { const a = window.auroraApp; a.viewerPage = false; a.tab = t; }, t);
     await sleep(400);
     await phones[i].screenshot({ path: `${OUT}/p1${i}_${names[i]}_tab${t}.png` });
   }
@@ -128,7 +142,7 @@ if (captain) {
   console.log('orders after crew response:', ol);
 }
 // every main viewer mode on the TV + one phone viewer page
-for (const [mode, nm] of [[0, 'fwd'], [1, 'tac'], [2, 'map'], [3, 'tgt'], [4, 'comms']]) {
+for (const [mode, nm] of [[0, 'fwd'], [1, 'tac'], [2, 'map'], [3, 'tgt'], [4, 'comms'], [5, 'status']]) {
   await phones[n - 1].evaluate((m) => { const a = window.auroraApp; a.send(10, m, a.w.P.target); }, mode);
   await sleep(900);
   await tv.screenshot({ path: `${OUT}/tv1${mode}_${nm}.png` });

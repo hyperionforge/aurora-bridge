@@ -12,7 +12,6 @@ import { Scene } from './viewscreen.js';
 import { mmss } from './util.js';
 import { helm, nav, science, comms } from './stations/helm.js';
 import { tactical, shields, engineer, damage } from './stations/tactical.js';
-import { CAP_TABS, capStatus, capOrders, capComms } from './stations/captain.js';
 
 const TABS = [helm, nav, science, comms, tactical, shields, engineer, damage];
 const params = new URLSearchParams(location.search);
@@ -125,12 +124,14 @@ class App {
   buzz(p) {
     if (!this.vibrate) return;
     if (Native && Native.vibrate) Native.vibrate(Array.isArray(p) ? p[0] : p);
-    else if (navigator.vibrate) navigator.vibrate(p);
+    else if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(p);
   }
   me() { return this.w.lobby ? this.w.lobby.players.find((p) => p.pid === this.pid) : null; }
+  // my "station" = the roles I picked in the lobby
   myStation() {
-    const me = this.me(), lb = this.w.lobby;
-    return me && lb && me.station ? lb.stations.find((s) => s.key === me.station) : null;
+    const me = this.me();
+    if (!me || !me.roles || !me.roles.length) return null;
+    return { key: me.roles.join(','), name: me.roles.map((t) => K.TAB_NAME[t]).join(' + '), tabs: me.roles, col: me.col };
   }
   myTabs() { const s = this.myStation(); return s ? s.tabs : []; }
 
@@ -202,28 +203,30 @@ class App {
   }
 
   // ---------------------------------------------------------------- the lobby
+  // Players tap the roles they want. START only lights up when all 8 roles
+  // are taken and everyone has at least one.
   drawLobby() {
     const g = this.g, w = this.w, lb = w.lobby, s = w.slow, me = this.me();
     const W = g.W, H = g.H;
+    const inTitle = w.game === K.GS_TITLE;
     this.elbow(C.ORANGE);
     const tx = this.topRight(SB_W + 60);
-    g.textFit(SB_W + 56, 2, w.game === K.GS_TITLE ? 'CREW ASSEMBLY' : 'MISSION IN PROGRESS - CHOOSE A FREE STATION', 24, C.ORANGE, 'left', tx - SB_W - 60, true);
-    // sidebar: crew list
+    g.textFit(SB_W + 56, 2, inTitle ? 'CREW ASSEMBLY' : 'MISSION IN PROGRESS - TAKE A FREE ROLE', 24, C.ORANGE, 'left', tx - SB_W - 60, true);
+    // sidebar: the crew and how many roles each holds
     let y = 86;
     g.text(4, y, 'CREW', 13, C.PEACH);
     y += 18;
     for (const p of lb.players) {
-      const st = lb.stations.find((q) => q.key === p.station);
-      g.rect(0, y, SB_W, 40, p.online ? (st ? st.col : C.GREY) : C.SEG_OFF);
+      const n = p.roles.length;
+      g.rect(0, y, SB_W, 40, p.online ? p.col : C.SEG_OFF);
       g.textFit(SB_W - 6, y + 2, p.name + (p.pid === this.pid ? ' (YOU)' : ''), 14, C.BLACK, 'right', SB_W - 8, true);
-      g.textFit(SB_W - 6, y + 21, st ? st.name : p.online ? 'CHOOSING...' : 'DISCONNECTED', 11, C.BLACK, 'right', SB_W - 8);
+      g.textFit(SB_W - 6, y + 21, !p.online ? 'DISCONNECTED' : n ? `${n} ROLE${n > 1 ? 'S' : ''}` : 'CHOOSING...', 11, C.BLACK, 'right', SB_W - 8);
       y += 44;
     }
     if (lb.screens) g.text(4, y + 2, `+ ${lb.screens} VIEWSCREEN${lb.screens > 1 ? 'S' : ''}`, 12, C.SKY);
-    // left panel: mission
-    const lx = SB_W + 10, lw = Math.min(310, Math.floor((W - SB_W) * 0.38));
+    // left panel: mission, auto-assign, start
+    const lx = SB_W + 10, lw = Math.min(300, Math.floor((W - SB_W) * 0.36));
     y = TOP_H + 10;
-    const inTitle = w.game === K.GS_TITLE;
     const st = s ? s.selType : 0, sd = s ? s.selDiff : 1;
     g.header(lx, y, lw, 'MISSION', C.SKY);
     y += 24;
@@ -237,56 +240,51 @@ class App {
     if (inTitle) g.button('dn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => this.send(CMD.SELECT, st, (sd + 1) % 3), { sound: 'toggle' });
     y += 40;
     y = g.wrap(lx, y, lw, K.MT_DESC[st], 13, C.PEACH, 1.25, 4) + 6;
-    g.header(lx, y, lw, 'CAPTAIN', C.LILAC);
-    y += 24;
     if (inTitle) {
-      g.button('capt', lx, y, lw, 34, lb.captain ? 'CAPTAIN STATION: ON' : 'CAPTAIN STATION: OFF', lb.captain ? C.LILAC : C.GREY, lb.captain ? C.BLACK : C.LILAC, 18,
-        () => this.link.send({ t: 'captain', on: !lb.captain }), { sound: 'toggle' });
-      y += 38;
-      g.wrap(lx, y, lw, lb.captain ? 'ONE PLAYER COMMANDS: STATUS, ORDERS TO EACH STATION, COMMS. THE OTHERS SHARE THE CONSOLES.' : 'OPTIONAL: ONE PLAYER CAN COMMAND AND GIVE ORDERS INSTEAD OF RUNNING A CONSOLE.', 12, C.GREY_TXT, 1.2, 2);
-    } else g.text(lx, y + 4, lb.captain ? 'ON' : 'OFF', 16, C.LILAC);
-    // start button
-    const by = H - 52;
-    if (inTitle) {
+      g.header(lx, y, lw, 'ROLES', C.LILAC);
+      y += 24;
+      g.button('auto', lx, y, lw, 34, 'AUTO-ASSIGN ROLES', C.LILAC, C.BLACK, 18, () => this.link.send({ t: 'auto' }), { sound: 'toggle' });
+      y += 40;
+      g.wrap(lx, y, lw, 'OR TAP THE ROLE CARDS YOU WANT. TAP ONE OF YOURS TO GIVE IT BACK.', 12, C.GREY_TXT, 1.2, 2);
+      const by = H - 52;
       g.button('start', lx, by, lw, 46, 'START MISSION', lb.canStart ? C.ORANGE : C.GREY, lb.canStart ? C.BLACK : C.GREY_TXT, 24, () => {
         if (lb.canStart) this.send(CMD.START); else sound.denied();
       }, { silent: !lb.canStart, bold: true });
-      g.textFit(lx + lw / 2, by - 20, lb.canStart ? 'ALL STATIONS READY' : lb.why, 13, lb.canStart ? C.GREEN : C.YELLOW, 'center', lw);
+      g.textFit(lx + lw / 2, by - 20, lb.canStart ? 'ALL ROLES ASSIGNED - READY' : lb.why, 13, lb.canStart ? C.GREEN : C.YELLOW, 'center', lw);
     }
-    // right panel: stations
+    // right panel: the 8 role cards
     const rx = lx + lw + 14, rw = W - 6 - rx;
     y = TOP_H + 10;
-    g.header(rx, y, rw, `STATIONS - ${lb.crew} CREW${lb.captain ? ' + CAPTAIN' : ''}`, C.ORANGE);
+    g.header(rx, y, rw, 'ROLES - TAP TO TAKE ONE, TAP AGAIN TO GIVE IT BACK', C.ORANGE);
     y += 24;
-    const n = lb.stations.length, cols = n <= 2 ? n : 2, rows = Math.ceil(n / cols);
     const joinH = this.joinUrls.length ? 44 : 0;
-    const ch = (H - y - 6 - joinH) / rows - 6, cwid = (rw - (cols - 1) * 8) / cols;
-    lb.stations.forEach((stn, i) => {
-      const cx = rx + (i % cols) * (cwid + 8), cy = y + Math.floor(i / cols) * (ch + 6);
-      const owner = lb.players.find((p) => p.station === stn.key);
-      const mine = me && me.station === stn.key;
-      const free = !owner || (!owner.online && w.game !== K.GS_TITLE);
-      g.rrect(cx, cy, cwid, ch, 12, mine ? stn.col : C.PANEL);
-      g.ctx.strokeStyle = stn.col; g.ctx.lineWidth = 2;
-      g.ctx.beginPath(); g.ctx.roundRect(cx + 1, cy + 1, cwid - 2, ch - 2, 12); g.ctx.stroke();
-      const tc = mine ? C.BLACK : stn.col;
-      g.textFit(cx + 10, cy + 5, stn.name, 19, tc, 'left', cwid * 0.62, true);
-      g.textFit(cx + cwid - 10, cy + 7, owner ? owner.name + (owner.online ? '' : ' (OFF)') : 'OPEN', 16, mine ? C.BLACK : owner ? C.WHITE : C.GREEN, 'right', cwid * 0.36);
-      let ty = cy + 30;
-      const lines = stn.captain ? [stn.desc] : stn.tabs.map((t) => `${K.TAB_NAME[t]} - ${K.TAB_DESC[t]}`);
-      const fs = Math.max(10, Math.min(13, (ch - 36) / Math.max(1, lines.length) - 3));
-      for (const l of lines) {
-        if (ty > cy + ch - fs - 4) break;
-        if (stn.captain) ty = g.wrap(cx + 10, ty, cwid - 20, l, fs, mine ? C.BLACK : C.PEACH, 1.2, 4);
-        else { g.textFit(cx + 10, ty, l, fs, mine ? C.BLACK : C.PEACH, 'left', cwid - 20); ty += fs + 3; }
-      }
-      g.hit(cx, cy, cwid, ch, { down: () => {
-        if (mine) { if (w.game === K.GS_TITLE) { this.link.send({ t: 'unclaim' }); sound.toggle(); } return; }
-        if (!free && owner) { sound.denied(); return; }
+    const cols = 4, rows = 2, gap = 6;
+    const cw = (rw - (cols - 1) * gap) / cols, ch = (H - y - 6 - joinH - (rows - 1) * gap) / rows;
+    const byPid = new Map(lb.players.map((p) => [p.pid, p]));
+    for (let t = 0; t < K.TAB_NAME.length; t++) {
+      const cx = rx + (t % cols) * (cw + gap), cy = y + Math.floor(t / cols) * (ch + gap);
+      const owner = lb.roles[t] ? byPid.get(lb.roles[t]) : null;
+      const mine = owner && owner.pid === this.pid;
+      const free = !owner || !owner.online;
+      const col = K.TAB_COL[t];
+      g.rrect(cx, cy, cw, ch, 12, mine ? col : C.PANEL);
+      const c = g.ctx;
+      c.strokeStyle = owner && !mine ? owner.col : col; c.lineWidth = 2;
+      c.beginPath(); c.roundRect(cx + 1, cy + 1, cw - 2, ch - 2, 12); c.stroke();
+      g.textFit(cx + 10, cy + 6, K.TAB_NAME[t], 19, mine ? C.BLACK : col, 'left', cw - 20, true);
+      g.wrap(cx + 10, cy + 32, cw - 20, K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 1.2, Math.max(1, Math.floor((ch - 62) / 14.4)));
+      // holder chip along the bottom
+      const hy = cy + ch - 26;
+      if (owner) {
+        g.rrect(cx + 8, hy, cw - 16, 20, 10, mine ? C.BLACK : owner.online ? owner.col : C.GREY);
+        g.textFit(cx + cw / 2, hy + 2, owner.name + (owner.online ? '' : ' (GONE)'), 14, mine ? col : C.BLACK, 'center', cw - 24, true);
+      } else g.text(cx + cw / 2, hy + 2, 'OPEN', 14, C.GREEN, 'center', true);
+      g.hit(cx, cy, cw, ch, { down: () => {
+        if (!mine && !free) { sound.denied(); return; }
         sound.toggle();
-        this.link.send({ t: 'claim', key: stn.key });
+        this.link.send({ t: 'role', tab: t });
       } });
-    });
+    }
     if (joinH) {
       const jy = H - joinH;
       if (this.qr) this.drawQR(W - 46, jy + 2, 40);
@@ -320,13 +318,17 @@ class App {
   }
   drawRun() {
     const g = this.g, w = this.w, stn = this.myStation();
-    const isCap = !!stn.captain;
-    const names = isCap ? CAP_TABS : stn.tabs.map((t) => K.TAB_NAME[t]);
-    const cols = isCap ? [C.ORANGE, C.LILAC, C.SKY] : stn.tabs.map((t) => K.TAB_COL[t]);
-    if (this.lastTabKey !== stn.key) { this.lastTabKey = stn.key; this.tab = 0; this.capTab = 0; this.viewerPage = false; }
-    let ti = isCap ? this.capTab : this.tab;
+    const names = stn.tabs.map((t) => K.TAB_NAME[t]);
+    const cols = stn.tabs.map((t) => K.TAB_COL[t]);
+    if (this.lastTabKey !== stn.key) { // roles changed: stay on the same one if I still have it
+      const keep = this.curTab;
+      this.lastTabKey = stn.key;
+      this.tab = Math.max(0, stn.tabs.indexOf(keep));
+    }
+    let ti = this.tab;
     if (ti >= names.length) ti = 0;
-    if (!isCap && stn.tabs[ti] === K.T_COMMS) this.unread = false;
+    this.curTab = stn.tabs[ti];
+    if (stn.tabs[ti] === K.T_COMMS) this.unread = false;
     const tabCol = this.viewerPage ? C.ORANGE : cols[ti];
     this.elbow(tabCol);
     // ---- sidebar tabs
@@ -335,12 +337,10 @@ class App {
     names.forEach((nm, i) => {
       const act = i === ti && !this.viewerPage;
       let col = act ? cols[i] : dim(cols[i], 0.42);
-      if (!act && !isCap && stn.tabs[i] === K.T_COMMS && this.unread && flash(400)) col = C.WHITE;
-      if (isCap && i === 2 && !act && this.unread && flash(400)) col = C.WHITE;
+      if (!act && stn.tabs[i] === K.T_COMMS && this.unread && flash(400)) col = C.WHITE;
       g.block('tab' + i, 0, top + i * (th + 4), SB_W, th, nm, col, C.BLACK, Math.min(20, th * 0.5), () => {
-        if (isCap) this.capTab = i; else this.tab = i;
+        this.tab = i;
         this.viewerPage = false;
-        if (isCap && i === 2) this.unread = false;
       });
       if (act) g.rect(6, top + i * (th + 4) + 6, 7, th - 12, C.BLACK);
     });
@@ -356,17 +356,7 @@ class App {
     // ---- top bar: title or captain's order, alert buttons for the captain
     const tx0 = SB_W + 54;
     let tx1;
-    if (isCap) {
-      let x = this.topRight(g.W);
-      const lbl = ['RED', 'YEL', 'GRN'], acol = [C.RED, C.YELLOW, C.GREEN];
-      for (let i = 2; i >= 0; i--) {
-        x -= 56;
-        const lvl = 2 - i;
-        g.button('cal' + i, x, 2, 52, TOP_H - 6, lbl[i], al === lvl ? acol[i] : dim(acol[i], 0.3), C.BLACK, 16, () => this.send(CMD.ALERT, lvl));
-      }
-      tx1 = x - 8;
-      g.textFit(tx0, 0, this.viewerPage ? 'MAIN VIEWER' : 'CAPTAIN - ' + names[ti], 26, C.ORANGE, 'left', tx1 - tx0, true);
-    } else {
+    {
       tx1 = this.topRight(tx0 + 200) - 6;
       const o = this.myOrder(), st = this.bannerState(o);
       if (!st) g.textFit(tx0, 0, this.viewerPage ? 'MAIN VIEWER' : names[ti], 27, C.ORANGE, 'left', tx1 - tx0, true);
@@ -388,7 +378,6 @@ class App {
     // ---- content
     const L = this.layout();
     if (this.viewerPage) this.drawViewerPage(L);
-    else if (isCap) [capStatus, (g2, w2, a, l) => capOrders.draw(g2, w2, a, l), (g2, w2, a, l) => capComms.draw(g2, w2, a, l)][ti](g, w, this, L);
     else TABS[stn.tabs[ti]].draw(g, w, this, L);
   }
 
@@ -400,13 +389,13 @@ class App {
     const vx = L.x0 + (L.x1 - L.x0 - vw) / 2;
     this.scene.draw(g, w, vx, L.y0, vw, vh);
     g.strokeRect(vx, L.y0, vw, vh, C.GRID);
-    const by = L.y1 - bh, n = 5, bw = (L.x1 - L.x0 - (n - 1) * 6 - 150) / n;
+    const by = L.y1 - bh, n = K.NUM_VM, bw = (L.x1 - L.x0 - (n - 1) * 6 - 130) / n;
     for (let i = 0; i < n; i++) {
       const sel = w.view === i;
       g.button('vm' + i, L.x0 + i * (bw + 6), by, bw, bh, K.VM_SHORT[i], sel ? C.ORANGE : C.GREY, sel ? C.BLACK : C.GREY_TXT, 19,
         () => this.send(CMD.VIEW, i, i === K.VM_TARGET ? w.P.target : K.NO_ID));
     }
-    g.wrap(L.x1 - 144, by, 144, 'CHANGES THE MAIN VIEWER FOR THE WHOLE BRIDGE', 12, C.GREY_TXT, 1.15, 3);
+    g.wrap(L.x1 - 124, by, 124, 'CHANGES THE MAIN VIEWER FOR THE WHOLE BRIDGE', 12, C.GREY_TXT, 1.15, 3);
   }
 
   drawEnd() {
@@ -448,7 +437,7 @@ class App {
       y += 54;
     }
     if (this.w.game === K.GS_RUN) {
-      g.button('mswap', cx - bw / 2, y, bw, 44, 'LEAVE MY STATION (PICK ANOTHER)', C.TAN, C.BLACK, 18, () => {
+      g.button('mswap', cx - bw / 2, y, bw, 44, 'GIVE BACK MY ROLES (PICK AGAIN)', C.TAN, C.BLACK, 18, () => {
         this.link.send({ t: 'unclaim' }); this.menu = false;
       });
       y += 54;

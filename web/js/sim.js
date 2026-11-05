@@ -350,7 +350,7 @@ export class Sim {
       return;
     }
     if (c.cmd === CMD.RESTART) { if (this.game !== GS_RUN) this.game = GS_TITLE; return; }
-    if (c.cmd === CMD.VIEW) { this.view = a % 5; this.viewId = b; this.viewRevertAt = 0; return; }
+    if (c.cmd === CMD.VIEW) { this.view = a % K.NUM_VM; this.viewId = b; this.viewRevertAt = 0; return; }
     if (this.game !== GS_RUN) return;
     switch (c.cmd) {
       case CMD.HEADING: P.desHdg = wrap360(+c.c || 0); P.autopilot = K.AP_OFF; break;

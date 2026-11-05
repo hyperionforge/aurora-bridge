@@ -15,9 +15,9 @@ export const C = {
 export const GS_TITLE = 0, GS_RUN = 1, GS_WIN = 2, GS_LOST = 3;
 export const AL_GREEN = 0, AL_YELLOW = 1, AL_RED = 2;
 
-export const VM_FORWARD = 0, VM_TACTICAL = 1, VM_MAP = 2, VM_TARGET = 3, VM_COMMS = 4;
-export const VM_NAME = ['FORWARD', 'TACTICAL', 'SECTOR MAP', 'TARGET', 'COMMS'];
-export const VM_SHORT = ['FWD', 'TAC', 'MAP', 'TGT', 'COMMS'];
+export const VM_FORWARD = 0, VM_TACTICAL = 1, VM_MAP = 2, VM_TARGET = 3, VM_COMMS = 4, VM_STATUS = 5, NUM_VM = 6;
+export const VM_NAME = ['FORWARD', 'TACTICAL', 'SECTOR MAP', 'TARGET', 'COMMS', 'SHIP STATUS'];
+export const VM_SHORT = ['FWD', 'TAC', 'MAP', 'TGT', 'COMMS', 'STATUS'];
 
 export const S_IMPULSE = 0, S_WARP = 1, S_PHASERS = 2, S_TORPS = 3, S_SHIELDS = 4, S_SENSORS = 5, NSYS = 6;
 export const SYS_NAME = ['IMPULSE', 'WARP', 'PHASERS', 'TORPEDOES', 'SHIELDS', 'SENSORS'];
@@ -159,6 +159,15 @@ export const LAYOUTS = {
 export const CAPTAIN_STATION = { key: 'captain', name: 'CAPTAIN', col: C.LILAC, tabs: [], captain: true,
   desc: 'STATUS AND FIRST OFFICER ADVICE, ORDERS TO EACH STATION, COMMS. OPTIONAL.' };
 export const MAX_PLAYERS = 5;
+// AUTO-ASSIGN: how the 8 roles are split between 1-5 players
+export const AUTO_SPLIT = {
+  1: [[0, 1, 2, 3, 4, 5, 6, 7]],
+  2: [[0, 1, 2, 3], [4, 5, 6, 7]],
+  3: [[0, 1, 3], [4, 5, 2], [6, 7]],
+  4: [[0, 1], [2, 3], [4, 5], [6, 7]],
+  5: [[0, 1], [2, 3], [4], [5], [6, 7]],
+};
+export const PLAYER_COL = [C.ORANGE, C.SKY, C.LILAC, C.GREEN, C.TAN];
 
 // ---------------------------------------------------------------- captain's orders
 export const OS_HELM = 0, OS_SCI = 1, OS_TAC = 2, OS_ENG = 3;

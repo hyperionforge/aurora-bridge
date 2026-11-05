@@ -105,33 +105,41 @@ export class Host {
   }
 
   // ---------------------------------------------------------------- lobby
+  // Every player picks the roles (sub-stations) they want; each role has one
+  // holder. A mission can start once all 8 roles are taken and nobody is idle.
   activePlayers() {
     return [...this.players.values()].filter((p) => p.kind === 'player' && p.cid).sort((a, b) => a.joinedAt - b.joinedAt);
   }
-  recomputeLayout() {
-    const n = this.activePlayers().length;
-    const cap = this.sim.captainMode ? 1 : 0;
-    const crew = Math.max(1, Math.min(4, n - cap));
-    if (crew !== this.layoutCrew || (this.stations.some((s) => s.captain) !== !!cap)) {
-      this.layoutCrew = crew;
-      this.stations = K.LAYOUTS[crew].map((s) => ({ ...s }));
-      if (cap) this.stations.push({ ...K.CAPTAIN_STATION });
-      const keys = new Set(this.stations.map((s) => s.key));
-      for (const p of this.players.values()) if (p.station && !keys.has(p.station)) p.station = null;
-    }
+  allPlayers() {
+    return [...this.players.values()].filter((p) => p.kind === 'player').sort((a, b) => a.joinedAt - b.joinedAt);
+  }
+  recomputeLayout() { this.lobbyDirty = true; }
+  ownerOfTab(tab) { for (const p of this.players.values()) if (p.kind === 'player' && p.roles.includes(tab)) return p; return null; }
+  colourOf(p) { return K.PLAYER_COL[this.allPlayers().indexOf(p) % K.PLAYER_COL.length]; }
+  toggleRole(p, tab) {
+    if (!(tab >= 0 && tab < K.TAB_NAME.length) || p.kind !== 'player') return;
+    if (p.roles.includes(tab)) { p.roles = p.roles.filter((t) => t !== tab); this.lobbyDirty = true; return; }
+    const owner = this.ownerOfTab(tab);
+    if (owner && owner.cid) return;                                  // someone here already has it
+    if (owner) owner.roles = owner.roles.filter((t) => t !== tab);   // left behind by someone who dropped out
+    p.roles = [...p.roles, tab].sort((x, y) => x - y);
     this.lobbyDirty = true;
   }
-  stationOf(key) { return this.stations.find((s) => s.key === key); }
-  ownerOf(key) { for (const p of this.players.values()) if (p.station === key) return p; return null; }
-  ownerOfTab(tab) {
-    const st = this.stations.find((s) => s.tabs.includes(tab));
-    return st ? this.ownerOf(st.key) : null;
+  autoAssign() {
+    const act = this.activePlayers();
+    if (!act.length) return;
+    const split = K.AUTO_SPLIT[Math.min(act.length, 5)];
+    for (const p of this.players.values()) p.roles = [];
+    act.forEach((p, i) => { p.roles = i < split.length ? [...split[i]] : []; });
+    this.lobbyDirty = true;
   }
   canStart() {
     const act = this.activePlayers();
     if (!act.length) return { ok: false, why: 'WAITING FOR PLAYERS' };
-    const waiting = act.filter((p) => !p.station);
-    if (waiting.length) return { ok: false, why: 'WAITING FOR ' + waiting.map((p) => p.name).join(', ') + ' TO CHOOSE A STATION' };
+    const open = K.TAB_NAME.filter((_, t) => { const o = this.ownerOfTab(t); return !o || !o.cid; });
+    if (open.length) return { ok: false, why: 'STILL TO ASSIGN: ' + open.join(', ') };
+    const idle = act.filter((p) => !p.roles.length);
+    if (idle.length) return { ok: false, why: idle.map((p) => p.name).join(', ') + (idle.length > 1 ? ' HAVE' : ' HAS') + ' NO ROLE YET' };
     return { ok: true, why: '' };
   }
   buildLobby() {
@@ -139,11 +147,8 @@ export class Host {
     return {
       t: 'lobby',
       name: this.gameName,
-      captain: this.sim.captainMode,
-      crew: this.layoutCrew,
-      stations: this.stations.map((s) => ({ key: s.key, name: s.name, col: s.col, tabs: s.tabs, captain: !!s.captain, desc: s.desc || '' })),
-      players: [...this.players.values()].filter((p) => p.kind === 'player').sort((a, b) => a.joinedAt - b.joinedAt)
-        .map((p) => ({ pid: p.pid, name: p.name, station: p.station, online: !!p.cid })),
+      roles: K.TAB_NAME.map((_, t) => { const o = this.ownerOfTab(t); return o ? o.pid : null; }),
+      players: this.allPlayers().map((p) => ({ pid: p.pid, name: p.name, roles: p.roles, online: !!p.cid, col: this.colourOf(p) })),
       screens: [...this.players.values()].filter((p) => p.kind === 'screen' && p.cid).length,
       canStart: cs.ok,
       why: cs.why,
@@ -181,7 +186,7 @@ export class Host {
           this.to(cid, { t: 'full' });
           return;
         }
-        p = { pid, name: '', cid: null, station: null, kind: m.kind === 'screen' ? 'screen' : 'player', joinedAt: ++this.joinSeq };
+        p = { pid, name: '', cid: null, roles: [], kind: m.kind === 'screen' ? 'screen' : 'player', joinedAt: ++this.joinSeq };
         this.players.set(pid, p);
       }
       if (p.cid && p.cid !== cid) this.conns.delete(p.cid);
@@ -199,32 +204,13 @@ export class Host {
     const p = pid && this.players.get(pid);
     if (!p) return;
     switch (m.t) {
-      case 'claim': {
-        const st = this.stationOf(m.key);
-        if (!st || p.kind !== 'player') return;
-        const owner = this.ownerOf(m.key);
-        if (owner && owner !== p && owner.cid) return; // taken by someone who is here
-        if (owner && owner !== p) owner.station = null; // seat left empty by someone who dropped out
-        p.station = m.key;
-        this.lobbyDirty = true;
-        return;
-      }
-      case 'unclaim':
-        p.station = null;
-        this.lobbyDirty = true;
-        return;
-      case 'captain':
-        if (sim.game === K.GS_RUN) return;
-        sim.captainMode = !!m.on;
-        this.recomputeLayout();
-        return;
+      case 'role': this.toggleRole(p, m.tab | 0); return;
+      case 'auto': if (sim.game !== K.GS_RUN) this.autoAssign(); return;
+      case 'unclaim': p.roles = []; this.lobbyDirty = true; return;
       case 'cmd': {
         const c = { cmd: m.cmd | 0, a: m.a | 0, b: m.b | 0, c: +m.c || 0, d: +m.d || 0 };
-        if (c.cmd === K.CMD.START) {
-          if (!this.canStart().ok) return;
-          this.recomputeLayout();
-        }
-        if (c.cmd === K.CMD.ORDER && !(sim.captainMode && p.station === 'captain')) return;
+        if (c.cmd === K.CMD.START && !this.canStart().ok) return;
+        if (c.cmd === K.CMD.ORDER) return; // no captain station any more
         sim.handleCmd(c);
         if (c.cmd === K.CMD.SELECT || c.cmd === K.CMD.START || c.cmd === K.CMD.RESTART) { this.lobbyDirty = true; this.slowDirty = true; }
         if (c.cmd === K.CMD.ORDER || c.cmd === K.CMD.ORDER_ACK) this.slowDirty = true;
@@ -266,7 +252,7 @@ export class Host {
   }
   buildSlow() {
     const s = this.sim, M = s.M;
-    if (s.captainMode) s.adviseTick();
+    s.adviseTick(); // the first officer's advice, for the STATUS viewscreen
     const threat = {}, trails = {};
     for (let id = 0; id < K.MAX_CONTACTS; id++) {
       const n = s.npc[id];
@@ -289,7 +275,7 @@ export class Host {
       msgs: s.msgs,
       orders,
       ord: { issued: s.ordIssued, done: s.ordDone, avg: s.ordDone ? s.ordTimeSum / s.ordDone : 0 },
-      advice: s.captainMode ? s.advice.map((a) => ({ ...a, otext: a.code < K.NUM_ORDERS ? s.orderText(a.code, a.arg) : '' })) : [],
+      advice: s.advice.map((a) => ({ ...a, otext: a.code < K.NUM_ORDERS ? s.orderText(a.code, a.arg) : '' })),
       threat, trails, ptrail: s.ptrail,
     };
   }
