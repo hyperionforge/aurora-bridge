@@ -52,5 +52,9 @@ export function insertionPoint(sys, i, t) {
 // how far past the edge of the system's grid a point is (<= 0 = inside)
 export const oortDepth = (x, y) => Math.max(-x, -y, x - SYS_SIZE, y - SYS_SIZE);
 
-// shield bubble radius (metres) from shield effectiveness (power x health)
-export const bubbleR = (eff) => 500 + 1200 * Math.min(2, Math.max(0, eff));
+// shield range, set by SHIELDS: a wider bubble covers ships alongside us but spreads the shields thinner.
+// SH_K = shield drained per point of damage stopped (strength = 1 / SH_K)
+export const SH_RANGE_R = [600, 1400, 2200, 3000];
+export const SH_K = [1, 1.4, 1.9, 2.5];
+export const SH_RANGE_NAME = ['TIGHT', 'WIDE', 'WIDER', 'WIDEST'];
+export const bubbleR = (lvl) => SH_RANGE_R[Math.max(0, Math.min(3, lvl | 0))];

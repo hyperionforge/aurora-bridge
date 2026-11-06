@@ -5,7 +5,7 @@
 import * as K from '../web/js/config.js';
 import * as G from '../web/js/cargo.js';
 import { Sim } from '../web/js/sim.js';
-import { makeRng } from '../web/js/util.js';
+import { makeRng, distTo } from '../web/js/util.js';
 import { SYS_INDEX, sysAt, planetPos } from '../web/js/galaxy.js';
 const pick = JSON.parse(process.argv[2] || '{"a_vey1":"WHAT ARE YOU","a_voss2":"PERSON","a_tarren":"SHIELD","a_final":"ARGUS"}');
 const purge = JSON.parse(process.argv[3] || '["B","C"]');
@@ -87,7 +87,10 @@ run(8, godmode);
 if (s.camp.step === 'a3_shield') {
   // fly alongside the VEGA with shields up so the bubble covers her (shields topped up: we test the mechanic, not the balance)
   s.P.shieldsOn = true; s.P.shieldRaise = 1;
-  run(90, () => { godmode(); const v = s.npc[s.camp.vegaId]; if (v && v.alive) atXY(v.x + 600, v.y); s.P.shieldsOn = true; for (let q = 0; q < 4; q++) s.P.shield[q] = 100; });
+  { const v = s.npc[s.camp.vegaId]; atXY(v.x + 4000, v.y); }
+  cmd(K.CMD.PLOT, 1, s.camp.vegaId); cmd(K.CMD.AUTOPILOT, K.AP_ESCORT, s.camp.vegaId); cmd(K.CMD.SHRANGE, 1); cmd(K.CMD.REINFORCE, K.RF_FORE);
+  run(90, () => { godmode(); s.P.shieldsOn = true; for (let q = 0; q < 4; q++) s.P.shield[q] = Math.max(s.P.shield[q], 60); });
+  log(`  escort: ${Math.round(distTo(s.P.x, s.P.y, s.npc[s.camp.vegaId].x, s.npc[s.camp.vegaId].y))}m from the VEGA, autopilot ${s.P.autopilot}`);
   log(`  vega hull ${s.npc[s.camp.vegaId] && Math.round(s.npc[s.camp.vegaId].hull)} covered ${Math.round(s.camp.covered)}s tarren=${s.camp.f.tarren}`);
 }
 run(8, godmode);

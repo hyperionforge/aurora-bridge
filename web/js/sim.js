@@ -33,7 +33,7 @@ function newPlayer() {
     dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: NO_ID, icPlot: NO_ID,
     cargo: [...G.CARGO_START], arts: [], artSeq: 1, xId: NO_ID, xMode: 0, xProg: 0, refQ: [], refProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0,
     spareUse: 0, noSparesWarned: false,
-    labUid: 0, labTest: 0, labProg: 0,
+    labUid: 0, labTest: 0, labProg: 0, shRange: 0,
     vx: 0, vy: 0, inWell: false, orb: null, orbitPl: -1, orbitT: 0, orbPlot: -1, oort: 0, oortT: 0, skimT: 0,
   };
 }
@@ -337,14 +337,15 @@ export class Sim {
 
   // ---------------------------------------------------------------- damage
   // the shield bubble grows with shield power; anything friendly inside it shelters behind our shields
-  bubR() { return O.bubbleR(this.eff(S_SHIELDS)); }
+  bubR() { return O.bubbleR(this.P.shRange); }
+  shK() { return O.SH_K[this.P.shRange | 0] || 1; }
   sheltered(n) { return this.shieldsUp() && n.faction !== F_HOSTILE && distTo(this.P.x, this.P.y, n.x, n.y) < this.bubR(); }
   absorb(fromX, fromY, dmg) { // our shields soak damage meant for something we're covering; returns what got through
     const P = this.P, q = quadFromRel(angDiff(P.hdg, bearingTo(P.x, P.y, fromX, fromY)));
-    const a = Math.min(dmg, P.shield[q]);
+    const k = this.shK(), a = Math.min(dmg * k, P.shield[q]); // a wide bubble is thinner
     P.shield[q] -= a;
     if (a > 0) this.emit(K.EV_WE_HIT_SHIELD, q, 'shield');
-    return dmg - a;
+    return dmg - a / k;
   }
   damageNpc(id, dmg, sub, attacker, noShelter = false) {
     const n = this.npc[id];
@@ -398,9 +399,9 @@ export class Sim {
     const rel = angDiff(P.hdg, bearingTo(P.x, P.y, fromX, fromY));
     const q = quadFromRel(rel);
     if (this.shieldsUp() && P.shield[q] > 0) {
-      const a = Math.min(dmg, P.shield[q]);
+      const k = this.shK(), a = Math.min(dmg * k, P.shield[q]); // a wide bubble is thinner
       P.shield[q] -= a;
-      dmg -= a;
+      dmg -= a / k;
     }
     if (dmg <= 0.01) {
       this.emit(K.EV_WE_HIT_SHIELD, q, 'shield');
@@ -495,6 +496,7 @@ export class Sim {
       case CMD.AUTOPILOT:
         if (a === K.AP_WAYPOINT && !P.wpValid) { this.denied('NO WAYPOINT SET.'); break; }
         if (a === K.AP_TARGET && !(b < MAX_CONTACTS && this.visible(b))) { this.denied('NO CONTACT TO INTERCEPT.'); break; }
+        if (a === K.AP_ESCORT && !(b < MAX_CONTACTS && this.visible(b) && this.npc[b].faction !== F_HOSTILE && this.npc[b].type !== CT_STARBASE && this.npc[b].type !== K.CT_GROUND)) { this.denied('PICK A FRIENDLY OR NEUTRAL SHIP TO ESCORT.'); break; }
         P.autopilot = a;
         P.apTarget = b;
         break;
@@ -537,6 +539,11 @@ export class Sim {
       case CMD.DREPLY: this.dialogReply(a, b); break;
       case CMD.CAMP: if (this.campAction) this.campAction(a, b); break;
       case CMD.PD: this.pointDefence(); break;
+      case CMD.SHRANGE: {
+        const lv = clampf(a | 0, 0, 3);
+        if (lv !== P.shRange) { P.shRange = lv; this.say(FROM_CREW, 0, lv ? `SHIELD BUBBLE EXTENDED TO ${(O.SH_RANGE_R[lv] / 1000).toFixed(1)}K - STRENGTH ${Math.round(100 / O.SH_K[lv])}%. SHIPS ALONGSIDE US ARE COVERED.` : 'SHIELDS PULLED IN TIGHT - FULL STRENGTH.'); }
+        break;
+      }
       case CMD.LAB: if (this.labCmd) this.labCmd(a, b, c.c | 0, c.d | 0); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
@@ -1003,6 +1010,16 @@ export class Sim {
       P.desHdg = bearingTo(P.x, P.y, P.wpx, P.wpy);
       if (P.warping && d < 5000) { this.dropWarp(); this.say(FROM_CREW, 0, 'APPROACHING WAYPOINT - DROPPING OUT OF WARP.'); }
       if (d < 800) { P.autopilot = K.AP_OFF; P.throttle = 0; this.say(FROM_CREW, 0, 'WAYPOINT REACHED. ALL STOP.'); }
+    } else if (P.autopilot === K.AP_ESCORT) {
+      // escort: hold station 900m off the ship's starboard side (a safe distance - SHIELDS widens the bubble to cover it)
+      const n = P.apTarget < MAX_CONTACTS ? npc[P.apTarget] : null;
+      if (n && n.active && n.alive) {
+        const r = (n.hdg + 90) * DEG, sx = n.x + Math.sin(r) * 900, sy = n.y - Math.cos(r) * 900;
+        const d = distTo(P.x, P.y, sx, sy);
+        P.desHdg = d > 250 ? bearingTo(P.x, P.y, sx, sy) : n.hdg;
+        if (P.warping && d < 7000) { this.dropWarp(); this.say(FROM_CREW, 0, 'CLOSING ON OUR CHARGE - DROPPING OUT OF WARP.'); }
+        P.escortD = d;
+      } else { P.autopilot = K.AP_OFF; this.say(FROM_CREW, 1, 'ESCORT ENDED - WE LOST THE SHIP.'); }
     } else if (P.autopilot === K.AP_TARGET) {
       if (P.apTarget < MAX_CONTACTS && npc[P.apTarget].active && npc[P.apTarget].alive) {
         const n = npc[P.apTarget];
@@ -1048,6 +1065,10 @@ export class Sim {
         const d = distTo(P.x, P.y, npc[P.apTarget].x, npc[P.apTarget].y);
         const lim = clampf((d - 2500) / 2000, 0, 1) * K.IMPULSE_MAX;
         if (targetSpeed > lim) targetSpeed = lim;
+      }
+      if (P.autopilot === K.AP_ESCORT && P.apTarget < MAX_CONTACTS && npc[P.apTarget].alive) { // match speed, close the gap
+        const n = npc[P.apTarget], d = P.escortD || 0;
+        targetSpeed = clampf(Math.abs(n.speed || 0) + (d - 150) * 0.12, 0, this.impulseCap());
       }
       acc = P.speed > K.IMPULSE_MAX * 1.7 ? 2500 : K.IMPULSE_ACCEL * clampf(this.eff(S_IMPULSE), 0.3, 1.6);
     }

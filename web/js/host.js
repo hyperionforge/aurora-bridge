@@ -258,7 +258,7 @@ export class Host {
         anaUid: P.anaUid, anaProg: r2(P.anaProg), anaDeep: P.anaDeep, fxPh: this.sim.fx('ph'),
         dockId: P.dockId, jumpTo: P.jumpTo, jumpPlot: P.jumpPlot, icPlot: P.icPlot, jumpVec: P.jumpPlot !== K.NO_ID ? s.jumpVector(P.jumpPlot) : -1, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
         labUid: P.labUid, labTest: P.labTest, labProg: r2(P.labProg),
-        orb: P.orb, orbitPl: P.orbitPl, orbPlot: P.orbPlot, oort: Math.round(P.oort), bubR: Math.round(s.bubR()),
+        orb: P.orb, orbitPl: P.orbitPl, orbPlot: P.orbPlot, oort: Math.round(P.oort), bubR: Math.round(s.bubR()), shRange: P.shRange,
       },
       npc,
       torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),

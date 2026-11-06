@@ -5,6 +5,7 @@ import { DEG, wrap360, angDiff, fmtDist, pad3, clampf } from '../util.js';
 import { dim, flash, healthColor, lerpCol } from '../gfx.js';
 import { drawShip, factionColor, ART_CRUISER } from '../ships.js';
 import { drawBubble } from '../sysdraw.js';
+import { SH_RANGE_R, SH_K, SH_RANGE_NAME } from '../orbit.js';
 import { drawRadar, radarPick } from './common.js';
 import * as G from '../cargo.js';
 
@@ -129,8 +130,8 @@ export const shields = {
       const bx = cx + Math.sin(rel) * (R + 30), by = cy - Math.cos(rel) * (R + 30);
       g.tri(tx, ty, bx + Math.cos(rel) * 8, by + Math.sin(rel) * 8, bx - Math.cos(rel) * 8, by - Math.sin(rel) * 8, C.RED);
     }
-    const bub = P.bubR || 1700, Rb = R * (0.32 + 0.6 * clampf((bub - 500) / 2400, 0, 1));
-    drawBubble(g, cx, cy, Rb, 0, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1)), raise, 0);
+    const bub = P.bubR || 600, Rb = R * (0.32 + 0.6 * clampf((bub - 600) / 2400, 0, 1)), thin = 1 / (SH_K[P.shRange | 0] || 1);
+    drawBubble(g, cx, cy, Rb, 0, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1) * thin), raise, 0);
     // friendly ships near us, placed bow-up at bubble scale: inside the ring they're covered
     for (const c of w.contacts()) {
       if (!c.alive || c.faction === K.F_HOSTILE || c.type === K.CT_POI || c.type === K.CT_ANOMALY) continue;
@@ -142,7 +143,7 @@ export const shields = {
     }
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, B / 320, 0);
     g.text(L.bx + B, L.by + 20, `BUBBLE ${fmtDist(bub)}`, 15, C.SKY, 'right');
-    g.text(L.bx + B, L.by + 38, 'MORE SHIELD POWER = BIGGER', 11, C.GREY_TXT, 'right');
+    g.text(L.bx + B, L.by + 38, 'WIDER = WEAKER', 11, C.GREY_TXT, 'right');
     if (raise < 0.99) g.text(cx, cy + 40, raise > 0 ? 'RAISING' : 'SHIELDS DOWN', 19, raise > 0 ? C.YELLOW : C.GREY_TXT, 'center');
 
     const x = L.rx, rw = L.rw;
@@ -159,12 +160,19 @@ export const shields = {
       const bx = i === 0 ? x : x + ((i - 1) % 2) * (hw + 6), by = i === 0 ? y + 110 : y + 146 + Math.floor((i - 1) / 2) * 34, bw = i === 0 ? rw : hw;
       g.button('rf' + i, bx, by, bw, 30, K.RF_NAME[i], sel ? C.SKY : C.GREY, sel ? C.BLACK : C.GREY_TXT, 17, () => app.send(CMD.REINFORCE, i), { sound: 'toggle' });
     }
-    y += 222;
+    y += 214;
+    // shield range: wider covers ships alongside us, but every hit drains the shields faster
+    const lv = P.shRange | 0;
+    g.header(x, y, rw, `SHIELD RANGE - STRENGTH ${Math.round(100 / SH_K[lv])}%`, lv ? C.YELLOW : C.SKY);
+    const qw = (rw - 18) / 4;
+    for (let i = 0; i < 4; i++)
+      g.button('sr' + i, x + i * (qw + 6), y + 24, qw, 34, `${SH_RANGE_NAME[i]} ${(SH_RANGE_R[i] / 1000).toFixed(1)}K`, lv === i ? (i ? C.YELLOW : C.SKY) : C.GREY, lv === i ? C.BLACK : C.GREY_TXT, 13, () => app.send(CMD.SHRANGE, i), { sound: 'toggle' });
+    y += 66;
     g.header(x, y, rw, 'ALERT', C.RED);
-    const al = ['RED ALERT', 'YELLOW ALERT', 'STAND DOWN'], ac = [C.RED, C.YELLOW, C.GREEN];
+    const al = ['RED ALERT', 'YELLOW', 'STAND DOWN'], ac = [C.RED, C.YELLOW, C.GREEN], aw = (rw - 12) / 3;
     for (let i = 0; i < 3; i++) {
       const lvl = 2 - i;
-      g.button('al' + i, x, y + 24 + i * 40, rw, 35, al[i], w.alert === lvl ? ac[i] : dim(ac[i], 0.35), C.BLACK, 19, () => app.send(CMD.ALERT, lvl));
+      g.button('al' + i, x + i * (aw + 6), y + 24, aw, 36, al[i], w.alert === lvl ? ac[i] : dim(ac[i], 0.35), C.BLACK, 16, () => app.send(CMD.ALERT, lvl));
     }
     g.text(x, L.y1 - 12, 'RED/YELLOW RAISE SHIELDS; STAND DOWN LOWERS THEM (NEEDED TO DOCK)', 11, C.GREY_TXT);
   },

@@ -216,7 +216,7 @@ export function installArgus(Sim) {
         a2_wait: 'STAND BY FOR FLEET COMMAND',
         a3_go: 'THE RIFT IS GROWING - ITS NEXT SURGE WILL HIT THE PLANET TARREN. GO TO THE RIFT IN HALCYON',
         a3_anchor: 'PIN THE RIFT BEFORE IT SURGES: SCIENCE WATCHES THE TACHYON FLUX METER, HELM FLIES WHERE IT RISES; AT 85%+ SCIENCE DEPLOYS A STABILISER. THREE ANCHORS',
-        a3_shield: 'PROTECT THE VEGA WHILE SHE SHIELDS TARREN: FLY ALONGSIDE HER, SHIELDS UP, AND COVER HER WITH OUR SHIELD BUBBLE. RIFT DEBRIS IS INBOUND',
+        a3_shield: 'PROTECT THE VEGA WHILE SHE SHIELDS TARREN: NAV PLOTS HER, HELM ESCORTS HER (AUTOPILOT / JUMP > ESCORT), SHIELDS UP AND WIDEN THE SHIELD RANGE TO COVER HER. RIFT DEBRIS IS INBOUND',
         a4_go: 'THE LANCE CORE - THE WEAPON THAT TORE THE RIFT - IS HIDDEN IN A CONVOY. JUMP TO VEL\'ANAR AND FIND THE CONVOY AT THE LANTERN',
         a4_find: 'ONE CONVOY SHIP CARRIES THE CORE. COMMS: HAIL EACH FOR ITS MANIFEST. SCIENCE: FULL-SCAN EACH. THE CORE LEAKS CHRONITONS - FIND THE SHIP WHOSE SCAN DOESN\'T MATCH ITS STORY, THEN ACCUSE IT',
         a4_chase: 'THE MERCY IS RUNNING WITH THE CORE - DISABLE HER (HULL UNDER 40%) BEFORE SHE REACHES WARP',
@@ -362,7 +362,7 @@ export function installArgus(Sim) {
         if (id !== NO_ID) { Object.assign(this.npc[id], { ai: AI_STATIC, scan: 2, civ: CIV_FLEET, name: 'FLEET SCIENCE SHIP VEGA', short: 'VEGA', hull: 100, shields: 0, shMax: 0, armor: 1 }); c.vegaId = id; }
         c.surgeT = c.stab >= 3 ? 60 : 80; c.debrisT = 8; c.covered = 0;
         this.M.mk.push({ x: vx, y: vy, kind: MK_POINT, r: 0 }); this.M.ver++;
-        this.argusSay('voss', 'THE VEGA IS IN TARREN ORBIT. HER DEFLECTOR CAN SCREEN THE WHOLE PLANET - BUT SHE HAS NO SHIELDS LEFT FOR HERSELF. AURORA: FLY ALONGSIDE AND PUT YOUR SHIELD BUBBLE AROUND HER. ENGINEERING, EVERYTHING YOU CAN SPARE INTO SHIELDS - MORE POWER MEANS A BIGGER BUBBLE.', 2, FROM_COMMAND);
+        this.argusSay('voss', 'THE VEGA IS IN TARREN ORBIT. HER DEFLECTOR CAN SCREEN THE WHOLE PLANET - BUT SHE HAS NO SHIELDS LEFT FOR HERSELF. AURORA: HELM, NAV PLOTS HER AND YOU ESCORT HER. SHIELDS, WIDEN YOUR SHIELD RANGE UNTIL SHE IS INSIDE THE BUBBLE - IT THINS YOUR SHIELDS, SO REINFORCE TOWARDS THE RIFT AND HAVE ENGINEERING FEED THE SHIELDS.', 2, FROM_COMMAND);
         this.argusStep('a3_shield');
       }
     },
@@ -535,7 +535,7 @@ export function installArgus(Sim) {
             const sx = v.x + Math.cos(a) * d, sy = v.y + Math.sin(a) * d;
             this.launchTorp(K.HAZARD, K.T_PHOTON, sx, sy, bearingTo(sx, sy, v.x, v.y), c.vegaId, 14 + this.frand() * 8, K.SUB_HULL);
           }
-          const tag = cov ? 'COVERED' : flash4(this.now) ? 'EXPOSED!' : 'NOT COVERED';
+          const tag = cov ? 'COVERED' : (flash4(this.now) ? 'EXPOSED!' : 'NOT COVERED') + ' (HELM: ESCORT HER - SHIELDS: WIDEN THE RANGE)';
           this.setObjective(`CH3: COVER THE VEGA WITH OUR SHIELD BUBBLE - ${tag}  VEGA HULL ${Math.max(0, Math.round(v.hull))}%  SURGE ENDS IN ${Math.max(0, Math.ceil(c.surgeT))}s`);
           if (c.surgeT <= 0) {
             c.f.tarren = 'shield'; c.step = 'a3_done';

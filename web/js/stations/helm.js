@@ -65,7 +65,7 @@ export const helm = {
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, L.BIG / 520, P.hdg);
     g.text(L.bx + 2, L.by, 'HDG ' + pad3(P.hdg), 19, C.ORANGE);
     g.text(L.bx + 2, L.by + 22, 'CRS ' + pad3(des), 19, P.autopilot ? C.VIOLET : C.WHITE);
-    if (P.autopilot) g.text(L.bx + 2, L.by + 45, P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : 'AUTOPILOT: INTERCEPT', 12, C.VIOLET);
+    if (P.autopilot) g.text(L.bx + 2, L.by + 45, ['', 'AUTOPILOT: WAYPOINT', 'AUTOPILOT: INTERCEPT', 'AUTOPILOT: ESCORT'][P.autopilot], 12, C.VIOLET);
     g.text(L.bx + L.BIG - 2, L.by, P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S', 19, C.SKY, 'right');
     g.text(L.bx + L.BIG - 2, L.by + 22, 'SECTOR ' + sectorName(P.x, P.y), 13, C.GREY_TXT, 'right');
     if (P.evasive) g.text(L.bx + 2, L.by + 60, 'EVASIVE MANOEUVRES', 12, flash(400) ? C.YELLOW : C.ORANGE);
@@ -177,6 +177,12 @@ export const helm = {
     g.text(x, y, icId !== K.NO_ID ? `INTERCEPT ${w.shortName(icId)}  ${fmtDist(w.range(w.findC(icId)))}` : 'NO INTERCEPT PLOTTED', 13, icId !== K.NO_ID ? C.PEACH : C.GREY_TXT);
     g.button('apic', x + rw - 150, y - 4, 150, 30, icOn ? 'INTERCEPTING' : 'INTERCEPT', icOn ? C.VIOLET : icId !== K.NO_ID ? C.ORANGE : C.GREY, C.BLACK, 15,
       () => { if (icOn) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (icId !== K.NO_ID) app.send(CMD.AUTOPILOT, K.AP_TARGET, icId); else app.sound.denied(); });
+    y += 34;
+    // escort: hold station beside a friendly or neutral ship (the plotted intercept, or the tactical target)
+    const esc = icId !== K.NO_ID && w.findC(icId) && w.findC(icId).faction !== K.F_HOSTILE ? icId : K.NO_ID, escOn = P.autopilot === K.AP_ESCORT;
+    g.text(x, y, escOn ? `ESCORTING ${w.shortName(P.apTarget)} - HOLDING 900M OFF HER STARBOARD SIDE` : esc !== K.NO_ID ? `ESCORT ${w.shortName(esc)} - MATCH HER COURSE AND SPEED` : 'ESCORT: NAV PLOTS A FRIENDLY SHIP', 12, escOn ? C.VIOLET : esc !== K.NO_ID ? C.PEACH : C.GREY_TXT);
+    g.button('apesc', x + rw - 150, y - 4, 150, 30, escOn ? 'ESCORTING' : 'ESCORT', escOn ? C.VIOLET : esc !== K.NO_ID ? C.ORANGE : C.GREY, C.BLACK, 15,
+      () => { if (escOn) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (esc !== K.NO_ID) app.send(CMD.AUTOPILOT, K.AP_ESCORT, esc); else app.sound.denied(); });
     y += 34;
     g.button('apoff', x, y, rw, 30, P.autopilot ? 'AUTOPILOT OFF - HAND STEERING' : 'HAND STEERING', P.autopilot ? C.LILAC : C.GREY, C.BLACK, 15, () => app.send(CMD.AUTOPILOT, K.AP_OFF));
     y += 44;

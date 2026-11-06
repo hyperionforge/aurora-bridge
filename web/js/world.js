@@ -17,7 +17,7 @@ const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet:
   power: [100, 100, 100, 100, 100, 100], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0], team: [K.NO_ID, K.NO_ID], phCharge: 0,
   autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0], target: K.NO_ID, sub: 0, scanId: K.NO_ID, scanProg: 0, lrs: 0,
   cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: K.NO_ID, icPlot: K.NO_ID, jumpVec: -1,
-  orb: null, orbitPl: -1, orbPlot: -1, oort: 0, bubR: 1700 };
+  orb: null, orbitPl: -1, orbPlot: -1, oort: 0, bubR: 600, shRange: 0 };
 
 export class World {
   constructor() {

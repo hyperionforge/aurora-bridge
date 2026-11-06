@@ -365,11 +365,12 @@ export class Scene {
     g.circle(cx, cy, pr, '#3c2814', false, u);
     if (w.shieldsUp() || P.shieldRaise > 0) {
       // the bubble grows with shield power; friendly ships inside it are covered
-      const BR = Math.max(30 * u, (P.bubR || 1700) * k), hit = clampf((this.shieldFlashUntil - performance.now()) / 300, 0, 1);
-      drawBubble(g, cx, cy, BR, P.hdg, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1)), P.shieldRaise, hit);
+      const BR = Math.max(30 * u, (P.bubR || 600) * k), hit = clampf((this.shieldFlashUntil - performance.now()) / 300, 0, 1);
+      const thin = 1 / ([1, 1.4, 1.9, 2.5][P.shRange | 0] || 1);
+      drawBubble(g, cx, cy, BR, P.hdg, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1) * thin), P.shieldRaise, hit);
       if (w.shieldsUp()) for (const n of w.npc) {
         if (!n.alive || !n.vis || n.faction === K.F_HOSTILE || n.type === K.CT_POI || n.type === K.CT_ANOMALY) continue;
-        if (distTo(P.x, P.y, n.x, n.y) < (P.bubR || 1700)) { const [sx, sy] = w2t(n.x, n.y); g.text(sx, sy - 30 * u, 'COVERED', 10 * u, C.SKY, 'center'); }
+        if (distTo(P.x, P.y, n.x, n.y) < (P.bubR || 600)) { const [sx, sy] = w2t(n.x, n.y); g.text(sx, sy - 30 * u, 'COVERED', 10 * u, C.SKY, 'center'); }
       }
     }
     if (P.xId !== K.NO_ID && w.n(P.xId)) {
