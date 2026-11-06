@@ -24,9 +24,15 @@ const WHO = {
   hale: P('en-US', 'f', 1.05, 1.0), voss: P('en-GB', 'f', 0.95, 0.94), marrin: P('en-GB', 'm', 1.1, 1.1),
   okafor: P('en-AU', 'm', 0.78, 0.95), lin: P('en-US', 'f', 1.12, 1.06), silk: P('en-AU', 'f', 0.92, 1.12),
   hauler: P('en-US', 'm', 0.9, 1.0), teo: P('en-GB', 'f', 1.0, 0.9),
+  argus: P('en-US', 'f', 1.25, 0.95), future: CAPTAIN_VOICE, brandt: P('en-AU', 'm', 0.75, 0.98), nava: P('en-GB', 'f', 0.85, 0.85),
+  ark: P('en-US', 'm', 1.0, 1.1), vey: null, hesk: null, teruk: null, ishara: null,
   draal: { ...RACE[CIV_KESSARI], pitch: 0.4, rate: 0.98 }, ressh: { ...RACE[CIV_KESSARI], pitch: 0.65 },
   korvath: { ...RACE[CIV_ORRAN], pitch: 0.3, rate: 0.72 }, thane: { ...RACE[CIV_ORRAN], pitch: 0.42, rate: 0.82 },
 };
+WHO.vey = { ...RACE[CIV_KESSARI], pitch: 0.8, rate: 1.05 };
+WHO.hesk = { ...RACE[CIV_ORRAN], pitch: 0.5, rate: 0.85 };
+WHO.teruk = { ...RACE[CIV_ORRAN], pitch: 0.28, rate: 0.74 };
+WHO.ishara = { ...RACE[CIV_VELORI], pitch: 1.35 };
 export function voiceFor(who) {
   if (WHO[who]) return WHO[who];
   const ch = CHARS[who];
@@ -122,31 +128,43 @@ export class NativeVoice { // the phone's text-to-speech (Android app only)
   busy() { return false; }
 }
 
+// the phone renders the speech and sends the audio to the Chromecast to play on the TV
+export class CastVoice {
+  constructor(native) { this.n = native; this.ok = !!(native && native.speakToCast); }
+  say(text, v, pitch = v.pitch) { try { this.n.speakToCast(text, v.lang, pitch, v.rate); } catch { /* old app */ } }
+  stop() { try { this.n.stopCastSpeech(); } catch { /* old app */ } }
+  busy() { return false; }
+}
+
 // ---------------------------------------------------------------- the narrator
 // Watches the message log and speaks the lines meant for the viewer.
 export class Narrator {
   constructor(engine) { this.engine = engine; this.lastId = -1; this.enabled = true; this.started = false; }
   // call with the world each frame (cheap); speaks anything new
   hear(w) {
-    const msgs = w.msgs;
+    const msgs = w.msgs, d = (w.slow && w.slow.dlg) || null;
+    // the conversation ended, or the viewer left COMMS: cut the voices off
+    const ended = this.dlgSeq && !d, leftComms = this.view === K.VM_COMMS && w.view !== K.VM_COMMS;
+    this.dlgSeq = d ? d.seq : 0; this.view = w.view;
+    if ((ended || leftComms) && this.engine) this.engine.stop();
     if (!msgs.length) return;
     if (!this.started) { this.started = true; this.lastId = msgs[0].id; return; } // don't read out the backlog
     if (w.game === K.GS_TITLE) { this.lastId = msgs[0].id; return; }
     const fresh = msgs.filter((m) => m.id > this.lastId).reverse();
     if (!fresh.length) return;
     this.lastId = msgs[0].id;
-    if (!this.enabled || !this.engine || !this.engine.ok) return;
+    if (!this.enabled || !this.engine || !this.engine.ok || leftComms) return;
     if (fresh.length > 4) this.engine.stop(); // a flood (e.g. after a reconnect): don't read it all
-    for (const m of fresh.slice(-4)) this.speak(m);
+    // a reply that closed the channel isn't read; a last word from the other side still is
+    for (const m of fresh.slice(-4)) if (!(ended && m.reply)) this.speak(m);
   }
   speak(m) {
     const e = this.engine;
     if (m.reply) { e.say(captainLine(m.text), CAPTAIN_VOICE); return; }
-    if (m.from === K.FROM_COMPUTER && /^(CHAPTER|EPILOGUE)/.test(m.text)) { e.say(speakable(m.text), WHO.computer); return; }
-    if (!m.who) return;
+    if (!m.who) return; // only people talking: no crew reports, names or system messages
     const v = voiceFor(m.who), style = v.style;
-    if (m.lang && style) e.say(alienWords(m.text, style), v, v.pitch); // their own words first, then the translator
-    const raw = style ? m.text.replace(/\{([^}]*)\}/g, (x, a) => alienWords(a, style, 3).replace(/\.$/, '')) : m.text;
+    let raw = m.text.replace(/^[A-Z0-9 .'()-]{2,40}: (?=["A-Z])/, ''); // "POD LOG - CAPT. TEO: ..." -> just the words
+    raw = style ? raw.replace(/\{([^}]*)\}/g, (x, a) => alienWords(a, style, 3).replace(/\.$/, '')) : raw;
     const text = styled(speakable(raw), style);
     if (style === 'chorus') { // many voices: phrases alternate high and low
       text.split(/(?<=[.,?!])\s+/).forEach((ph, i) => e.say(ph, v, i % 2 ? 0.25 : v.pitch));

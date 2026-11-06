@@ -366,3 +366,18 @@ export function drawPoi(g, kind, cx, cy, scale, t, seed = 0) {
       return;
   }
 }
+
+// campaign bearing lines (THE ARGUS PARADOX, chapter 1): a dashed line from each survey buoy
+export function drawCampLines(g, w, p2, u = 1) {
+  const lines = w.slow && w.slow.camp && w.slow.camp.lines;
+  if (!lines || !lines.length) return;
+  const c = g.ctx;
+  c.save(); c.setLineDash([8 * u, 6 * u]);
+  for (const l of lines) {
+    const a = l.b * DEG, L = 120000;
+    const [x0, y0] = p2(l.x, l.y), [x1, y1] = p2(l.x + Math.sin(a) * L, l.y - Math.cos(a) * L);
+    g.line(x0, y0, x1, y1, '#78f0ff', 1.6 * u);
+    g.text(x0 + 6 * u, y0 + 4 * u, `${l.l} ${String(l.b).padStart(3, '0')}`, 11 * u, '#78f0ff');
+  }
+  c.restore();
+}

@@ -17,6 +17,7 @@ import { distTo, bearingTo, clampf } from './util.js';
 const { NO_ID, US, MAX_CONTACTS, CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTROYER, CT_POI, F_FRIEND, F_NEUTRAL, F_HOSTILE, FROM_CREW, FROM_COMMAND, FROM_COMPUTER, GS_RUN, MK_AREA, MK_POINT } = K;
 const AI_STATIC = 0, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_ALLY = 8;
 
+import { ARGUS_CHAPTERS, ARGUS_DESC } from './campaign2.js';
 export const CHAPTERS = ['DEAD AIR', 'THE LANTERN\'S PRICE', 'THE SHROUD', 'BLOOD AND HONOUR', 'THE SILENT CHOIR'];
 export const CHAPTER_DESC = [
   'DEEP HOLLOW, A MINING COLONY IN MERIDIAN REACH, HAS GONE SILENT. ITS LAST TRANSMISSION WAS SINGING.',
@@ -24,6 +25,13 @@ export const CHAPTER_DESC = [
   'THE LOST SHIP TALLIS LIES SOMEWHERE IN THE SHROUD, HER VAULT SEALED BY THE SONG ITSELF.',
   'THE HIDDEN LANE RUNS THROUGH ORRAN SPACE. THE DOMINION HAS KEPT ITS SECRET FOR A THOUSAND YEARS.',
   'THE SILENT CHOIR. THE MONOLITH. THE DOOR. WHAT YOU DO HERE CANNOT BE UNDONE.',
+];
+// every campaign the lobby offers
+export const CAMPAIGNS = [
+  { id: 'chorus', name: 'ECHOES OF THE CHORUS', chapters: CHAPTERS, desc: CHAPTER_DESC,
+    blurb: 'A MINING COLONY GOES SILENT, AND A SONG LEADS ACROSS THE GALAXY TO A SECRET THE ORRANS HAVE KEPT FOR A THOUSAND YEARS.' },
+  { id: 'argus', name: 'THE ARGUS PARADOX', chapters: ARGUS_CHAPTERS, desc: ARGUS_DESC,
+    blurb: 'A DISTRESS CALL FROM THE AURORA HERSELF - SENT NINE DAYS FROM NOW. A RIFT IN TIME, A MACHINE THAT DREAMS, AND A WORLD THAT MUST NOT KNOW YOU EXIST.' },
 ];
 const NUM_WORD = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 // defaults used when a chapter is started without having played the ones before
@@ -177,10 +185,17 @@ function tones(i) {
 // ---------------------------------------------------------------- the mixin
 export function installCampaign(Sim) {
   Object.assign(Sim.prototype, {
+    // saved progress, one entry per campaign ({ maxCh, f, done })
+    campSaveOf(id) {
+      if (!this.campSave || this.campSave.maxCh !== undefined) this.campSave = { chorus: this.campSave && this.campSave.maxCh ? this.campSave : { maxCh: 1, f: {} } };
+      return this.campSave[id] || (this.campSave[id] = { maxCh: 1, f: {} });
+    },
+    campMaxes() { return CAMPAIGNS.map((cp) => Math.max(1, Math.min(cp.chapters.length, this.campSaveOf(cp.id).maxCh || 1))); },
     startCampaign(ch) {
+      if (CAMPAIGNS[this.selCamp | 0] && CAMPAIGNS[this.selCamp | 0].id === 'argus') { this.argusStart(ch); return; }
       ch = clampf(ch | 0, 1, 5);
-      const save = this.campSave || {};
-      this.camp = { ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [] };
+      const save = this.campSaveOf('chorus');
+      this.camp = { id: 'chorus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [] };
       this.camp.f.linSaved = false;
       this.greeted.add(0); // Voss speaks first
       // skipping ahead: you have what earlier chapters would have given you
@@ -194,9 +209,9 @@ export function installCampaign(Sim) {
       const c = this.camp;
       c.ch = ch;
       c.t0 = this.now;
-      if (!this.campSave) this.campSave = { maxCh: 1, f: {} };
-      this.campSave.maxCh = Math.max(this.campSave.maxCh || 1, ch);
-      this.campSave.f = { ...c.f };
+      const sv = this.campSaveOf('chorus');
+      sv.maxCh = Math.max(sv.maxCh || 1, ch);
+      sv.f = { ...c.f };
       this.campSaveDirty = true;
       this.say(FROM_COMPUTER, 3, `CHAPTER ${NUM_WORD[ch - 1]}: ${CHAPTERS[ch - 1]}`);
       if (ch === 1) this.after(first ? 2 : 1, () => this.startDialog('c_voss1', FROM_COMMAND));
@@ -253,6 +268,7 @@ export function installCampaign(Sim) {
     campTick(dt) {
       const c = this.camp, P = this.P;
       if (!c || this.game !== GS_RUN) return;
+      if (c.id === 'argus') { this.argusTick(dt); return; }
       c.t += dt;
       const sys = this.sysDef.id;
       const near = (id, r) => id < MAX_CONTACTS && this.npc[id].active && distTo(P.x, P.y, this.npc[id].x, this.npc[id].y) < r;
@@ -364,6 +380,7 @@ export function installCampaign(Sim) {
     // ---- arrivals in each system set up that chapter's scene
     onArrive(to) {
       if (this.mode !== K.MODE_CAMPAIGN || !this.camp) return;
+      if (this.camp.id === 'argus') { this.argusArrive(to); return; }
       const c = this.camp, sid = this.sysDef.id;
       if (c.step === 'c1_go' && sid === 'meridian') {
         this.greeted.add(0); // Deep Hollow is silent
@@ -426,6 +443,7 @@ export function installCampaign(Sim) {
     },
     // a hidden log is read when a pod is fully scanned or sampled
     campOnScan(id) {
+      if (this.camp && this.camp.id === 'argus') { this.argusOnScan(id); return; }
       const n = this.npc[id];
       if (n && n.log && n.scan >= 2 && !n.logRead) { n.logRead = true; this.say(FROM_CREW, 0, n.log); this.msgs[0].who = 'teo'; }
     },
@@ -583,7 +601,7 @@ export function installCampaign(Sim) {
         silence: ['SILENCE', 'KORVATH CRUSHES THE SHARDS IN HIS GAUNTLET. THE LANE CLOSES. WHATEVER WAITED BEYOND ORRA WILL WAIT FOREVER. FLEET COMMAND CALLS IT A SENSIBLE CHOICE. YOU ARE NOT SO SURE.'],
       }[kind];
       c.ending = { kind, title: T[0], text: T[1], allies };
-      this.campSave.done = true; this.campSaveDirty = true;
+      this.campSaveOf(c.id || 'chorus').done = true; this.campSaveDirty = true;
       this.say(FROM_COMPUTER, 3, `EPILOGUE: ${T[0]}`);
       this.endMission(true);
     },

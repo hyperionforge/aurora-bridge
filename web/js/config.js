@@ -85,7 +85,7 @@ export const CMD = {
   START: 1, HEADING: 2, THROTTLE: 3, WARP: 4, STOP: 5, EVASIVE: 6, AUTOPILOT: 7, WAYPOINT: 8, DOCK: 9, VIEW: 10,
   SCAN: 11, LRS: 12, HAIL: 13, REPLY: 14, TARGET: 15, SUB: 16, FIRE_PH: 17, AUTOFIRE: 18, PH_FREQ: 19,
   TUBE_LOAD: 20, TUBE_UNLOAD: 21, TUBE_FIRE: 22, SHIELDS: 23, REINFORCE: 24, ALERT: 25, POWER: 26, COOLANT: 27,
-  TEAM: 28, PRESET: 29, UNDOCK: 30, RESTART: 31, SELECT: 32, ORDER_ACK: 33, ORDER: 34, JUMP: 35, SAMPLE: 36, EXTRACT: 37, REFINE: 38, USE: 39, ANALYSE: 40, JETTISON: 41, DREPLY: 42,
+  TEAM: 28, PRESET: 29, UNDOCK: 30, RESTART: 31, SELECT: 32, ORDER_ACK: 33, ORDER: 34, JUMP: 35, SAMPLE: 36, EXTRACT: 37, REFINE: 38, USE: 39, ANALYSE: 40, JETTISON: 41, DREPLY: 42, PLOT: 43, CAMP: 44,
 };
 
 // ---------------------------------------------------------------- static world
@@ -110,7 +110,7 @@ export const MODES_READY = 3;   // modes offered in the lobby (campaign switched
 export const MODE_DESC = [
   'ONE OF THE CLASSIC MISSIONS IN THE KALOS SYSTEM.',
   'AN OPEN-ENDED VOYAGE. ROAM THE STARS, ANSWER HAILS, TAKE CONTRACTS FROM STATIONS, SALVAGE WHAT YOU FIND. IT ENDS ONLY IF THE AURORA IS LOST.',
-  'ECHOES OF THE CHORUS: A FIVE-CHAPTER STORY OF SHARDS, SMUGGLERS, HONOUR AND AN ANCIENT SONG. YOUR CHOICES COME BACK TO YOU.',
+  'STORY CAMPAIGNS: PICK ONE BELOW. FIVE CHAPTERS EACH, AND YOUR CHOICES COME BACK TO YOU.',
 ];
 // jump drive (between star systems)
 export const JUMP_CHARGE_S = 10, JUMP_TRANSIT_S = 6, JUMP_COST = 150, JUMP_SAFE_R = 12000;
@@ -137,14 +137,14 @@ export const ST_RETURN = 90, ST_AMBUSH = 91, ST_DOCK = 92;
 // Every console "tab" of the hardware build is one sub-station here. The
 // game groups them into stations according to how many crew there are.
 export const T_HELM = 0, T_NAV = 1, T_SCI = 2, T_COMMS = 3, T_TAC = 4, T_SHIELDS = 5, T_ENG = 6, T_DMG = 7, T_CAPTAIN = 8;
-export const NUM_CORE = 8;           // roles that must be filled; the captain (8) is optional
+export const NUM_CORE = 9;           // every role must be filled, captain included
 export const T_CAP_ORDERS = 9, T_CAP_HAILS = 10; // the captain's extra tabs (not roles of their own)
 export const TAB_NAME = ['HELM', 'NAV', 'SCIENCE', 'COMMS', 'TACTICAL', 'SHIELDS', 'ENGINEER', 'DAMAGE', 'CAPTAIN'];
 export const TAB_LABEL = [...TAB_NAME, 'ORDERS', 'HAILS'];
 export const TAB_COL = [C.ORANGE, C.VIOLET, C.SKY, C.LILAC, C.RED, C.SKY, C.ORANGE, C.TAN, C.PEACH, C.ORANGE, C.LILAC];
 export const TAB_DESC = [
-  'STEER, IMPULSE, WARP, EVASIVE, DOCKING',
-  'SECTOR MAP, WAYPOINTS, AUTOPILOT, INTERCEPT',
+  'STEER, WARP, DOCKING, AUTOPILOT, JUMP DRIVE',
+  'SECTOR MAP, WAYPOINTS, GALAXY CHART, PLOTS JUMPS AND INTERCEPTS',
   'SENSORS, SCANS, LONG RANGE SCAN',
   'MESSAGES, HAILING, REPLIES',
   'TARGETING, PHASERS, TORPEDOES',
@@ -177,11 +177,11 @@ export const CAPTAIN_STATION = { key: 'captain', name: 'CAPTAIN', col: C.LILAC, 
 export const MAX_PLAYERS = 5;
 // AUTO-ASSIGN: how the 8 roles are split between 1-5 players
 export const AUTO_SPLIT = {
-  1: [[0, 1, 2, 3, 4, 5, 6, 7]],
-  2: [[0, 1, 2, 3], [4, 5, 6, 7]],
-  3: [[0, 1, 3], [4, 5, 2], [6, 7]],
-  4: [[0, 1], [2, 3], [4, 5], [6, 7]],
-  5: [[0, 1], [2, 3], [4], [5], [6, 7]],
+  1: [[8, 0, 1, 2, 3, 4, 5, 6, 7]],
+  2: [[8, 0, 1, 2, 3], [4, 5, 6, 7]],
+  3: [[8, 0, 1, 3], [4, 5, 2], [6, 7]],
+  4: [[8, 0, 1], [2, 3], [4, 5], [6, 7]],
+  5: [[8, 3], [0, 1], [2], [4, 5], [6, 7]],
 };
 export const PLAYER_COL = [C.ORANGE, C.SKY, C.LILAC, C.GREEN, C.TAN];
 
@@ -191,9 +191,9 @@ export const OS_NAME = ['HELM', 'SCIENCE', 'TACTICAL', 'ENGINEERING'];
 export const SUBJ_NONE = 0, SUBJ_CONTACT = 1, SUBJ_SYSTEM = 2, SUBJ_QUAD = 3;
 // tab = the sub-station whose controls carry the order out (it goes to whoever holds that tab)
 export const ORDERS = [
-  { st: OS_HELM, subj: SUBJ_NONE, tab: T_NAV, label: 'SET COURSE FOR WAYPOINT' },
-  { st: OS_HELM, subj: SUBJ_CONTACT, tab: T_NAV, label: 'INTERCEPT %s' },
-  { st: OS_HELM, subj: SUBJ_CONTACT, tab: T_NAV, label: 'BRING US ABOUT TO %s' },
+  { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'SET COURSE FOR WAYPOINT' },
+  { st: OS_HELM, subj: SUBJ_CONTACT, tab: T_HELM, label: 'INTERCEPT %s' },
+  { st: OS_HELM, subj: SUBJ_CONTACT, tab: T_HELM, label: 'BRING US ABOUT TO %s' },
   { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'EVASIVE MANOEUVRES' },
   { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'AHEAD FULL' },
   { st: OS_HELM, subj: SUBJ_NONE, tab: T_HELM, label: 'ALL STOP' },

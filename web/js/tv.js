@@ -12,13 +12,12 @@ import { Narrator, WebVoice } from './voice.js';
 
 export class TvApp {
   constructor(canvas, opts = {}) {
-    this.g = new Gfx(canvas, { width: 960, height: 540, touch: false });
+    this.g = new Gfx(canvas, { width: 960, height: 540, touch: false, safe: opts.safe || 0 });
     this.w = new World();
     this.scene = new Scene();
     this.joinUrl = opts.joinUrl || '';
     this.status = opts.status || '';
-    sound.volume = 0.035;
-    sound.wave = 'triangle';
+    sound.volume = 0.9;
     this.voice = new WebVoice();
     this.narrator = new Narrator(this.voice);
     this.narrator.enabled = opts.voice !== false;
@@ -36,6 +35,7 @@ export class TvApp {
     const g = this.g, w = this.w;
     w.update();
     this.narrator.hear(w);
+    sound.update(w);
     g.begin();
     if (!w.have) {
       const u = g.H / 540;
@@ -43,7 +43,11 @@ export class TvApp {
       g.text(g.W / 2, 270 * u, this.status || 'MAIN VIEWER - WAITING FOR THE BRIDGE...', 20 * u, K.C.PEACH, 'center');
       return;
     }
-    drawViewer(g, w, this.scene, { title: (r) => drawTitleCard(g, w, r, this.joinUrl) });
+    try { drawViewer(g, w, this.scene, { title: (r) => drawTitleCard(g, w, r, this.joinUrl) }); }
+    catch (e) { // never leave the TV frozen on one bad frame; show what broke
+      if (!this.lastErr || performance.now() - this.lastErr > 5000) { this.lastErr = performance.now(); console.error(e); }
+      g.text(8, g.H - 20, 'VIEWER ERROR: ' + String(e && e.message || e).slice(0, 80), 12, K.C.RED);
+    }
   }
 }
 export { loadFonts, sound };

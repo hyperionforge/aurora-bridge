@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
 const relay = process.argv[2] || 'node';
 const crew = +(process.argv[3] || 2);
 const manual = process.argv[4] === '1';
-const captain = true;  // the host phone also takes the optional captain role
+const captain = true;  // the captain role is required: auto-assign gives it to the host, manual mode taps it
 const PORT = 8800 + Math.floor(Math.random() * 100);
 const OUT = process.env.SHOTS || 'shots';
 fs.mkdirSync(OUT, { recursive: true });
@@ -67,7 +67,7 @@ if (manual) {
 } else {
   await host.evaluate(() => window.auroraApp.link.send({ t: 'auto' }));
 }
-if (captain) await host.evaluate(() => window.auroraApp.link.send({ t: 'role', tab: 8 }));
+if (captain && manual) await host.evaluate(() => window.auroraApp.link.send({ t: 'role', tab: 8 }));
 await sleep(800);
 await host.screenshot({ path: `${OUT}/p02_lobby_ready.png` });
 await tv.screenshot({ path: `${OUT}/tv01_title.png` });
@@ -168,14 +168,26 @@ await phones[navOwner].screenshot({ path: `${OUT}/p60_nav_system.png` });
 await phones[navOwner].evaluate(async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 2; m.nav.gsel = 1; });
 await sleep(1200);
 await phones[navOwner].screenshot({ path: `${OUT}/p61_nav_galaxy.png` });
-await phones[navOwner].evaluate(() => window.auroraApp.send(35, 1));
+// NAV plots the jump, HELM aligns to the jump vector and engages
+await phones[navOwner].evaluate(() => window.auroraApp.send(43, 0, 1));
+await sleep(500);
+await phones[navOwner].screenshot({ path: `${OUT}/p61b_nav_plotted.png` });
+const helmOwner = await (async () => { for (let i = 0; i < n; i++) if (await phones[i].evaluate(() => window.auroraApp.myStation().tabs.includes(0))) return i; return 0; })();
+await phones[helmOwner].evaluate(async () => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(0); const m = await import('./js/stations/helm.js'); m.helm.page = 1; });
+await sleep(500);
+console.log('blocked before align:', await host.evaluate(() => window.auroraHost.sim.jumpBlock(1)));
+await phones[helmOwner].screenshot({ path: `${OUT}/p63_helm_jump_unaligned.png` });
+await phones[helmOwner].evaluate(() => { const a = window.auroraApp; a.send(2, 0, 0, Math.round(a.w.P.jumpVec)); });
+for (let i = 0; i < 40; i++) { await sleep(500); if (!(await host.evaluate(() => window.auroraHost.sim.jumpBlock(1)))) break; }
+await phones[helmOwner].screenshot({ path: `${OUT}/p64_helm_jump_aligned.png` });
+await phones[helmOwner].evaluate(() => window.auroraApp.send(35, 1));
 await sleep(300);
 console.log('jump state:', await host.evaluate(() => { const s = window.auroraHost.sim; return JSON.stringify({ to: s.P.jumpTo, mode: s.mode, game: s.game, why: s.jumpBlock(1), ch: s.P.jumpCharge }); }));
 await phones[n - 1].evaluate(() => window.auroraApp.send(10, 0, 255));
 await sleep(5000);
 console.log('jump msgs:', await host.evaluate(() => window.auroraHost.sim.msgs.slice(0, 2).map((m) => m.text).join(' | ')));
 await tv.screenshot({ path: `${OUT}/tv30_jump_charge.png` });
-await phones[navOwner].screenshot({ path: `${OUT}/p62_nav_charging.png` });
+await phones[helmOwner].screenshot({ path: `${OUT}/p62_helm_charging.png` });
 await sleep(7000);
 await tv.screenshot({ path: `${OUT}/tv31_jump_tunnel.png` });
 await sleep(6000);

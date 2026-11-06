@@ -8,10 +8,11 @@ import { C } from './config.js';
 import { DEG, clampf, wrap360, angDiff, bearingTo, distTo, fmtDist, pad3, sectorName, mmss } from './util.js';
 import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
-import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel } from './sysdraw.js';
+import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel, drawCampLines } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
 import { CHARS } from './dialogue.js';
-import { CHAPTERS, CHAPTER_DESC } from './campaign.js';
+import { CAMPAIGNS } from './campaign.js';
+const campOf = (id) => CAMPAIGNS.find((c) => c.id === id) || CAMPAIGNS[0];
 import { drawPortrait, drawGlyphs, translated, msgAge } from './portraits.js';
 import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME, CIV_COL } from './galaxy.js';
 
@@ -105,9 +106,9 @@ export class Scene {
       if (cp && cp.ch && w.now - cp.t0 < 7000) {
         const a = clampf(Math.min((w.now - cp.t0) / 600, (7000 - (w.now - cp.t0)) / 900), 0, 1);
         g.ctx.globalAlpha = a * 0.85; g.rect(x, y + ht * 0.3, wd, ht * 0.4, '#000'); g.ctx.globalAlpha = a;
-        g.text(x + wd / 2, y + ht * 0.36, 'ECHOES OF THE CHORUS', 16 * u, C.LILAC, 'center');
+        g.text(x + wd / 2, y + ht * 0.36, campOf(cp.id).name, 16 * u, C.LILAC, 'center');
         g.text(x + wd / 2, y + ht * 0.42, `CHAPTER ${['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'][cp.ch - 1]}`, 22 * u, C.ORANGE, 'center');
-        g.text(x + wd / 2, y + ht * 0.5, CHAPTERS[cp.ch - 1], 44 * u, C.PEACH, 'center', true);
+        g.text(x + wd / 2, y + ht * 0.5, campOf(cp.id).chapters[cp.ch - 1], 44 * u, C.PEACH, 'center', true);
         g.ctx.globalAlpha = 1;
       }
     } else {
@@ -361,6 +362,7 @@ export class Scene {
     }
     g.clip(mx, my, S, S);
     drawSystemLayer(g, w.sys, w.tSec, (x, y) => [mx + x * k, my + y * k], k, { u, minR: 3.5, well: true });
+    drawCampLines(g, w, (x, y) => [mx + x * k, my + y * k], u);
     g.unclip();
     for (const m of w.M.mk) drawMarker(g, mx + m.x * k, my + m.y * k, m.kind, m.r * k, 11 * u);
     g.circle(mx + P.x * k, my + P.y * k, w.sensorRange * k, '#1e3c5a', false, u);
@@ -448,6 +450,8 @@ export class Scene {
         y += 26 * u;
       }
       g.text(x, y + 4 * u, 'SHIELD FREQUENCY ' + K.FREQ_CHAR[c.freq], 18 * u, C.GREEN);
+    } else if (c.note && c.scan >= 2) {
+      g.wrap(x, y, tw, c.note, 17 * u, C.SKY, 1.3, 6);
     } else if (c.type === K.CT_POI) {
       y = g.wrap(x, y, tw, POI_TIP[c.kind ?? 0], 15 * u, C.PEACH, 1.25, 3) + 6 * u;
       if (c.res) {
@@ -689,7 +693,7 @@ export class Scene {
     const cp = s && s.camp;
     if (won && cp && cp.ending) { // campaign epilogue
       const e = cp.ending;
-      g.text(cx, r.y + 30 * u, 'ECHOES OF THE CHORUS - EPILOGUE', 16 * u, C.LILAC, 'center');
+      g.text(cx, r.y + 30 * u, campOf(cp.id).name + ' - EPILOGUE', 16 * u, C.LILAC, 'center');
       g.text(cx, r.y + 56 * u, e.title, 50 * u, C.PEACH, 'center', true);
       let yy = g.wrap(r.x + r.w * 0.12, r.y + 130 * u, r.w * 0.76, e.text, 19 * u, C.WHITE, 1.35, 8) + 16 * u;
       g.wrap(r.x + r.w * 0.12, yy, r.w * 0.76, e.allies.length ? 'THEY ANSWERED YOUR CALL: ' + e.allies.join(', ') + '.' : 'NOBODY CAME TO HELP. YOU STOOD ALONE.', 16 * u, e.allies.length ? C.GREEN : C.GREY_TXT, 1.3, 3);
@@ -700,7 +704,7 @@ export class Scene {
       g.text(cx, r.y + 40 * u, won ? 'VOYAGE COMPLETE' : 'THE AURORA IS LOST', 50 * u, won ? C.GREEN : C.RED, 'center', true);
       let yy = r.y + 130 * u;
       const line = (txt, col) => { g.text(cx, yy, txt, 19 * u, col, 'center'); yy += 28 * u; };
-      if (cp && cp.ch) line(`ECHOES OF THE CHORUS - REACHED CHAPTER ${cp.ch}: ${CHAPTERS[cp.ch - 1]}`, C.LILAC);
+      if (cp && cp.ch) line(`${campOf(cp.id).name} - REACHED CHAPTER ${cp.ch}: ${campOf(cp.id).chapters[cp.ch - 1]}`, C.LILAC);
       line(`VOYAGE TIME   ${mmss(w.missionT)}`, C.SKY);
       line(`STAR SYSTEMS VISITED  ${s ? s.visitedN : 1}`, C.SKY);
       line(`CONTRACTS COMPLETED  ${(s && s.stats && s.stats.jobs) || 0}`, C.SKY);
@@ -768,8 +772,9 @@ export function drawTitleCard(g, w, r, joinUrl) {
   if (s) {
     const sm = s.selMode || 0;
     if (sm === K.MODE_CAMPAIGN) {
-      g.text(cx, r.y + 222 * u, `ECHOES OF THE CHORUS - CHAPTER ${(s.selType % Math.max(1, s.campMax || 1)) + 1}: ${CHAPTERS[s.selType % Math.max(1, s.campMax || 1)]}   -   ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
-      g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, CHAPTER_DESC[s.selType % Math.max(1, s.campMax || 1)], 13 * u, C.GREY_TXT, 1.3, 2);
+      const cpn = CAMPAIGNS[s.selCamp | 0], chn = s.selType % Math.max(1, (s.campMaxes || [])[s.selCamp | 0] || 1);
+      g.text(cx, r.y + 222 * u, `${cpn.name} - CHAPTER ${chn + 1}: ${cpn.chapters[chn]}   -   ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
+      g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, chn ? cpn.desc[chn] : cpn.blurb, 13 * u, C.GREY_TXT, 1.3, 2);
     } else {
       g.text(cx, r.y + 222 * u, sm ? `${K.MODE_NAME[sm]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}` : `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
       g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, sm ? K.MODE_DESC[sm] : K.MT_DESC[s.selType], 13 * u, C.GREY_TXT, 1.3, 2);
@@ -781,7 +786,7 @@ export function drawTitleCard(g, w, r, joinUrl) {
   const x0 = cx - (cols * (bw + 10 * u) - 10 * u) / 2;
   {
     const co = lb.roles[K.T_CAPTAIN] ? byPid.get(lb.roles[K.T_CAPTAIN]) : null;
-    g.text(cx, r.y + 368 * u, co ? `CAPTAIN: ${co.name}` : 'CAPTAIN: OPEN (OPTIONAL)', 14 * u, co ? co.col : C.GREY_TXT, 'center');
+    g.text(cx, r.y + 368 * u, co ? `CAPTAIN: ${co.name}` : 'CAPTAIN: OPEN', 14 * u, co ? co.col : C.GREY_TXT, 'center');
   }
   for (let t = 0; t < K.NUM_CORE; t++) {
     const x = x0 + (t % cols) * (bw + 10 * u), y = r.y + 290 * u + Math.floor(t / cols) * (bh + 8 * u);

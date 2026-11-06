@@ -33,6 +33,18 @@ export function lerpCol(c1, c2, t) {
 export const healthColor = (v) => (v > 66 ? C.GREEN : v > 33 ? C.YELLOW : v > 0 ? C.ORANGE : C.RED);
 export const flash = (ms, now = performance.now()) => Math.floor(now / ms) % 2 === 0;
 
+// older Chromecast browsers lack roundRect: draw it with arcs
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r = 0) {
+    r = Math.max(0, Math.min(typeof r === 'number' ? r : (r && r[0]) || 0, Math.abs(w) / 2, Math.abs(h) / 2));
+    this.moveTo(x + r, y);
+    this.arcTo(x + w, y, x + w, y + h, r);
+    this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r);
+    this.arcTo(x, y, x + w, y, r);
+    this.closePath();
+  };
+}
 export class Gfx {
   constructor(canvas, opts = {}) {
     this.cv = canvas;
@@ -41,6 +53,7 @@ export class Gfx {
     this.H = opts.height || 440;
     this.minW = opts.minW || 760;
     this.maxW = opts.maxW || 1000;
+    this.safe = opts.safe || 0;      // TVs that crop their edges (overscan): keep this fraction clear
     this.W = this.fixedW || 900;
     this.hits = [];
     this.lastHits = [];
@@ -60,14 +73,14 @@ export class Gfx {
     this.resize();
   }
   resize() {
-    const pad = this.padX || 0;
-    const cssW = window.innerWidth - 2 * pad, cssH = window.innerHeight;
+    const pad = (this.padX || 0) + this.safe * window.innerWidth, padY = this.safe * window.innerHeight;
+    const cssW = window.innerWidth - 2 * pad, cssH = window.innerHeight - 2 * padY;
     if (!this.fixedW) this.W = Math.round(clampf(this.H * cssW / cssH, this.minW, this.maxW));
     const s = Math.min(cssW / this.W, cssH / this.H);
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     this.cssScale = s;
     this.offX = pad + (cssW - this.W * s) / 2;
-    this.offY = (cssH - this.H * s) / 2;
+    this.offY = padY + (cssH - this.H * s) / 2;
     this.cv.style.position = 'absolute';
     this.cv.style.left = this.offX + 'px';
     this.cv.style.top = this.offY + 'px';

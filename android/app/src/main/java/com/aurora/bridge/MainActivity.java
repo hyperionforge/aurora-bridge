@@ -52,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private TextToSpeech tts;          // reads hails aloud when the TV can't
     private volatile boolean ttsReady;
     private int ttsSeq;
+    private CastSpeech castSpeech;     // renders hails for a Chromecast that can't speak
     private SharedPreferences prefs;
     private final Handler main = new Handler(Looper.getMainLooper());
     private boolean inGame;
@@ -75,7 +76,13 @@ public class MainActivity extends AppCompatActivity {
         discovery.startBrowsing();
         cast = new CastHelper(this, prefs, (on) -> runJs("window.onCastState && window.onCastState(" + on + ")"));
         cast.setMessageListener((msg) -> runJs("window.onCastMessage && window.onCastMessage(" + org.json.JSONObject.quote(msg) + ")"));
-        tts = new TextToSpeech(this, (status) -> ttsReady = status == TextToSpeech.SUCCESS);
+        tts = new TextToSpeech(this, (status) -> {
+            ttsReady = status == TextToSpeech.SUCCESS;
+            if (ttsReady) main.post(() -> {
+                castSpeech = new CastSpeech(tts, getCacheDir(), (json) -> cast.send(json));
+                tts.setOnUtteranceProgressListener(castSpeech.listener());
+            });
+        });
 
         web = new WebView(this);
         web.setBackgroundColor(0xFF000000);
@@ -269,5 +276,10 @@ public class MainActivity extends AppCompatActivity {
             });
         }
         @JavascriptInterface public void stopSpeaking() { main.post(() -> { if (tts != null) tts.stop(); }); }
+        /** Render a line of speech and play it on the Chromecast. */
+        @JavascriptInterface public void speakToCast(String text, String lang, float pitch, float rate) {
+            main.post(() -> { if (castSpeech != null && cast.connected()) castSpeech.speak(text, lang, pitch, rate); });
+        }
+        @JavascriptInterface public void stopCastSpeech() { main.post(() -> { if (castSpeech != null) castSpeech.stop(); }); }
     }
 }

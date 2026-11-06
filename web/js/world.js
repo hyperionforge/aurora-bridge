@@ -15,7 +15,7 @@ const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet:
   shieldMax: [100, 100, 100, 100], shieldsOn: false, shieldRaise: 0, reinforce: 0, phFreq: 0, health: [100, 100, 100, 100, 100, 100],
   power: [100, 100, 100, 100, 100, 100], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0], team: [K.NO_ID, K.NO_ID], phCharge: 0,
   autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0], target: K.NO_ID, sub: 0, scanId: K.NO_ID, scanProg: 0, lrs: 0,
-  cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0 };
+  cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: K.NO_ID, icPlot: K.NO_ID, jumpVec: -1 };
 
 export class World {
   constructor() {
@@ -46,6 +46,7 @@ export class World {
   get sys() { return sysAt(this.sysIdx); }
   get mode() { return this.f1 ? this.f1.mode : 0; }
   get tSec() { return this.now / 1000; }  // game clock for orbits
+  get flux() { return this.f1 && this.f1.flux !== undefined ? this.f1.flux : -1; }
 
   onMessage(m) {
     this.lastRx = performance.now();
@@ -124,7 +125,7 @@ export class World {
       const known = n.scan >= 1 || n.type === K.CT_STARBASE;
       const full = n.scan >= 2;
       out.push({
-        id: n.id, x: n.x, y: n.y, hdg: n.hdg, speed: n.speed, alive: n.alive, scan: n.scan, known, kind: n.kind, civ: n.civ, poi: n.poi, res: n.res, art: n.art, haz: n.haz, smp: n.smp,
+        id: n.id, x: n.x, y: n.y, hdg: n.hdg, speed: n.speed, alive: n.alive, scan: n.scan, known, kind: n.kind, civ: n.civ, poi: n.poi, res: n.res, art: n.art, haz: n.haz, smp: n.smp, note: n.note,
         type: known ? n.type : n.type === K.CT_ANOMALY || n.type === K.CT_POI ? n.type : K.CT_FREIGHTER,
         faction: known ? n.faction : K.F_UNKNOWN,
         surrender: n.ai === 6, fleeing: n.ai === 5,

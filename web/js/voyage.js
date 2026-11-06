@@ -198,7 +198,7 @@ export function installVoyage(Sim) {
       if (r.civ) this.repAdd(r.civ, r.rep);
       let extra = '';
       if (r.art) {
-        const pool = G.ART.filter((a) => !a.set && !a.cursed && !this.foundArts.has(a.id));
+        const pool = G.ART.filter((a) => !a.set && !a.cursed && !a.story && !this.foundArts.has(a.id));
         if (pool.length) { const a = pool[this.irand(pool.length)]; this.addArt(a.id, 1); extra = ` - AND A ${a.name}`; }
       }
       this.say(FROM_CREW, 3, `CONTRACT COMPLETE. RECEIVED ${this.rewardText({ ...r, art: false })}${extra}.`);

@@ -13,15 +13,18 @@
   // Chromecast custom receiver. The casting phone relays the host's
   // snapshots over a custom message channel; this page only draws them.
   import { TvApp, loadFonts, sound } from './js/tv.js';
+  import { TtsPlayer } from './js/ttsplayer.js';
   const NS = 'urn:x-cast:com.aurora.bridge';
   await loadFonts();
-  const app = new TvApp(document.getElementById('cv'), { status: 'CONNECTED - WAITING FOR THE BRIDGE...' });
+  // TVs often crop the picture's edges: keep 4% clear all round
+  const app = new TvApp(document.getElementById('cv'), { status: 'CONNECTED - WAITING FOR THE BRIDGE...', safe: 0.04 });
   try { sound.unlock(); } catch {}
   const ctx = cast.framework.CastReceiverContext.getInstance();
+  const tts = new TtsPlayer(); // speech the phone renders for us, if we can't speak ourselves
   ctx.addCustomMessageListener(NS, (ev) => {
     let d = ev.data;
     if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return; } }
-    if (d && d.t) app.onMsg(d);
+    if (d && d.t && !tts.onMsg(d)) app.onMsg(d);
   });
   const options = new cast.framework.CastReceiverOptions();
   options.disableIdleTimeout = true;          // a mission can run for many minutes with no media playing

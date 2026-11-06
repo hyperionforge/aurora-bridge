@@ -25,7 +25,7 @@ export class Host {
     this.sim = new Sim(opts.rand || Math.random);
     // campaign progress survives restarts (browser / app WebView only)
     try { const v = globalThis.localStorage && globalThis.localStorage.getItem('aurora.campaign'); if (v) this.sim.campSave = JSON.parse(v); } catch { /* no storage */ }
-    if (!this.sim.campSave) this.sim.campSave = { maxCh: 1, f: {} };
+    this.sim.campSaveOf('chorus'); // creates / upgrades the save
     this.players = new Map();   // pid -> {pid, name, cid, station, kind, joinedAt}
     this.conns = new Map();     // cid -> pid
     this.layoutCrew = 0;
@@ -138,10 +138,8 @@ export class Host {
     const act = this.activePlayers();
     if (!act.length) return;
     const split = K.AUTO_SPLIT[Math.min(act.length, 5)];
-    const cap = this.ownerOfTab(K.T_CAPTAIN); // whoever chose to captain keeps it
     for (const p of this.players.values()) p.roles = [];
     act.forEach((p, i) => { p.roles = i < split.length ? [...split[i]] : []; });
-    if (cap && cap.cid) cap.roles = [...cap.roles, K.T_CAPTAIN];
     this.lobbyDirty = true;
   }
   canStart() {
@@ -241,11 +239,11 @@ export class Host {
         id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
         hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
         sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
-        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
+        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}), ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
       });
     }
     return {
-      t: 'f', now: s.now, game: s.game, sys: s.sysIdx, mode: s.mode, alert: s.alert, view: s.view, viewId: s.viewId, missionT: r1(s.missionT), kills: s.kills, bonus: s.bonus,
+      t: 'f', now: s.now, game: s.game, sys: s.sysIdx, mode: s.mode, flux: s.campFlux ? s.campFlux() : -1, alert: s.alert, view: s.view, viewId: s.viewId, missionT: r1(s.missionT), kills: s.kills, bonus: s.bonus,
       sr: Math.round(s.sensorRange()), nebula: s.inNebula(P.x, P.y),
       P: {
         x: r1(P.x), y: r1(P.y), hdg: r1(P.hdg), desHdg: r1(P.desHdg), speed: r1(P.speed), throttle: P.throttle, warpSet: P.warpSet,
@@ -258,7 +256,7 @@ export class Host {
         tubeTimer: P.tubeTimer.map(r1), target: P.target, sub: P.sub, scanId: P.scanId, scanProg: Math.round(P.scanProg * 100) / 100, lrs: r1(P.lrs),
         cargo: P.cargo, arts: P.arts, xId: P.xId, xMode: P.xMode, xProg: r2(P.xProg), refQ: P.refQ, refProg: r2(P.refProg),
         anaUid: P.anaUid, anaProg: r2(P.anaProg), anaDeep: P.anaDeep, fxPh: this.sim.fx('ph'),
-        dockId: P.dockId, jumpTo: P.jumpTo, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
+        dockId: P.dockId, jumpTo: P.jumpTo, jumpPlot: P.jumpPlot, icPlot: P.icPlot, jumpVec: P.jumpPlot !== K.NO_ID ? s.jumpVector(P.jumpPlot) : -1, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
       },
       npc,
       torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),
@@ -293,7 +291,7 @@ export class Host {
     });
     return {
       t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, selMode: s.selMode, mode: s.mode, sys: s.sysIdx,
-      campMax: (s.campSave && s.campSave.maxCh) || 1, camp: s.camp ? { ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null } : null, stats: s.stats, visitedN: s.visited.size,
+      selCamp: s.selCamp | 0, campMaxes: s.campMaxes(), camp: s.camp ? { id: s.camp.id, ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null, lines: s.camp.lines || null } : null, stats: s.stats, visitedN: s.visited.size,
       visited: [...s.visited], revealed: [...s.revealed], jumpWhy: s.P.jumpTo === K.NO_ID ? this.jumpReasons() : {}, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
       M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
         waves: M.waves, frLost: M.frLost, ver: M.ver },

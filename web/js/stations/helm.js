@@ -4,7 +4,7 @@ import { C, CMD } from '../config.js';
 import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, angDiff, mmss } from '../util.js';
 import { dim, flash, healthColor } from '../gfx.js';
 import { drawShip, drawMarker, factionColor, ART_CRUISER } from '../ships.js';
-import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown } from '../sysdraw.js';
+import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCampLines } from '../sysdraw.js';
 import { CHARS, subtitle } from '../dialogue.js';
 import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
@@ -20,7 +20,7 @@ export function fromName(w, from) {
 
 // ============================================================================ HELM
 export const helm = {
-  dialDrag: false, localHdg: 0, thrDrag: false, localThr: 0, lastSend: 0,
+  page: 0, dialDrag: false, localHdg: 0, thrDrag: false, localThr: 0, lastSend: 0,
   draw(g, w, app, L) {
     const P = w.P, S = this;
     // ---- compass (big square)
@@ -39,6 +39,10 @@ export const helm = {
     }
     const t = w.findC(P.target);
     if (t) { const b = w.bearing(t) * DEG; g.circle(cx + Math.sin(b) * (R - 42), cy - Math.cos(b) * (R - 42), 6, C.RED); }
+    if (P.jumpVec >= 0) { // the jump vector: a cyan diamond on the ring
+      const b = P.jumpVec * DEG, jx = cx + Math.sin(b) * (R - 42), jy = cy - Math.cos(b) * (R - 42), k = flash(300) ? 9 : 7;
+      g.tri(jx, jy - k, jx + k, jy, jx, jy + k, '#78f0ff'); g.tri(jx, jy - k, jx - k, jy, jx, jy + k, '#78f0ff');
+    }
     const dr = des * DEG;
     g.tri(cx + Math.sin(dr) * (R + 1), cy - Math.cos(dr) * (R + 1), cx + Math.sin(dr - 0.07) * (R - 22), cy - Math.cos(dr - 0.07) * (R - 22),
       cx + Math.sin(dr + 0.07) * (R - 22), cy - Math.cos(dr + 0.07) * (R - 22), P.autopilot ? C.VIOLET : C.WHITE);
@@ -63,11 +67,15 @@ export const helm = {
       up: () => { if (S.dialDrag) app.send(CMD.HEADING, 0, 0, Math.round(S.localHdg)); S.dialDrag = false; },
     });
     // ---- nudges
-    const nl = ['<< 10', '< 1', '1 >', '10 >>'], nv = [-10, -1, 1, 10], nw = (L.uw - 18) / 4;
-    nl.forEach((l, i) => g.button('nud' + i, L.ux + i * (nw + 6), L.uy, nw, L.uh, l, C.LILAC, C.BLACK, 17, () => {
+    const nl = ['<<10', '<1', '1>', '10>>'], nv = [-10, -1, 1, 10], nw = (L.uw - 30) / 6;
+    nl.forEach((l, i) => g.button('nud' + i, L.ux + i * (nw + 6), L.uy, nw, L.uh, l, C.LILAC, C.BLACK, 16, () => {
       const base = P.autopilot ? P.hdg : P.desHdg;
       app.send(CMD.HEADING, 0, 0, Math.round(wrap360(base + nv[i])));
     }));
+    const hot = P.jumpPlot !== K.NO_ID || P.jumpTo !== K.NO_ID;
+    g.button('hpage', L.ux + 4 * (nw + 6), L.uy, nw * 2 + 6, L.uh, this.page ? 'ENGINES' : 'AUTOPILOT / JUMP', this.page ? C.ORANGE : hot && flash(500) ? '#78f0ff' : C.SKY, C.BLACK, 15,
+      () => { this.page = this.page ? 0 : 1; }, { sound: 'toggle' });
+    if (this.page === 1) { this.drawAuto(g, w, app, L); return; }
     // ---- right column: impulse slider, warp, stop, evasive, dock
     const x = L.rx, y0 = L.y0;
     const sw = 76, wx = x + sw + 12, ww = L.x1 - wx;
@@ -103,6 +111,59 @@ export const helm = {
     g.button('dock', wx, y0 + 332, ww, 34, dl, dc, C.BLACK, 17, () => app.send(P.dock === 2 ? CMD.UNDOCK : CMD.DOCK));
     if (db < 6000 && !P.dock) g.textFit(wx, y0 + 372, `${st.n.short || 'STATION'} ${fmtDist(db)} - DOCK < 1.8k, < 25 KM/S, SHIELDS DOWN`, 11, C.GREY_TXT, 'left', ww);
     if (P.jumpTo !== K.NO_ID) g.text(L.bx + 2, L.by + 76, P.jumping > 0 ? 'IN THE JUMP LANE' : `JUMP CHARGING ${Math.round(P.jumpCharge * 100)}%`, 13, flash(400) ? C.WHITE : C.SKY);
+    else if (P.jumpPlot !== K.NO_ID) g.text(L.bx + 2, L.by + 76, 'JUMP PLOTTED - SEE AUTOPILOT / JUMP', 12, '#78f0ff');
+    if (w.flux >= 0) g.text(L.bx + L.BIG - 2, L.by + 40, `TACHYON FLUX ${w.flux}%`, 15, w.flux >= 85 ? C.GREEN : C.YELLOW, 'right');
+  },
+  // the second page: autopilot and the jump drive
+  drawAuto(g, w, app, L) {
+    const P = w.P, x = L.rx, rw = L.x1 - L.rx;
+    let y = L.y0;
+    g.header(x, y, rw, 'AUTOPILOT', C.VIOLET);
+    y += 26;
+    const wpOn = P.autopilot === K.AP_WAYPOINT;
+    const wpTxt = P.wpValid ? `WAYPOINT ${sectorName(P.wpx, P.wpy)}  ${fmtDist(distTo(P.x, P.y, P.wpx, P.wpy))}` : 'NO WAYPOINT - NAV SETS ONE';
+    g.text(x, y, wpTxt, 13, P.wpValid ? C.PEACH : C.GREY_TXT);
+    g.button('apwp', x + rw - 150, y - 4, 150, 30, wpOn ? 'ON COURSE' : 'SET COURSE', wpOn ? C.VIOLET : P.wpValid ? C.ORANGE : C.GREY, C.BLACK, 15,
+      () => app.send(CMD.AUTOPILOT, wpOn ? K.AP_OFF : K.AP_WAYPOINT));
+    y += 34;
+    const icId = w.findC(P.icPlot) ? P.icPlot : w.findC(P.target) ? P.target : K.NO_ID;
+    const icOn = P.autopilot === K.AP_TARGET;
+    g.text(x, y, icId !== K.NO_ID ? `INTERCEPT ${w.shortName(icId)}  ${fmtDist(w.range(w.findC(icId)))}` : 'NO INTERCEPT PLOTTED', 13, icId !== K.NO_ID ? C.PEACH : C.GREY_TXT);
+    g.button('apic', x + rw - 150, y - 4, 150, 30, icOn ? 'INTERCEPTING' : 'INTERCEPT', icOn ? C.VIOLET : icId !== K.NO_ID ? C.ORANGE : C.GREY, C.BLACK, 15,
+      () => { if (icOn) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (icId !== K.NO_ID) app.send(CMD.AUTOPILOT, K.AP_TARGET, icId); else app.sound.denied(); });
+    y += 34;
+    g.button('apoff', x, y, rw, 30, P.autopilot ? 'AUTOPILOT OFF - HAND STEERING' : 'HAND STEERING', P.autopilot ? C.LILAC : C.GREY, C.BLACK, 15, () => app.send(CMD.AUTOPILOT, K.AP_OFF));
+    y += 44;
+    // ---- jump drive
+    g.header(x, y, rw, 'JUMP DRIVE', '#78f0ff');
+    y += 26;
+    const to = P.jumpTo !== K.NO_ID ? P.jumpTo : P.jumpPlot;
+    if (to === K.NO_ID) {
+      g.wrap(x, y, rw, 'NO JUMP PLOTTED. NAV PLOTS A JUMP ON THE GALAXY CHART; THEN HELM ALIGNS THE SHIP TO THE JUMP VECTOR AND ENGAGES.', 13, C.GREY_TXT, 1.25, 4);
+      return;
+    }
+    const v = P.jumpVec >= 0 ? P.jumpVec : 0, off = Math.round(Math.abs(angDiff(P.hdg, v)));
+    g.text(x, y, sysAt(to).name, 20, '#78f0ff', 'left', true);
+    y += 26;
+    g.text(x, y, `JUMP VECTOR ${pad3(v)}   HEADING ${pad3(P.hdg)}`, 15, C.PEACH);
+    g.text(x + rw, y, off <= 5 ? 'ALIGNED' : `${off}° OFF`, 15, off <= 5 ? C.GREEN : C.YELLOW, 'right');
+    y += 24;
+    g.button('jalign', x, y, rw, 32, 'ALIGN TO THE JUMP VECTOR', off <= 5 ? C.GREY : C.SKY, C.BLACK, 16, () => app.send(CMD.HEADING, 0, 0, v));
+    y += 40;
+    const why = (w.slow && w.slow.jumpWhy && w.slow.jumpWhy[to]) || '';
+    const by = L.y1 - 44;
+    if (P.jumping > 0) {
+      g.text(x, by - 22, `IN THE JUMP LANE - ARRIVING IN ${Math.ceil(P.jumping)}s`, 14, flash(400) ? C.WHITE : C.SKY);
+      g.button('jgo', x, by, rw, 42, 'JUMPING...', C.GREY, C.GREY_TXT, 20, () => {}, { silent: true });
+    } else if (P.jumpTo !== K.NO_ID) {
+      g.progress(x, by - 18, rw, 10, P.jumpCharge, '#78f0ff');
+      g.text(x, by - 36, `CHARGING ${Math.round(P.jumpCharge * 100)}% - HOLD THE VECTOR`, 13, C.YELLOW);
+      g.button('jgo', x, by, rw, 42, 'ABORT JUMP', C.RED, C.BLACK, 20, () => app.send(CMD.JUMP, K.NO_ID));
+    } else {
+      g.wrap(x, y, rw, why || 'READY. ENGAGE WHEN YOU ARE.', 13, why ? C.YELLOW : C.GREEN, 1.2, 3);
+      g.button('jgo', x, by, rw, 42, 'ENGAGE JUMP DRIVE', why ? C.GREY : C.ORANGE, why ? C.GREY_TXT : C.BLACK, 20,
+        () => { if (!why) app.send(CMD.JUMP, to); else app.sound.denied(); }, { silent: !!why, bold: true });
+    }
   },
 };
 
@@ -154,6 +215,7 @@ export const nav = {
         g.text(ox + 3, oy + i * B / 10 + B / 20 - 6, String(i + 1), 11, C.GRID);
       }
       drawSystemLayer(g, w.sys, w.tSec, p2, k, { minR: this.zoom ? 3 : 2.5, well: true, dots: this.zoom ? 1 : 0.7 });
+      drawCampLines(g, w, p2);
       for (const m of w.M.mk) { const [sx, sy] = p2(m.x, m.y); drawMarker(g, sx, sy, m.kind, m.r * k, 11); }
       const pt = (w.slow && w.slow.ptrail) || [];
       for (let i = 0; i < pt.length; i += 2) { const [sx, sy] = p2(pt[i], pt[i + 1]); g.rect(sx, sy, 1.5, 1.5, C.SKY); }
@@ -202,8 +264,8 @@ export const nav = {
     }
     y += 42;
     const ap = P.autopilot === K.AP_WAYPOINT;
-    g.button('course', x, y, rw, 38, ap ? 'AUTOPILOT ENGAGED' : 'SET COURSE', ap ? C.VIOLET : P.wpValid ? C.ORANGE : C.GREY, C.BLACK, 19,
-      () => app.send(CMD.AUTOPILOT, ap ? K.AP_OFF : K.AP_WAYPOINT));
+    g.rrect(x, y, rw, 38, 19, ap ? C.VIOLET : '#1c1c2c');
+    g.text(x + rw / 2, y + 9, ap ? 'HELM HAS US ON COURSE' : P.wpValid ? 'COURSE PLOTTED - HELM ENGAGES AUTOPILOT' : 'NO COURSE PLOTTED', 15, ap ? C.BLACK : C.PEACH, 'center');
     y += 46;
     g.text(x, y, 'QUICK WAYPOINTS', 12, C.GREY_TXT);
     y += 16;
@@ -229,10 +291,9 @@ export const nav = {
       const col = factionColor(c.faction);
       g.textFit(x, y + 2, w.shortName(c.id, c.known), 15, col, 'left', rw - 2 * bw2 - 16);
       g.text(x, y + 19, `${fmtDist(w.range(c))}  BRG ${pad3(w.bearing(c))}`, 11, C.GREY_TXT);
-      const ic = P.autopilot === K.AP_TARGET && P.apTarget === c.id;
-      g.button('ic' + c.id, x + rw - 2 * bw2 - 6, y + 1, bw2, 30, ic ? 'INTERCEPTING' : 'INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 14,
-        () => app.send(CMD.AUTOPILOT, ic ? K.AP_OFF : K.AP_TARGET, c.id));
-      g.button('fc' + c.id, x + rw - bw2, y + 1, bw2, 30, 'FACE', C.TAN, C.BLACK, 14, () => app.send(CMD.HEADING, 0, 0, Math.round(w.bearing(c))));
+      const ic = P.icPlot === c.id;
+      g.button('ic' + c.id, x + rw - bw2, y + 1, bw2, 30, ic ? 'PLOTTED' : 'PLOT INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 13,
+        () => app.send(CMD.PLOT, 1, ic ? K.NO_ID : c.id));
       y += 36;
     }
     y = Math.max(y, L.y1 - 46);
@@ -261,8 +322,9 @@ export const nav = {
       why = r ? 'NO DIRECT LANE. ROUTE: ' + r.map((i) => sysAt(i).name).join(' > ') : 'NO KNOWN ROUTE.';
     } else {
       why = (w.slow && w.slow.jumpWhy && w.slow.jumpWhy[sel]) || '';
+      if (/^HELM: ALIGN/.test(why)) why = '';
       ready = !why;
-      if (ready) why = `LANE OPEN - ${K.JUMP_CHARGE_S}s CHARGE, ${K.JUMP_COST} ENERGY.`;
+      if (ready) why = `LANE OPEN - ${K.JUMP_CHARGE_S}s CHARGE, ${K.JUMP_COST} ENERGY. PLOT IT FOR THE HELM.`;
     }
     const by = L.y1 - 44;
     if (P.jumping > 0) {
@@ -274,7 +336,7 @@ export const nav = {
     if (P.jumpTo !== K.NO_ID) {
       g.text(x, by - 40, `CHARGING FOR ${sysAt(P.jumpTo).name}  ${Math.round(P.jumpCharge * 100)}%`, 15, C.YELLOW);
       g.progress(x, by - 18, rw, 10, P.jumpCharge, C.YELLOW);
-      g.button('jump', x, by, rw, 42, 'ABORT JUMP', C.RED, C.BLACK, 20, () => app.send(CMD.JUMP, K.NO_ID));
+      g.button('jump', x, by, rw, 42, 'HELM IS ENGAGING THE JUMP', C.GREY, C.GREY_TXT, 18, () => {}, { silent: true });
       return;
     }
     // neighbours as quick picks
@@ -284,9 +346,12 @@ export const nav = {
     const lw = (rw - 6 * (nb.length - 1)) / Math.max(1, nb.length);
     nb.forEach((i, n) => g.button('ln' + i, x + n * (lw + 6), y, lw, 30, sysAt(i).name, sel === i ? C.SKY : C.GREY, sel === i ? C.BLACK : C.GREY_TXT, 12,
       () => { this.gsel = i; }, { sound: 'toggle' }));
-    g.wrap(x, by - 36, rw, why, 12, ready ? C.GREEN : sel === cur ? C.SKY : C.YELLOW, 1.2, 2);
-    g.button('jump', x, by, rw, 42, ready ? 'ENGAGE JUMP DRIVE' : 'JUMP UNAVAILABLE', ready ? C.ORANGE : C.GREY, ready ? C.BLACK : C.GREY_TXT, 20,
-      () => { if (ready) app.send(CMD.JUMP, sel); else app.sound.denied(); }, { silent: !ready, bold: true });
+    const plotted = P.jumpPlot === sel;
+    const canPlot = sel !== cur && lanes.includes(sel) && !(sysAt(sel).hidden && !galaxyKnown(w)[sel]);
+    if (plotted) why = `PLOTTED. HELM: ALIGN TO HEADING ${pad3(P.jumpVec)} AND ENGAGE.` + (why && !/ALIGN/.test(why) ? ' ' + why : '');
+    g.wrap(x, by - 36, rw, why, 12, plotted ? '#78f0ff' : ready ? C.GREEN : sel === cur ? C.SKY : C.YELLOW, 1.2, 2);
+    g.button('jump', x, by, rw, 42, plotted ? 'CLEAR THE PLOT' : canPlot ? 'PLOT JUMP COURSE' : 'NO LANE TO PLOT', plotted ? C.LILAC : canPlot ? C.ORANGE : C.GREY, canPlot || plotted ? C.BLACK : C.GREY_TXT, 20,
+      () => { if (plotted) app.send(CMD.PLOT, 0, K.NO_ID); else if (canPlot) app.send(CMD.PLOT, 0, sel); else app.sound.denied(); }, { silent: !canPlot && !plotted, bold: true });
   },
 };
 
@@ -308,6 +373,12 @@ export const science = {
     if (P.lrs > 0) g.text(L.bx + B, L.by, `LONG RANGE SCAN ${Math.ceil(P.lrs)}s`, 12, C.YELLOW, 'right');
     if (w.inNebula) g.text(L.bx, L.by + B - 14, 'IN NEBULA - SENSOR RANGE REDUCED', 12, C.LILAC);
     if (P.xId !== K.NO_ID) g.text(L.bx + B, L.by + B - 14, `${P.xMode === 2 ? 'EXTRACTING' : 'SAMPLING'} ${Math.round(P.xProg * 100)}%`, 12, C.YELLOW, 'right');
+    if (w.flux >= 0) { // the campaign's tachyon hunt
+      const fx = w.flux, fcol = fx >= 85 ? C.GREEN : fx >= 50 ? C.YELLOW : C.SKY;
+      g.text(L.bx, L.by + 18, `TACHYON FLUX ${fx}%`, 17, fcol);
+      g.rect(L.bx, L.by + 40, B * 0.45, 8, C.SEG_OFF); g.rect(L.bx, L.by + 40, B * 0.45 * fx / 100, 8, fcol);
+      g.button('stab', L.bx + B - 150, L.by + 16, 150, 34, 'DEPLOY STABILISER', fx >= 85 ? (flash(400) ? C.GREEN : C.ORANGE) : C.GREY, C.BLACK, 14, () => app.send(CMD.CAMP, 1), { silent: fx < 85 });
+    }
     g.hitCircle(cx, cy, R, { down: (x, y) => {
       const id = radarPick(w, x, y, cx, cy, R, SCI_RANGE[this.rangeI], false);
       if (id !== K.NO_ID) { this.sel = id; app.sound.toggle(); }
@@ -343,7 +414,7 @@ export const science = {
       scanning ? C.YELLOW : lvl < 2 ? C.SKY : C.GREY, C.BLACK, 19, () => app.send(CMD.SCAN, c.id));
     y += 170;
     if (poi) { this.drawPoiPanel(g, w, app, L, c, y); return; }
-    if (lvl === 2 && c.type !== K.CT_ANOMALY && c.type !== K.CT_STARBASE && c.type !== K.CT_BUOY) {
+    if (lvl === 2 && !c.note && c.type !== K.CT_ANOMALY && c.type !== K.CT_STARBASE && c.type !== K.CT_BUOY) {
       const rows = [['HULL', c.hull, healthColor(c.hull)], ['SHIELDS', c.shields, C.SKY], ['ENGINES', c.eng, healthColor(c.eng)],
         ['WEAPONS', c.wpn, healthColor(c.wpn)], ['SHLD GEN', c.sgen, healthColor(c.sgen)]];
       for (const [n, v, col] of rows) {
@@ -354,7 +425,8 @@ export const science = {
       }
       g.text(x, y + 4, 'SHIELD FREQUENCY: ' + K.FREQ_CHAR[c.freq], 17, C.GREEN);
       g.text(x + rw, y + 8, 'TELL TACTICAL: MATCHED PHASERS +50%', 11, C.GREY_TXT, 'right');
-    } else if (lvl === 2 && c.type === K.CT_ANOMALY) g.wrap(x, y, rw, 'TETRYON EMISSIONS AND AN UNSTABLE SUBSPACE FOLD. DATA TRANSMITTED TO FLEET COMMAND.', 13, C.LILAC);
+    } else if (lvl === 2 && c.note) g.wrap(x, y, rw, c.note, 14, C.SKY, 1.25, 5);
+    else if (lvl === 2 && c.type === K.CT_ANOMALY) g.wrap(x, y, rw, 'TETRYON EMISSIONS AND AN UNSTABLE SUBSPACE FOLD. DATA TRANSMITTED TO FLEET COMMAND.', 13, C.LILAC);
     else if (c.type === K.CT_STARBASE) g.wrap(x, y, rw, `${SK_NAME[c.kind ?? 0]}${CIV_NAME[c.civ] ? ' (' + CIV_NAME[c.civ] + ')' : ''}. ` +
       (c.faction === K.F_HOSTILE ? 'HOSTILE - KEEP CLEAR OF ITS GUNS.' : c.kind === SK_RELAY || c.kind === SK_MONOLITH ? 'NO DOCKING FACILITIES.' : 'DOCK HERE FOR REPAIRS, ENERGY AND TORPEDOES.'), 13, factionColor(c.faction));
     else g.wrap(x, y, rw, 'FULL SCAN NEEDED FOR SHIELDS, HULL, SYSTEMS AND SHIELD FREQUENCY.', 13, C.GREY_TXT);
@@ -365,9 +437,9 @@ export const science = {
     g.text(x, by - 18, `SENSORS ${Math.round(P.health[K.S_SENSORS])}% HEALTH, ${P.power[K.S_SENSORS]}% POWER`, 12, P.health[K.S_SENSORS] < 50 ? C.RED : C.GREY_TXT);
     const hw = (rw - 6) / 2;
     g.button('sview', x, by, hw, 36, 'ON VIEWER', C.ORANGE, C.BLACK, 17, () => app.send(CMD.VIEW, K.VM_TARGET, c.id));
-    const ic = P.autopilot === K.AP_TARGET && P.apTarget === c.id;
-    g.button('sint', x + hw + 6, by, hw, 36, ic ? 'INTERCEPTING' : 'INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 17,
-      () => app.send(CMD.AUTOPILOT, ic ? K.AP_OFF : K.AP_TARGET, c.id));
+    const ic = P.icPlot === c.id;
+    g.button('sint', x + hw + 6, by, hw, 36, ic ? 'PLOTTED FOR HELM' : 'PLOT INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 16,
+      () => app.send(CMD.PLOT, 1, ic ? K.NO_ID : c.id));
   },
   drawPoiPanel(g, w, app, L, c, y) {
     const P = w.P, x = L.rx, rw = L.rw, d = w.range(c);
@@ -393,8 +465,8 @@ export const science = {
     g.button('ext', x + hw + 6, by, hw, 36, eOn ? `EXTRACT ${Math.round(P.xProg * 100)}%` : 'EXTRACT', eOn ? C.YELLOW : d <= EXTRACT_R ? C.ORANGE : C.GREY, C.BLACK, 17,
       () => app.send(CMD.EXTRACT, eOn ? K.NO_ID : c.id));
     if (y < by - 60) {
-      const ic = P.autopilot === K.AP_TARGET && P.apTarget === c.id;
-      g.button('sint', x, by - 64, hw, 30, ic ? 'APPROACHING' : 'APPROACH', ic ? C.VIOLET : C.LILAC, C.BLACK, 15, () => app.send(CMD.AUTOPILOT, ic ? K.AP_OFF : K.AP_TARGET, c.id));
+      const ic = P.icPlot === c.id;
+      g.button('sint', x, by - 64, hw, 30, ic ? 'PLOTTED FOR HELM' : 'PLOT APPROACH', ic ? C.VIOLET : C.LILAC, C.BLACK, 15, () => app.send(CMD.PLOT, 1, ic ? K.NO_ID : c.id));
       g.button('sview', x + hw + 6, by - 64, hw, 30, 'ON VIEWER', C.TAN, C.BLACK, 15, () => app.send(CMD.VIEW, K.VM_TARGET, c.id));
     }
   },

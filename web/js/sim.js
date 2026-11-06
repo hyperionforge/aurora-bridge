@@ -30,7 +30,7 @@ function newPlayer() {
     health: [0, 0, 0, 0, 0, 0], power: [0, 0, 0, 0, 0, 0], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0],
     team: [NO_ID, NO_ID], phCharge: 0, autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0],
     target: NO_ID, sub: 0, scanId: NO_ID, scanProg: 0, lrs: 0, restockT: 0, overheatWarnAt: [-1e9, -1e9, -1e9, -1e9, -1e9, -1e9],
-    dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0,
+    dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: NO_ID, icPlot: NO_ID,
     cargo: [...G.CARGO_START], arts: [], artSeq: 1, xId: NO_ID, xMode: 0, xProg: 0, refQ: [], refProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0,
     spareUse: 0, noSparesWarned: false,
   };
@@ -46,6 +46,7 @@ function newNpc() {
 
 import { installVoyage } from './voyage.js';
 import { installCampaign } from './campaign.js';
+import { installArgus } from './campaign2.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -83,6 +84,7 @@ export class Sim {
     this.captainMode = false;
     this.mode = K.MODE_MISSION;
     this.selMode = K.MODE_MISSION;
+    this.selCamp = 0;
     this.sysIdx = 0;
     this.visited = new Set([0]);
     this.revealed = new Set();      // hidden systems the crew has found
@@ -442,6 +444,7 @@ export class Sim {
         this.selType = ((a % K.NUM_MT) + K.NUM_MT) % K.NUM_MT;
         this.selDiff = ((b % 3) + 3) % 3;
         this.selMode = ((c.c | 0) % 3 + 3) % 3;
+        this.selCamp = Math.max(0, Math.min(1, c.d | 0)); // which campaign
         this.M.ver++;
       }
       return;
@@ -494,12 +497,14 @@ export class Sim {
       }
       case CMD.UNDOCK: if (P.dock) { P.dock = 0; this.say(FROM_CREW, 0, 'UNDOCKED.'); } break;
       case CMD.JUMP: this.jumpCmd(a); break;
+      case CMD.PLOT: if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else P.icPlot = b; break;
       case CMD.SAMPLE: case CMD.EXTRACT: this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
       case CMD.REFINE: this.refineCmd(a, b); break;
       case CMD.USE: this.useCmd(a); break;
       case CMD.ANALYSE: this.analyseCmd(a, b); break;
       case CMD.JETTISON: this.jettisonCmd(a); break;
       case CMD.DREPLY: this.dialogReply(a, b); break;
+      case CMD.CAMP: if (this.campAction) this.campAction(a, b); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
@@ -870,7 +875,9 @@ export class Sim {
   // ---------------------------------------------------------------- our ship
   dropWarp() { const P = this.P; P.warpSet = 0; P.warping = false; P.warpCharge = 0; }
   // ---------------------------------------------------------------- jump drive (between star systems)
-  jumpBlock(to) {
+  // the heading the ship must hold to jump toward system `to` (its direction on the galaxy chart)
+  jumpVector(to) { const a = sysAt(this.sysIdx), b = sysAt(to); return Math.round(bearingTo(a.gx, a.gy, b.gx, b.gy)); }
+  jumpBlock(to, tol = 5) {
     const P = this.P;
     if (this.mode === K.MODE_MISSION) return 'JUMP DRIVE LOCKED - FLEET ORDERS KEEP US IN KALOS FOR THIS MISSION.';
     if (!lanesOf(this.sysIdx).includes(to)) return 'NO JUMP LANE TO THAT SYSTEM FROM HERE.';
@@ -882,6 +889,8 @@ export class Sim {
       if (this.hostileAlive(i) && this.npc[i].type !== CT_STARBASE && this.npc[i].ai !== AI_FLEE && distTo(P.x, P.y, this.npc[i].x, this.npc[i].y) < K.JUMP_SAFE_R)
         return 'HOSTILES TOO CLOSE - THEIR WEAPONS FIRE DISRUPTS THE JUMP FIELD.';
     if (P.energy < K.JUMP_COST) return `NOT ENOUGH ENERGY TO JUMP (${K.JUMP_COST} NEEDED).`;
+    const v = this.jumpVector(to);
+    if (Math.abs(angDiff(P.hdg, v)) > tol) return `HELM: ALIGN THE SHIP TO THE JUMP VECTOR, HEADING ${String(v).padStart(3, '0')}.`;
     return '';
   }
   jumpCmd(to) {
@@ -896,7 +905,8 @@ export class Sim {
     P.jumpTo = to;
     P.jumpCharge = 0;
     P.warpSet = 0; P.warping = false; P.warpCharge = 0;
-    this.say(FROM_CREW, 0, `JUMP DRIVE CHARGING - DESTINATION ${sysAt(to).name}.`);
+    const wasEv = P.evasive; P.evasive = false; P.desHdg = this.jumpVector(to); // hold the ship steady on the vector
+    this.say(FROM_CREW, 0, `JUMP DRIVE CHARGING - DESTINATION ${sysAt(to).name}.${wasEv ? ' EVASIVE MANOEUVRES OFF - WE HOLD THE VECTOR.' : ''}`);
   }
   jumpTick(dt) {
     const P = this.P;
@@ -905,7 +915,7 @@ export class Sim {
       if (P.jumping <= 0) this.arrive(P.jumpTo);
       return true;
     }
-    const why = this.jumpBlock(P.jumpTo);
+    const why = this.jumpBlock(P.jumpTo, 12);
     if (why) { P.jumpTo = NO_ID; P.jumpCharge = 0; this.say(FROM_CREW, 1, 'JUMP ABORTED: ' + why); return false; }
     P.jumpCharge += dt / K.JUMP_CHARGE_S * clampf(this.eff(S_WARP), 0.3, 1.5) * this.fx('jump');
     if (P.jumpCharge >= 1) {
@@ -919,6 +929,7 @@ export class Sim {
   }
   arrive(to) {
     const P = this.P, from = this.sysIdx;
+    P.jumpPlot = NO_ID; P.icPlot = NO_ID;
     if (this.jobOnLeave) this.jobOnLeave(to);
     this.loadSystem(to);
     const a = Math.atan2(sysAt(from).gy - sysAt(to).gy, sysAt(from).gx - sysAt(to).gx);
@@ -1552,7 +1563,7 @@ export class Sim {
     const P = this.P;
     P.dock = 2; P.dockId = ID_BASE; P.dockT = K.DOCK_TIME_S;
     P.x = this.bx + 400; P.y = this.by - 400;
-    if (this.mode === K.MODE_CAMPAIGN) { this.startCampaign((this.selType % Math.max(1, Math.min(5, (this.campSave && this.campSave.maxCh) || 1))) + 1); if (this.onVoyageStart) this.onVoyageStart(); return; }
+    if (this.mode === K.MODE_CAMPAIGN) { this.startCampaign((this.selType % this.campMaxes()[this.selCamp | 0]) + 1); if (this.onVoyageStart) this.onVoyageStart(); return; }
     if (this.mode === K.MODE_SANDBOX) {
       this.setObjective(this.voyageObjective());
       this.say(FROM_COMMAND, 0, 'AURORA, YOU ARE CLEARED FOR AN OPEN PATROL OF THE FRONTIER. THE JUMP LANES ARE ON YOUR NAV GALAXY CHART. GOOD HUNTING.');
@@ -2190,3 +2201,4 @@ export class Sim {
 }
 installVoyage(Sim);
 installCampaign(Sim);
+installArgus(Sim);

@@ -87,6 +87,7 @@ export function drawPortrait(g, who, x, y, w, h, t, talking) {
   const cx = x + w / 2, cy = y + h * 0.48, S = Math.min(w, h * 0.95) / 2;
   const mouth = talking ? 0.25 + 0.75 * Math.abs(Math.sin(t / 95) * Math.sin(t / 37)) : 0.1;
   if (look === 'computer') drawComputer(g, cx, cy, S, t, talking);
+  else if (look === 'argus') drawArgus(g, cx, cy, S, t, talking);
   else if (look === 'chorus') drawChorus(g, cx, cy, S, t, talking);
   else if (look === 'velori') drawVelori(g, cx, cy, S, mouth, t);
   else if (look === 'kessari') drawKessari(g, cx, cy, S, mouth, t, ch.chief);
@@ -208,6 +209,20 @@ function drawChorus(g, cx, cy, S, t, talking) {
   gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.4, '#9ff0e6'); gr.addColorStop(1, '#9ff0e600');
   c.fillStyle = gr; c.beginPath(); c.arc(cx, cy, S * 0.35 * k, 0, Math.PI * 2); c.fill();
   for (let i = 0; i < 7; i++) { const a = t / 700 + i / 7 * Math.PI * 2; ell(c, cx + Math.cos(a) * S * 0.85, cy + Math.sin(a) * S * 0.55, S * 0.04, S * 0.04, '#9ff0e6'); }
+}
+function drawArgus(g, cx, cy, S, t, talking) { // a single great eye in a ring of segments
+  const c = g.ctx;
+  for (let i = 0; i < 12; i++) {
+    const a0 = t / 1800 + i * Math.PI / 6, on = (Math.floor(t / 250) + i) % 12 < (talking ? 9 : 4);
+    c.strokeStyle = on ? '#78c8ff' : '#1e3c5a'; c.lineWidth = S * 0.06;
+    c.beginPath(); c.arc(cx, cy, S * 0.8, a0, a0 + 0.4); c.stroke();
+  }
+  ell(c, cx, cy, S * 0.55, S * 0.55, '#0a1420');
+  const k = talking ? 1 + 0.08 * Math.sin(t / 70) : 1;
+  const gr = c.createRadialGradient(cx, cy, 0, cx, cy, S * 0.42 * k);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.25, '#9ee6ff'); gr.addColorStop(0.7, '#2878c8'); gr.addColorStop(1, '#0a1420');
+  c.fillStyle = gr; c.beginPath(); c.arc(cx, cy, S * 0.42 * k, 0, Math.PI * 2); c.fill();
+  ell(c, cx + Math.sin(t / 1300) * S * 0.08, cy, S * 0.1, S * 0.1, '#04080c');
 }
 function drawComputer(g, cx, cy, S, t, talking) {
   const c = g.ctx;

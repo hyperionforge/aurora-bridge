@@ -4,14 +4,14 @@
 // URL parameters:  ?host=1  this page also runs the game (the hosting phone)
 //                  &name=..  &pid=..  (set by the Android app)
 import * as K from './config.js';
-import { CHAPTERS, CHAPTER_DESC } from './campaign.js';
+import { CAMPAIGNS } from './campaign.js';
 import { C, CMD } from './config.js';
 import { Gfx, loadFonts, dim, flash, healthColor } from './gfx.js';
 import { World, Link } from './world.js';
 import { sound } from './sound.js';
 import { Scene } from './viewscreen.js';
 import { mmss } from './util.js';
-import { Narrator, WebVoice, NativeVoice } from './voice.js';
+import { Narrator, WebVoice, NativeVoice, CastVoice } from './voice.js';
 import { helm, nav, science, comms } from './stations/helm.js';
 import { tactical, shields, engineer, damage } from './stations/tactical.js';
 import { capStatus, capOrders, capHails } from './stations/captain.js';
@@ -57,9 +57,14 @@ class App {
     setInterval(() => this.applyEdge(), 1500);
     this.vibrate = store('aurora.vibrate') !== '0';
     // hail voices on this phone: auto = only while casting to a TV that can't speak; on; off
+    // hail voices: 'auto' = on the TV while casting (the phone renders the speech and sends it over
+    // if the Chromecast can't speak by itself), 'on' = through this phone's speaker, 'off'
     this.voiceMode = store('aurora.voice') || 'auto';
+    if (this.voiceMode !== 'auto' && this.voiceMode !== 'on' && this.voiceMode !== 'off') this.voiceMode = 'auto';
     this.tvVoice = null; // what the Chromecast said about its own speech
-    this.narrator = new Narrator(Native && Native.speak ? new NativeVoice(Native) : new WebVoice());
+    this.phoneVoice = Native && Native.speak ? new NativeVoice(Native) : new WebVoice();
+    this.castVoice = new CastVoice(Native);
+    this.narrator = new Narrator(this.phoneVoice);
     window.onCastMessage = (json) => { try { const m = typeof json === 'string' ? JSON.parse(json) : json; if (m && m.t === 'voice') this.tvVoice = !!m.ok; } catch { /* ignore */ } };
     const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
     if (this.isHost) this.startHost(wsUrl);
@@ -149,13 +154,20 @@ class App {
     requestAnimationFrame(() => this.frame());
     const g = this.g, w = this.w;
     w.update();
-    this.narrator.enabled = this.voiceMode === 'on' || (this.voiceMode === 'auto' && this.casting && this.tvVoice !== true);
+    {
+      const toTv = this.voiceMode === 'auto' && this.casting && this.tvVoice !== true && this.castVoice.ok;
+      const eng = toTv ? this.castVoice : this.phoneVoice;
+      if (this.narrator.engine !== eng) { this.narrator.engine.stop(); this.narrator.engine = eng; }
+      this.narrator.enabled = this.voiceMode === 'on' || toTv;
+    }
     this.narrator.hear(w);
+    sound.update(w);
     g.begin();
     if (innerHeight > innerWidth * 1.05) { this.drawRotate(); return; }
+    if (w.game === K.GS_TITLE) this.picking = false;
     if (this.status !== 'ok' || !w.lobby) this.drawConnecting();
     else if (this.menu) this.drawMenu();
-    else if (w.game === K.GS_TITLE || !this.myStation()) this.drawLobby();
+    else if (w.game === K.GS_TITLE || !this.myStation() || this.picking) this.drawLobby();
     else if (w.game === K.GS_RUN) this.drawRun();
     else this.drawEnd();
   }
@@ -239,7 +251,8 @@ class App {
     const lx = SB_W + 10, lw = Math.min(300, Math.floor((W - SB_W) * 0.36));
     y = TOP_H + 10;
     const st = s ? s.selType : 0, sd = s ? s.selDiff : 1, sm = s ? s.selMode || 0 : 0;
-    const sel = (t, d, m) => this.send(CMD.SELECT, t, d, m);
+    const sc = s ? s.selCamp | 0 : 0;
+    const sel = (t, d, m, cp = sc) => this.send(CMD.SELECT, t, d, m, cp);
     const NM = K.MODES_READY;
     g.header(lx, y, lw, 'GAME', C.SKY);
     y += 24;
@@ -249,9 +262,14 @@ class App {
     if (inTitle) g.button('gn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(st, sd, (sm + 1) % NM), { sound: 'toggle' });
     y += 36;
     if (sm === K.MODE_CAMPAIGN) {
-      const cm = Math.max(1, Math.min(5, (s && s.campMax) || 1)), ch = st % cm;
+      const NC = CAMPAIGNS.length, cpn = CAMPAIGNS[sc];
+      if (inTitle) g.button('kp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel(0, sd, sm, (sc + NC - 1) % NC), { sound: 'toggle' });
+      g.textFit(lx + lw / 2, y + 5, cpn.name, 19, C.PEACH, 'center', lw - 2 * arrow - 8, true);
+      if (inTitle) g.button('kn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(0, sd, sm, (sc + 1) % NC), { sound: 'toggle' });
+      y += 36;
+      const cm = Math.max(1, ((s && s.campMaxes) || [])[sc] || 1), ch = st % cm;
       if (inTitle) g.button('cp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel((ch + cm - 1) % cm, sd, sm), { sound: 'toggle' });
-      g.textFit(lx + lw / 2, y + 5, `CH ${ch + 1}: ${CHAPTERS[ch]}`, 19, C.SKY, 'center', lw - 2 * arrow - 8);
+      g.textFit(lx + lw / 2, y + 5, `CH ${ch + 1}: ${cpn.chapters[ch]}`, 17, C.SKY, 'center', lw - 2 * arrow - 8);
       if (inTitle) g.button('cn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel((ch + 1) % cm, sd, sm), { sound: 'toggle' });
       y += 36;
     }
@@ -265,7 +283,8 @@ class App {
     g.text(lx + lw / 2, y + 5, 'DIFFICULTY: ' + K.DIFF_NAME[sd], 20, C.SKY, 'center');
     if (inTitle) g.button('dn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel(st, (sd + 1) % 3, sm), { sound: 'toggle' });
     y += 38;
-    const cdesc = sm === K.MODE_CAMPAIGN ? (st % Math.max(1, (s && s.campMax) || 1) ? CHAPTER_DESC[st % 5] + ' (EARLIER CHOICES ARE REMEMBERED.)' : K.MODE_DESC[sm] + ((s && s.campMax) > 1 ? ' UNLOCKED CHAPTERS CAN BE STARTED DIRECTLY.' : '')) : null;
+    const cmx = Math.max(1, ((s && s.campMaxes) || [])[sc] || 1), cch = st % cmx;
+    const cdesc = sm === K.MODE_CAMPAIGN ? (cch ? CAMPAIGNS[sc].desc[cch] + ' (EARLIER CHOICES ARE REMEMBERED.)' : CAMPAIGNS[sc].blurb + (cmx > 1 ? ' REACHED CHAPTERS CAN BE STARTED DIRECTLY.' : '')) : null;
     y = g.wrap(lx, y, lw, sm === K.MODE_MISSION ? K.MT_DESC[st] : cdesc || K.MODE_DESC[sm], 12, C.PEACH, 1.2, sm === K.MODE_MISSION ? 3 : 4) + 6;
     if (inTitle) {
       g.header(lx, y, lw, 'ROLES', C.LILAC);
@@ -278,6 +297,13 @@ class App {
         if (lb.canStart) this.send(CMD.START); else sound.denied();
       }, { silent: !lb.canStart, bold: true });
       g.textFit(lx + lw / 2, by - 20, lb.canStart ? 'ALL ROLES ASSIGNED - READY' : lb.why, 13, lb.canStart ? C.GREEN : C.YELLOW, 'center', lw);
+    }
+    if (!inTitle) { // re-picking roles mid-game: nothing happens until you confirm
+      const mine = this.myStation(), by = H - 52;
+      g.wrap(lx, by - 64, lw, mine ? 'TAP ALL THE ROLES YOU WANT, THEN CONFIRM.' : 'TAP THE ROLES YOU WANT TO TAKE.', 13, C.PEACH, 1.2, 2);
+      g.button('pickdone', lx, by, lw, 46, mine ? 'CONFIRM - BACK TO THE BRIDGE' : 'PICK AT LEAST ONE ROLE', mine ? C.ORANGE : C.GREY, mine ? C.BLACK : C.GREY_TXT, 22, () => {
+        if (mine) { this.picking = false; sound.toggle(); } else sound.denied();
+      }, { silent: !mine, bold: true });
     }
     // right panel: the 8 role cards
     const rx = lx + lw + 14, rw = W - 6 - rx;
@@ -302,7 +328,7 @@ class App {
         g.ctx.strokeStyle = owner && !mine ? owner.col : col; g.ctx.lineWidth = 2;
         g.ctx.beginPath(); g.ctx.roundRect(cx + 1, cy + 1, cwid - 2, chh - 2, 12); g.ctx.stroke();
         g.text(cx + 12, cy + 9, 'CAPTAIN', 19, mine ? C.BLACK : col, 'left', true);
-        g.textFit(cx + 110, cy + 12, '(OPTIONAL) ' + K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 'left', cwid - 300);
+        g.textFit(cx + 110, cy + 12, K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 'left', cwid - 300);
         g.textFit(cx + cwid - 12, cy + 10, owner ? owner.name + (owner.online ? '' : ' (GONE)') : 'OPEN', 16, mine ? C.BLACK : owner ? owner.col : C.GREEN, 'right', 170, true);
         g.hit(cx, cy, cwid, chh, { down: () => { if (!mine && !free) { sound.denied(); return; } sound.toggle(); this.link.send({ t: 'role', tab: t }); } });
         continue;
@@ -458,7 +484,7 @@ class App {
       sound.enabled = !sound.enabled; store('aurora.sound', sound.enabled ? '1' : '0');
     });
     y += 54;
-    const vm = { auto: 'HAIL VOICES HERE: WHEN CASTING', on: 'HAIL VOICES HERE: ON', off: 'HAIL VOICES HERE: OFF' };
+    const vm = { auto: 'HAIL VOICES: ON THE TV', on: 'HAIL VOICES: THIS PHONE', off: 'HAIL VOICES: OFF' };
     g.button('mvoice', bx, y, bw, 44, vm[this.voiceMode], this.voiceMode === 'off' ? C.GREY : C.SKY, C.BLACK, 18, () => {
       this.voiceMode = { auto: 'on', on: 'off', off: 'auto' }[this.voiceMode]; store('aurora.voice', this.voiceMode);
       if (this.voiceMode === 'off') this.narrator.engine.stop();
@@ -483,8 +509,10 @@ class App {
       y += 54;
     }
     if (this.w.game === K.GS_RUN) {
-      g.button('mswap', bx, y, bw, 44, 'GIVE BACK MY ROLES (PICK AGAIN)', C.TAN, C.BLACK, 18, () => {
-        this.link.send({ t: 'unclaim' }); this.menu = false;
+      const sure = this.swapAsk && performance.now() - this.swapAsk < 4000;
+      g.button('mswap', bx, y, bw, 44, sure ? 'TAP AGAIN TO GIVE THEM BACK' : 'CHANGE MY ROLES', sure ? C.YELLOW : C.TAN, C.BLACK, 18, () => {
+        if (!sure) { this.swapAsk = performance.now(); return; }
+        this.swapAsk = 0; this.picking = true; this.link.send({ t: 'unclaim' }); this.menu = false;
       });
       y += 54;
     }
