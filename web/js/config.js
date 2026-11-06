@@ -45,13 +45,14 @@ export const AP_OFF = 0, AP_WAYPOINT = 1, AP_TARGET = 2;
 export const FREQ_CHAR = ['A', 'B', 'C', 'D', 'E'];
 export const NO_ID = 255;
 export const US = 254; // "our ship" as an owner / target id
+export const HAZARD = 253; // owner of debris, missiles from the ground, asteroids: nobody's ship
 
 // ---------------------------------------------------------------- world
 export const SECTOR = 160000;     // size of one star system (see galaxy.js SYS_SIZE)
 export const MAX_CONTACTS = 32;
 
 // ---------------------------------------------------------------- flight
-export const IMPULSE_MAX = 160, WARP_SPEED = 900, WARP_MAX = 4, WARP_CHARGE_S = 3, TURN_RATE = 32, IMPULSE_ACCEL = 45;
+export const IMPULSE_MAX = 160, IMPULSE_TOP = 256, WARP_TOP = 6, WARP_SPEED = 900, WARP_MAX = 4, WARP_CHARGE_S = 3, TURN_RATE = 32, IMPULSE_ACCEL = 45;
 export const DOCK_RANGE = 1800, DOCK_MAX_SPEED = 25, DOCK_TIME_S = 5;
 
 // ---------------------------------------------------------------- energy / engineering
@@ -140,7 +141,7 @@ export const T_HELM = 0, T_NAV = 1, T_SCI = 2, T_COMMS = 3, T_TAC = 4, T_SHIELDS
 export const NUM_CORE = 9;           // every role must be filled, captain included
 export const T_CAP_ORDERS = 9, T_CAP_HAILS = 10; // the captain's extra tabs (not roles of their own)
 export const TAB_NAME = ['HELM', 'NAV', 'SCIENCE', 'COMMS', 'TACTICAL', 'SHIELDS', 'ENGINEER', 'DAMAGE', 'CAPTAIN'];
-export const TAB_LABEL = [...TAB_NAME, 'ORDERS', 'HAILS'];
+export const TAB_LABEL = [...TAB_NAME];
 export const TAB_COL = [C.ORANGE, C.VIOLET, C.SKY, C.LILAC, C.RED, C.SKY, C.ORANGE, C.TAN, C.PEACH, C.ORANGE, C.LILAC];
 export const TAB_DESC = [
   'STEER, WARP, DOCKING, AUTOPILOT, JUMP DRIVE',
@@ -151,7 +152,7 @@ export const TAB_DESC = [
   'SHIELD QUARTERS, REINFORCE, ALERT',
   'POWER, HEAT, COOLANT',
   'DAMAGE CONTROL, REPAIR TEAMS',
-  'SHIP STATUS, FIRST OFFICER, ORDERS, HAILS',
+  'SHIP STATUS, CONTACTS, FIRST OFFICER ADVICE',
 ];
 // station layouts for 1-4 crew (the captain is extra and optional)
 export const LAYOUTS = {

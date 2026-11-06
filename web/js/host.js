@@ -246,7 +246,7 @@ export class Host {
       t: 'f', now: s.now, game: s.game, sys: s.sysIdx, mode: s.mode, flux: s.campFlux ? s.campFlux() : -1, alert: s.alert, view: s.view, viewId: s.viewId, missionT: r1(s.missionT), kills: s.kills, bonus: s.bonus,
       sr: Math.round(s.sensorRange()), nebula: s.inNebula(P.x, P.y),
       P: {
-        x: r1(P.x), y: r1(P.y), hdg: r1(P.hdg), desHdg: r1(P.desHdg), speed: r1(P.speed), throttle: P.throttle, warpSet: P.warpSet,
+        x: r1(P.x), y: r1(P.y), hdg: r1(P.hdg), desHdg: r1(P.desHdg), speed: r1(P.speed), throttle: P.throttle, warpSet: P.warpSet, warpCap: r1(s.warpCap() * 10) / 10, impCap: Math.round(s.impulseCap()),
         warpCharge: r1(P.warpCharge * 100) / 100, warping: P.warping, evasive: P.evasive, autopilot: P.autopilot, apTarget: P.apTarget,
         wpValid: P.wpValid, wpx: Math.round(P.wpx), wpy: Math.round(P.wpy), dock: P.dock, dockT: r1(P.dockT), energy: r1(P.energy),
         energyRate: r1(P.energyRate), hull: r1(P.hull), shield: P.shield.map(r1), shieldMax: [0, 1, 2, 3].map((q) => Math.round(s.shieldCap(q))),
@@ -257,6 +257,7 @@ export class Host {
         cargo: P.cargo, arts: P.arts, xId: P.xId, xMode: P.xMode, xProg: r2(P.xProg), refQ: P.refQ, refProg: r2(P.refProg),
         anaUid: P.anaUid, anaProg: r2(P.anaProg), anaDeep: P.anaDeep, fxPh: this.sim.fx('ph'),
         dockId: P.dockId, jumpTo: P.jumpTo, jumpPlot: P.jumpPlot, icPlot: P.icPlot, jumpVec: P.jumpPlot !== K.NO_ID ? s.jumpVector(P.jumpPlot) : -1, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
+        orb: P.orb, orbitPl: P.orbitPl, orbPlot: P.orbPlot, oort: Math.round(P.oort), bubR: Math.round(s.bubR()),
       },
       npc,
       torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),

@@ -35,7 +35,7 @@ export class TvApp {
     const g = this.g, w = this.w;
     w.update();
     this.narrator.hear(w);
-    sound.update(w);
+    sound.update(w, { hail: true, screen: true });
     g.begin();
     if (!w.have) {
       const u = g.H / 540;

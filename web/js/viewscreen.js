@@ -5,10 +5,10 @@
 // full screen, the phones draw it on their VIEWER page.
 import * as K from './config.js';
 import { C } from './config.js';
-import { DEG, clampf, wrap360, angDiff, bearingTo, distTo, fmtDist, pad3, sectorName, mmss } from './util.js';
+import { DEG, clampf, wrap360, angDiff, bearingTo, distTo, fmtDist, pad3, sectorName, mmss, warpTxt } from './util.js';
 import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
-import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel, drawCampLines } from './sysdraw.js';
+import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel, drawCampLines, drawBubble, drawOortWarn, drawOortFrame } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
 import { CHARS } from './dialogue.js';
 import { CAMPAIGNS } from './campaign.js';
@@ -17,6 +17,8 @@ import { drawPortrait, drawGlyphs, translated, msgAge } from './portraits.js';
 import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME, CIV_COL } from './galaxy.js';
 
 const NSTARS = 160;
+// the main viewer always shows the forward view; what a station puts on screen opens over it
+export const VIEW_OVERLAY = true;
 const SHIELD_DIM = [25, 55, 140], SHIELD_BRIGHT = [130, 225, 255];
 
 export class Scene {
@@ -83,14 +85,24 @@ export class Scene {
     if (now < this.hitFlashUntil) { r.x += (Math.random() * 9 - 4) * r.u; r.y += (Math.random() * 7 - 3) * r.u; }
     if (w.game === K.GS_RUN) {
       this.starsUpdate(dt, P.hdg, P.speed);
-      switch (opts.view ?? w.view) {
-        case K.VM_FORWARD: this.drawFwd(g, w, r); break;
-        case K.VM_TACTICAL: this.drawTac(g, w, r); break;
-        case K.VM_MAP: this.drawMap(g, w, r); break;
-        case K.VM_TARGET: this.drawTarget(g, w, r); break;
-        case K.VM_COMMS: this.drawComms(g, w, r); break;
-        case K.VM_STATUS: this.drawStatus(g, w, r); break;
-      }
+      const vm = opts.view ?? w.view;
+      if (VIEW_OVERLAY && opts.view === undefined && vm !== K.VM_FORWARD) {
+        this.drawFwd(g, w, r);
+        // the pushed screen in a frame over the forward view; it slides open when it changes
+        if (this.ovView !== vm) { this.ovView = vm; this.ovT = now; }
+        const op = clampf((now - this.ovT) / 260, 0, 1), e = 1 - (1 - op) ** 3, u = r.u;
+        const ow = r.w * 0.76, oh = r.h * 0.8 * (0.35 + 0.65 * e), ox = r.x + (r.w - ow) / 2, oy = r.y + r.h * 0.12 + r.h * 0.8 * (1 - (0.35 + 0.65 * e)) / 2;
+        const r2 = { x: ox, y: oy, w: ow, h: oh, u: (r.h * 0.8) / 416, F: (ow / 2) / Math.tan(40 * DEG) };
+        g.ctx.globalAlpha = 0.9 * e; g.rect(ox - 4 * u, oy - 22 * u, ow + 8 * u, oh + 26 * u, '#000008'); g.ctx.globalAlpha = 1;
+        g.rrect(ox - 4 * u, oy - 22 * u, 120 * u, 18 * u, 9 * u, K.VM_COL ? K.VM_COL[vm] : C.ORANGE);
+        g.text(ox + 8 * u, oy - 20 * u, K.VM_NAME[vm], 13 * u, C.BLACK, 'left', true);
+        g.rect(ox + 122 * u, oy - 14 * u, ow - 118 * u, 3 * u, C.ORANGE);
+        g.strokeRect(ox - 4 * u, oy - 4 * u, ow + 8 * u, oh + 8 * u, C.ORANGE, 1.5 * u);
+        g.clip(ox, oy, ow, oh);
+        g.rect(ox, oy, ow, oh, C.BLACK);
+        if (op > 0.6) this.drawMode(g, w, r2, vm);
+        g.unclip();
+      } else this.drawMode(g, w, r, vm);
       const u = r.u;
       if (now < this.hitFlashUntil) for (let i = 0; i < 4; i++) g.strokeRect(x + i * u, y + i * u, wd - 2 * i * u, ht - 2 * i * u, C.RED, u);
       else if (now < this.shieldFlashUntil) for (let i = 0; i < 3; i++) g.strokeRect(x + i * u, y + i * u, wd - 2 * i * u, ht - 2 * i * u, C.SKY, u);
@@ -120,6 +132,16 @@ export class Scene {
     g.unclip();
   }
 
+  drawMode(g, w, r, vm) {
+    switch (vm) {
+      case K.VM_FORWARD: this.drawFwd(g, w, r); break;
+      case K.VM_TACTICAL: this.drawTac(g, w, r); break;
+      case K.VM_MAP: this.drawMap(g, w, r); break;
+      case K.VM_TARGET: this.drawTarget(g, w, r); break;
+      case K.VM_COMMS: this.drawComms(g, w, r); break;
+      case K.VM_STATUS: this.drawStatus(g, w, r); break;
+    }
+  }
   // ---------------------------------------------------------------- forward view
   project(w, r, wx, wy, elev) {
     const P = w.P;
@@ -176,6 +198,11 @@ export class Scene {
         }
       }
     }
+    if (P.oort > 0) { // ice streaking past in the Oort cloud
+      const c = g.ctx; c.fillStyle = 'rgba(200,230,255,0.5)';
+      for (let i = 0; i < 90; i++) { const h = Math.imul(i + 3, 2654435761) >>> 0, ph = ((performance.now() / 900 + (h % 1000) / 1000) % 1); c.fillRect(SCX + (((h >>> 10) % 1000) / 500 - 1) * r.w * ph, SCY + (((h >>> 20) % 1000) / 500 - 1) * r.h * ph, 2 * u * ph + 1, 2 * u * ph + 1); }
+    }
+    drawOortWarn(g, r, P.oort, u);
     if (P.jumpTo !== K.NO_ID && P.jumpCharge > 0) {
       drawJumpTunnel(g, r, performance.now(), P.jumpCharge, 0);
       g.text(SCX, r.y + 24 * u, `JUMP DRIVE CHARGING  ${Math.round(P.jumpCharge * 100)}%`, 16 * u, flash(400) ? C.WHITE : C.SKY, 'center', true);
@@ -185,7 +212,7 @@ export class Scene {
       const p = this.project(w, r, tp.x, tp.y, 0);
       if (p && p.d > 150) {
         const rad = clampf(2500 / p.d, 2, 14) * u;
-        g.circle(p.sx, p.sy, rad, tp.owner === K.US ? '#ff501e' : '#50ff78');
+        g.circle(p.sx, p.sy, rad, tp.owner === K.US ? '#ff501e' : tp.owner === K.HAZARD ? '#d2b48c' : '#50ff78');
         g.circle(p.sx, p.sy, rad / 2 + 1, C.WHITE);
       }
     }
@@ -232,7 +259,7 @@ export class Scene {
     g.text(SCX, r.y + 14 * u, pad3(P.hdg), 11 * u, C.SKY, 'center');
     g.rect(SCX - 20 * u, SCY, 12 * u, u, C.GRID); g.rect(SCX + 9 * u, SCY, 12 * u, u, C.GRID);
     g.rect(SCX, SCY - 20 * u, u, 12 * u, C.GRID); g.rect(SCX, SCY + 9 * u, u, 12 * u, C.GRID);
-    if (P.warping) g.text(SCX, r.y + 34 * u, 'WARP ' + P.warpSet, 30 * u, Math.floor(performance.now() / 300) % 2 ? C.SKY : C.WHITE, 'center');
+    if (P.warping) g.text(SCX, r.y + 34 * u, warpTxt(P), 30 * u, Math.floor(performance.now() / 300) % 2 ? C.SKY : C.WHITE, 'center');
     else if (P.warpSet && P.warpCharge > 0) {
       g.text(SCX, r.y + 36 * u, 'WARP DRIVE ENGAGING', 18 * u, C.SKY, 'center');
       g.progress(SCX - 100 * u, r.y + 60 * u, 200 * u, 8 * u, P.warpCharge, C.SKY);
@@ -308,13 +335,12 @@ export class Scene {
     }
     g.circle(cx, cy, pr, '#3c2814', false, u);
     if (w.shieldsUp() || P.shieldRaise > 0) {
-      const base = [270, 90, 180, 0];
-      for (let q = 0; q < 4; q++) {
-        const a = wrap360(base[q] + P.hdg);
-        const tt = clampf(P.shield[q] / 100, 0, 1) * P.shieldRaise;
-        if (tt < 0.02) continue;
-        const col = performance.now() < this.shieldFlashUntil ? C.WHITE : lerpCol(SHIELD_DIM, SHIELD_BRIGHT, tt);
-        g.arcSeg(cx, cy, 36 * u, (33 - tt * 4) * u, wrap360(a - 40), wrap360(a + 40), col);
+      // the bubble grows with shield power; friendly ships inside it are covered
+      const BR = Math.max(30 * u, (P.bubR || 1700) * k), hit = clampf((this.shieldFlashUntil - performance.now()) / 300, 0, 1);
+      drawBubble(g, cx, cy, BR, P.hdg, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1)), P.shieldRaise, hit);
+      if (w.shieldsUp()) for (const n of w.npc) {
+        if (!n.alive || !n.vis || n.faction === K.F_HOSTILE || n.type === K.CT_POI || n.type === K.CT_ANOMALY) continue;
+        if (distTo(P.x, P.y, n.x, n.y) < (P.bubR || 1700)) { const [sx, sy] = w2t(n.x, n.y); g.text(sx, sy - 30 * u, 'COVERED', 10 * u, C.SKY, 'center'); }
       }
     }
     if (P.xId !== K.NO_ID && w.n(P.xId)) {
@@ -327,7 +353,7 @@ export class Scene {
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, 0.3 * u, P.hdg);
     for (const tp of w.torp) {
       const [sx, sy] = w2t(tp.x, tp.y);
-      g.circle(sx, sy, 3 * u, tp.owner === K.US ? '#ff501e' : '#50ff78');
+      g.circle(sx, sy, 3 * u, tp.owner === K.US ? '#ff501e' : tp.owner === K.HAZARD ? '#d2b48c' : '#50ff78');
       g.circle(sx, sy, u, C.WHITE);
     }
     for (const b of w.beams) {
@@ -353,28 +379,33 @@ export class Scene {
   // ---------------------------------------------------------------- sector map
   drawMap(g, w, r) {
     const P = w.P, u = r.u;
-    const S = r.h - 16 * u, mx = r.x + (r.w - S) / 2, my = r.y + 8 * u, k = S / SYS_SIZE;
-    g.strokeRect(mx, my, S, S, C.GRID, u);
-    for (let i = 1; i < 10; i++) { g.rect(mx + i * S / 10, my, 1, S, '#121832'); g.rect(mx, my + i * S / 10, S, 1, '#121832'); }
+    // the system's grid with a strip of the Oort cloud round it
+    const S = r.h - 16 * u, mx = r.x + (r.w - S) / 2, my = r.y + 8 * u, M = 9000, k = S / (SYS_SIZE + 2 * M), G = SYS_SIZE * k;
+    const gx = mx + M * k, gy = my + M * k;
+    g.clip(mx, my, S, S);
+    drawOortFrame(g, (x, y) => [gx + x * k, gy + y * k], { x: mx, y: my, w: S, h: S }, w.tSec);
+    g.unclip();
+    g.strokeRect(mx, my, S, S, '#1c2440', u);
+    for (let i = 1; i < 10; i++) { g.rect(gx + i * G / 10, gy, 1, G, '#121832'); g.rect(gx, gy + i * G / 10, G, 1, '#121832'); }
     for (let i = 0; i < 10; i++) {
-      g.text(mx + i * S / 10 + S / 20, my + 3 * u, String.fromCharCode(65 + i), 11 * u, C.GRID, 'center');
-      g.text(mx + 3 * u, my + i * S / 10 + S / 20 - 6 * u, String(i + 1), 11 * u, C.GRID);
+      g.text(gx + i * G / 10 + G / 20, my + 1 * u, String.fromCharCode(65 + i), 10 * u, C.GRID, 'center');
+      g.text(mx + 2 * u, gy + i * G / 10 + G / 20 - 6 * u, String(i + 1), 10 * u, C.GRID);
     }
     g.clip(mx, my, S, S);
-    drawSystemLayer(g, w.sys, w.tSec, (x, y) => [mx + x * k, my + y * k], k, { u, minR: 3.5, well: true });
-    drawCampLines(g, w, (x, y) => [mx + x * k, my + y * k], u);
+    drawSystemLayer(g, w.sys, w.tSec, (x, y) => [gx + x * k, gy + y * k], k, { u, minR: 3.5, well: true });
+    drawCampLines(g, w, (x, y) => [gx + x * k, gy + y * k], u);
     g.unclip();
-    for (const m of w.M.mk) drawMarker(g, mx + m.x * k, my + m.y * k, m.kind, m.r * k, 11 * u);
-    g.circle(mx + P.x * k, my + P.y * k, w.sensorRange * k, '#1e3c5a', false, u);
+    for (const m of w.M.mk) drawMarker(g, gx + m.x * k, gy + m.y * k, m.kind, m.r * k, 11 * u);
+    g.circle(gx + P.x * k, gy + P.y * k, w.sensorRange * k, '#1e3c5a', false, u);
     const pt = (w.slow && w.slow.ptrail) || [];
-    for (let i = 0; i < pt.length; i += 2) g.rect(mx + pt[i] * k, my + pt[i + 1] * k, 1.5 * u, 1.5 * u, dim(C.SKY, 0.3 + 0.7 * i / pt.length));
+    for (let i = 0; i < pt.length; i += 2) g.rect(gx + pt[i] * k, gy + pt[i + 1] * k, 1.5 * u, 1.5 * u, dim(C.SKY, 0.3 + 0.7 * i / pt.length));
     if (P.wpValid) {
-      g.line(mx + P.x * k, my + P.y * k, mx + P.wpx * k, my + P.wpy * k, '#50468c', u);
-      g.strokeRect(mx + P.wpx * k - 4 * u, my + P.wpy * k - 4 * u, 9 * u, 9 * u, C.VIOLET, 1.5 * u);
+      g.line(gx + P.x * k, gy + P.y * k, gx + P.wpx * k, gy + P.wpy * k, '#50468c', u);
+      g.strokeRect(gx + P.wpx * k - 4 * u, gy + P.wpy * k - 4 * u, 9 * u, 9 * u, C.VIOLET, 1.5 * u);
     }
     for (const n of w.npc) {
       if (!n.alive || !n.vis) continue;
-      const x = mx + n.x * k, y = my + n.y * k;
+      const x = gx + n.x * k, y = gy + n.y * k;
       const known = n.scan > 0 || n.type === K.CT_STARBASE;
       const col = factionColor(known ? n.faction : K.F_UNKNOWN);
       if (n.type === K.CT_STARBASE) drawStation(g, n.kind ?? 0, x, y, 0.14 * u, w.now, n.civ);
@@ -382,7 +413,8 @@ export class Scene {
       else g.circle(x, y, 3 * u, col);
       g.text(x + 9 * u, y + 3 * u, w.shortName(n.id, known), 11 * u, col);
     }
-    drawShip(g, ART_CRUISER, C.SKY, mx + P.x * k, my + P.y * k, 0.12 * u, P.hdg);
+    drawShip(g, ART_CRUISER, C.SKY, clampf(gx + P.x * k, mx + 6 * u, mx + S - 6 * u), clampf(gy + P.y * k, my + 6 * u, my + S - 6 * u), 0.12 * u, P.hdg);
+    drawOortWarn(g, { x: mx, y: my, w: S, h: S }, P.oort, u);
     const lw = mx - r.x - 16 * u;
     if (lw > 120 * u) {
       const sy = w.sys;
@@ -607,7 +639,7 @@ export class Scene {
     g.bar(x + 200 * u, y + 4 * u, lw - 200 * u, 9 * u, P.energy / 10, P.energy > 300 ? C.SKY : P.energy > 120 ? C.YELLOW : C.RED);
     y += row;
     const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : 'MANUAL HELM';
-    g.textFit(x, y, `HDG ${pad3(P.hdg)}  ${P.warping ? 'WARP ' + P.warpSet : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, fs, C.SKY, 'left', lw);
+    g.textFit(x, y, `HDG ${pad3(P.hdg)}  ${P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, fs, C.SKY, 'left', lw);
     y += row + 4 * u;
     g.header(x, y, lw, 'SYSTEMS', C.TAN, hh);
     y += hh + 3 * u;
@@ -748,7 +780,7 @@ export function drawViewer(g, w, scene, opts = {}) {
   if (w.game === K.GS_RUN) {
     const P = w.P;
     g.text(6 * u, y, 'HDG ' + pad3(P.hdg), 20 * u, C.SKY);
-    g.text(6 * u, y + 21 * u, P.warping ? 'WARP ' + P.warpSet : Math.round(P.speed) + ' KM/S', 12 * u, C.SKY);
+    g.text(6 * u, y + 21 * u, P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S', 12 * u, C.SKY);
     g.text(120 * u, y, 'ENERGY', 12 * u, C.PEACH);
     g.segBar(120 * u, y + 16 * u, 150 * u, 14 * u, P.energy / 10, P.energy > 300 ? C.SKY : P.energy > 120 ? C.YELLOW : C.RED, 12);
     g.text(290 * u, y, `HULL ${Math.ceil(P.hull)}%`, 20 * u, healthColor(P.hull));

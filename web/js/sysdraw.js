@@ -3,8 +3,9 @@
 // the galaxy chart with its jump lanes, and the different station designs.
 // Used by the viewscreen, NAV, HELM and the sensor radars.
 // ============================================================================
+import { WELL_MULT, OORT_WARN } from './orbit.js';
 import { C } from './config.js';
-import { SYSTEMS, SYS_C, WELL_R, sysAt, lanesOf, planetPos, starPos, beltDots, CIV_COL, SK_STARBASE, SK_OUTPOST, SK_HUB, SK_HAVEN,
+import { SYSTEMS, SYS_C, SYS_SIZE, WELL_R, sysAt, lanesOf, planetPos, starPos, beltDots, CIV_COL, SK_STARBASE, SK_OUTPOST, SK_HUB, SK_HAVEN,
   SK_CITADEL, SK_ARRAY, SK_RELAY, SK_MONOLITH } from './galaxy.js';
 import { DEG } from './util.js';
 import { dim, flash } from './gfx.js';
@@ -69,6 +70,8 @@ export function drawSystemLayer(g, sys, t, p2, k, opts = {}) {
     const c = g.ctx;
     c.save(); c.setLineDash([4 * u, 6 * u]);
     g.circle(cx, cy, WELL_R * k, '#5a3c1e', false, u);
+    c.setLineDash([2 * u, 5 * u]);
+    for (const b of bodies(sys, t)) if (!b.star && b.r * WELL_MULT * k > 6 * u) { const [sx, sy] = p2(b.x, b.y); g.circle(sx, sy, b.r * WELL_MULT * k, '#1e4a50', false, u); }
     c.restore();
   }
   for (const b of sys.belts) {
@@ -379,5 +382,71 @@ export function drawCampLines(g, w, p2, u = 1) {
     g.line(x0, y0, x1, y1, '#78f0ff', 1.6 * u);
     g.text(x0 + 6 * u, y0 + 4 * u, `${l.l} ${String(l.b).padStart(3, '0')}`, 11 * u, '#78f0ff');
   }
+  c.restore();
+}
+
+// ---------------------------------------------------------------- the Oort cloud beyond the grid
+// shades everything outside the system's square (p2 maps world -> screen)
+export function drawOortFrame(g, p2, box, t) {
+  const [x0, y0] = p2(0, 0), [x1, y1] = p2(SYS_SIZE, SYS_SIZE), c = g.ctx;
+  c.save();
+  c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.rect(x0, y0, x1 - x0, y1 - y0);
+  c.clip('evenodd');
+  c.fillStyle = 'rgba(70,90,120,0.16)'; c.fillRect(box.x, box.y, box.w, box.h);
+  // drifting ice specks
+  c.fillStyle = 'rgba(190,220,255,0.35)';
+  for (let i = 0; i < 160; i++) {
+    const h = Math.imul(i + 7, 2654435761) >>> 0;
+    const sx = box.x + ((h % 1000) / 1000) * box.w, sy = box.y + (((h >>> 10) % 1000) / 1000 * box.h + t * 2 * (1 + (i % 3))) % box.h;
+    c.fillRect(sx, sy, 1.5, 1.5);
+  }
+  c.restore();
+  g.strokeRect(x0, y0, x1 - x0, y1 - y0, '#3c5a78', 1);
+}
+// a warning banner across a view when we're near or inside the Oort cloud (depth from orbit.oortDepth)
+export function drawOortWarn(g, r, depth, u = 1) {
+  if (depth < -OORT_WARN) return;
+  const inside = depth > 0, on = Math.floor(performance.now() / 450) % 2 === 0;
+  const bh = (inside ? 64 : 30) * u, by = r.y + r.h * 0.5 - bh / 2;
+  g.rect(r.x, by, r.w, bh, inside ? (on ? 'rgba(120,0,0,0.78)' : 'rgba(60,0,0,0.7)') : 'rgba(60,50,0,0.6)');
+  g.rect(r.x, by, r.w, 2 * u, inside ? C.RED : C.YELLOW); g.rect(r.x, by + bh - 2 * u, r.w, 2 * u, inside ? C.RED : C.YELLOW);
+  if (inside) {
+    g.textFit(r.x + r.w / 2, by + 8 * u, 'WARNING: ENTERING THE OORT CLOUD - HAZARD!', 22 * u, on ? C.WHITE : C.PEACH, 'center', r.w - 16 * u, true);
+    g.textFit(r.x + r.w / 2, by + 38 * u, `ICE IMPACTS ON THE HULL - ${Math.round(depth / 1000)}K PAST THE EDGE. TURN BACK OR ENGAGE THE JUMP DRIVE.`, 12 * u, C.YELLOW, 'center', r.w - 16 * u);
+  } else g.textFit(r.x + r.w / 2, by + 7 * u, `APPROACHING THE OORT CLOUD - EDGE OF THE SYSTEM IN ${Math.max(0, Math.round(-depth / 1000))}K`, 14 * u, C.YELLOW, 'center', r.w - 16 * u, true);
+}
+
+// ---------------------------------------------------------------- the shield bubble
+// a segmented sphere seen from above at a tilt. q = [fore, aft, port, stbd] strength 0..1, hdg in degrees,
+// hit = 0..1 flash. Front segments are bright, the far side dim, so it reads as 3D.
+export function drawBubble(g, cx, cy, R, hdg, q, raise = 1, hit = 0) {
+  if (R < 4 || raise <= 0.02) return;
+  const c = g.ctx, tilt = 0.5, cosT = Math.cos(tilt), sinT = Math.sin(tilt), H = (hdg * Math.PI) / 180;
+  c.save();
+  // soft volume: brighter rim (fresnel), faint middle
+  const gr = c.createRadialGradient(cx, cy - R * 0.25, R * 0.1, cx, cy, R);
+  gr.addColorStop(0, `rgba(120,200,255,${0.02 * raise})`); gr.addColorStop(0.75, `rgba(90,170,255,${0.07 * raise})`);
+  gr.addColorStop(1, `rgba(150,220,255,${(0.28 + hit * 0.4) * raise})`);
+  c.fillStyle = gr; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
+  // which quadrant a direction (world azimuth, radians, 0 = up) belongs to
+  const quad = (az) => { let rel = ((az - H) * 180) / Math.PI; rel = ((rel % 360) + 540) % 360 - 180; return Math.abs(rel) <= 45 ? 0 : Math.abs(rel) >= 135 ? 1 : rel < 0 ? 2 : 3; };
+  // sphere point (lat, lon) -> screen, depth z (+ = towards the viewer)
+  const pt = (lat, lon) => {
+    const x = Math.cos(lat) * Math.sin(lon), y0 = -Math.cos(lat) * Math.cos(lon), z0 = Math.sin(lat);
+    const y = y0 * cosT - z0 * sinT, z = y0 * sinT + z0 * cosT;
+    return [cx + x * R, cy + y * R, z, lon];
+  };
+  const seg = (a, b) => {
+    const z = (a[2] + b[2]) / 2, s = q[quad((a[3] + b[3]) / 2)] ?? 1;
+    const alpha = (z > 0 ? 0.55 + 0.4 * z : 0.12 + 0.12 * (1 + z)) * raise * (0.25 + 0.75 * s);
+    c.strokeStyle = hit > 0 ? `rgba(255,255,255,${Math.min(1, alpha + hit * 0.5)})` : `rgba(${Math.round(110 + 120 * s)},${Math.round(190 + 50 * s)},255,${alpha})`;
+    c.lineWidth = z > 0 ? 1.4 : 0.8;
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+  };
+  const NL = 28;
+  for (const lat of [-0.9, -0.45, 0, 0.45, 0.9]) { let p0 = pt(lat, 0); for (let i = 1; i <= NL; i++) { const p1 = pt(lat, (i / NL) * Math.PI * 2); seg(p0, p1); p0 = p1; } }
+  for (let m = 0; m < 12; m++) { const lon = (m / 12) * Math.PI * 2; let p0 = pt(-Math.PI / 2, lon); for (let i = 1; i <= 14; i++) { const p1 = pt(-Math.PI / 2 + (i / 14) * Math.PI, lon); seg(p0, p1); p0 = p1; } }
+  // outline
+  c.strokeStyle = `rgba(170,225,255,${0.5 * raise})`; c.lineWidth = 1.5; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.stroke();
   c.restore();
 }

@@ -144,7 +144,7 @@ class App {
   myStation() {
     const me = this.me();
     if (!me || !me.roles || !me.roles.length) return null;
-    const tabs = me.roles.flatMap((t) => (t === K.T_CAPTAIN ? [K.T_CAPTAIN, K.T_CAP_ORDERS, K.T_CAP_HAILS] : [t]));
+    const tabs = me.roles.slice();
     return { key: me.roles.join(','), name: me.roles.map((t) => K.TAB_NAME[t]).join(' + '), tabs, col: me.col };
   }
   myTabs() { const s = this.myStation(); return s ? s.tabs : []; }
@@ -161,7 +161,7 @@ class App {
       this.narrator.enabled = this.voiceMode === 'on' || toTv;
     }
     this.narrator.hear(w);
-    sound.update(w);
+    { const tabs = this.myTabs() || []; sound.update(w, { hail: tabs.includes(K.T_COMMS) || tabs.includes(K.T_CAPTAIN), screen: tabs.includes(K.T_COMMS) && !this.casting }); }
     g.begin();
     if (innerHeight > innerWidth * 1.05) { this.drawRotate(); return; }
     if (w.game === K.GS_TITLE) this.picking = false;
@@ -312,24 +312,26 @@ class App {
     y += 24;
     const joinH = this.joinUrls.length ? 44 : 0;
     const cols = 4, rows = 2, gap = 6;
-    const capH = 40;
+    const capH = 66;
     const cw = (rw - (cols - 1) * gap) / cols, ch = (H - y - 6 - joinH - (rows - 1) * gap - capH - gap) / rows;
     const byPid = new Map(lb.players.map((p) => [p.pid, p]));
     for (let t = 0; t < K.TAB_NAME.length; t++) {
       const capt = t === K.T_CAPTAIN;
-      const cx = capt ? rx : rx + (t % cols) * (cw + gap), cy = capt ? y + rows * (ch + gap) : y + Math.floor(t / cols) * (ch + gap);
+      const cx = capt ? rx : rx + (t % cols) * (cw + gap), cy = capt ? y : y + capH + gap + Math.floor(t / cols) * (ch + gap);
       const owner = lb.roles[t] ? byPid.get(lb.roles[t]) : null;
       const mine = owner && owner.pid === this.pid;
       const free = !owner || !owner.online;
       const col = K.TAB_COL[t];
-      if (capt) { // the optional captain: a strip under the cards
-        const cwid = rw, chh = capH;
-        g.rrect(cx, cy, cwid, chh, 12, mine ? col : C.PANEL);
-        g.ctx.strokeStyle = owner && !mine ? owner.col : col; g.ctx.lineWidth = 2;
-        g.ctx.beginPath(); g.ctx.roundRect(cx + 1, cy + 1, cwid - 2, chh - 2, 12); g.ctx.stroke();
-        g.text(cx + 12, cy + 9, 'CAPTAIN', 19, mine ? C.BLACK : col, 'left', true);
-        g.textFit(cx + 110, cy + 12, K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 'left', cwid - 300);
-        g.textFit(cx + cwid - 12, cy + 10, owner ? owner.name + (owner.online ? '' : ' (GONE)') : 'OPEN', 16, mine ? C.BLACK : owner ? owner.col : C.GREEN, 'right', 170, true);
+      if (capt) { // the captain: a banner across the top - the bridge needs one
+        const cwid = rw, chh = capH, c = g.ctx;
+        g.rrect(cx, cy, cwid, chh, 16, mine ? col : C.PANEL);
+        c.strokeStyle = owner && !mine ? owner.col : col; c.lineWidth = 3;
+        c.beginPath(); c.roundRect(cx + 1.5, cy + 1.5, cwid - 3, chh - 3, 16); c.stroke();
+        // rank pips
+        for (let k = 0; k < 4; k++) { c.fillStyle = mine ? C.BLACK : col; c.beginPath(); c.arc(cx + 20 + k * 15, cy + chh / 2, 5, 0, Math.PI * 2); c.fill(); }
+        g.text(cx + 86, cy + 7, 'CAPTAIN', 30, mine ? C.BLACK : col, 'left', true);
+        g.textFit(cx + 86, cy + 42, 'COMMANDS THE BRIDGE: ' + K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 'left', cwid - 300);
+        g.textFit(cx + cwid - 14, cy + 18, owner ? owner.name + (owner.online ? '' : ' (GONE)') : 'OPEN - NEEDED', 22, mine ? C.BLACK : owner ? owner.col : flash(500) ? C.YELLOW : C.GREEN, 'right', 200, true);
         g.hit(cx, cy, cwid, chh, { down: () => { if (!mine && !free) { sound.denied(); return; } sound.toggle(); this.link.send({ t: 'role', tab: t }); } });
         continue;
       }
@@ -444,7 +446,7 @@ class App {
     // ---- content
     const L = this.layout();
     if (this.viewerPage) this.drawViewerPage(L);
-    else TABS[stn.tabs[ti]].draw(g, w, this, L);
+    else (TABS[stn.tabs[ti]] || TABS[stn.tabs[0]]).draw(g, w, this, L);
   }
 
   drawViewerPage(L) {
@@ -482,12 +484,6 @@ class App {
     let y = 70, bx = cx - bw - 8; // two columns: settings on the left, actions on the right
     g.button('msnd', bx, y, bw, 44, sound.enabled ? 'SOUND: ON' : 'SOUND: OFF', sound.enabled ? C.SKY : C.GREY, C.BLACK, 20, () => {
       sound.enabled = !sound.enabled; store('aurora.sound', sound.enabled ? '1' : '0');
-    });
-    y += 54;
-    const vm = { auto: 'HAIL VOICES: ON THE TV', on: 'HAIL VOICES: THIS PHONE', off: 'HAIL VOICES: OFF' };
-    g.button('mvoice', bx, y, bw, 44, vm[this.voiceMode], this.voiceMode === 'off' ? C.GREY : C.SKY, C.BLACK, 18, () => {
-      this.voiceMode = { auto: 'on', on: 'off', off: 'auto' }[this.voiceMode]; store('aurora.voice', this.voiceMode);
-      if (this.voiceMode === 'off') this.narrator.engine.stop();
     });
     y += 54;
     g.button('mvib', bx, y, bw, 44, this.vibrate ? 'VIBRATE ON HITS: ON' : 'VIBRATE ON HITS: OFF', this.vibrate ? C.SKY : C.GREY, C.BLACK, 20, () => {

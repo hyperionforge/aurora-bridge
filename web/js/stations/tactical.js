@@ -4,6 +4,7 @@ import { C, CMD } from '../config.js';
 import { DEG, wrap360, angDiff, fmtDist, pad3, clampf } from '../util.js';
 import { dim, flash, healthColor, lerpCol } from '../gfx.js';
 import { drawShip, factionColor, ART_CRUISER } from '../ships.js';
+import { drawBubble } from '../sysdraw.js';
 import { drawRadar, radarPick } from './common.js';
 import * as G from '../cargo.js';
 
@@ -122,7 +123,20 @@ export const shields = {
       const bx = cx + Math.sin(rel) * (R + 30), by = cy - Math.cos(rel) * (R + 30);
       g.tri(tx, ty, bx + Math.cos(rel) * 8, by + Math.sin(rel) * 8, bx - Math.cos(rel) * 8, by - Math.sin(rel) * 8, C.RED);
     }
+    const bub = P.bubR || 1700, Rb = R * (0.32 + 0.6 * clampf((bub - 500) / 2400, 0, 1));
+    drawBubble(g, cx, cy, Rb, 0, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1)), raise, 0);
+    // friendly ships near us, placed bow-up at bubble scale: inside the ring they're covered
+    for (const c of w.contacts()) {
+      if (!c.alive || c.faction === K.F_HOSTILE || c.type === K.CT_POI || c.type === K.CT_ANOMALY) continue;
+      const d = w.range(c); if (d > bub * 1.6) continue;
+      const rel = angDiff(P.hdg, w.bearing(c)) * DEG, rr = (d / bub) * Rb;
+      const sx = cx + Math.sin(rel) * rr, sy = cy - Math.cos(rel) * rr, inb = d < bub && raise >= 0.99;
+      g.circle(sx, sy, 5, inb ? C.SKY : C.GREEN);
+      g.text(sx, sy + 7, (inb ? 'COVERED ' : '') + w.shortName(c.id, c.known), 11, inb ? C.SKY : C.GREEN, 'center');
+    }
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, B / 320, 0);
+    g.text(L.bx + B, L.by + 20, `BUBBLE ${fmtDist(bub)}`, 15, C.SKY, 'right');
+    g.text(L.bx + B, L.by + 38, 'MORE SHIELD POWER = BIGGER', 11, C.GREY_TXT, 'right');
     if (raise < 0.99) g.text(cx, cy + 40, raise > 0 ? 'RAISING' : 'SHIELDS DOWN', 19, raise > 0 ? C.YELLOW : C.GREY_TXT, 'center');
 
     const x = L.rx, rw = L.rw;

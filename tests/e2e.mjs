@@ -136,7 +136,7 @@ if (captain) {
     if (o) { await phones[i].evaluate((id) => { const a = window.auroraApp; a.send(33, id); a.send(6, 1); }, o); }
   }
   await sleep(1200);
-  for (const [t, nm] of [[8, 'status'], [9, 'orders'], [10, 'hails']]) {
+  for (const [t, nm] of [[8, 'status']]) {
     await phones[ci].evaluate((t) => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(t); }, t);
     await sleep(400);
     await phones[ci].screenshot({ path: `${OUT}/p35_captain_${nm}.png` });

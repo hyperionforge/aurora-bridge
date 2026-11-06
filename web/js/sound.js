@@ -164,60 +164,83 @@ class Sound {
   order() { this.chirp([[1318, 50], [1760, 50], [0, 40], [1318, 50], [1760, 90]], 'sine', 0.45); }
   victory() { this.chirp([[523, 180], [659, 180], [784, 180], [1047, 520]], 'triangle', 0.4, 0.03); }
   defeat() { this.chirp([[392, 300], [349, 300], [311, 300], [262, 700]], 'triangle', 0.4, 0.04); }
+  // ---------------------------------------------------------------- hails
+  hailIncoming() { // the bosun-style two-tone hail, soft
+    this.chirp([[1175, 80], [1568, 80], [0, 50], [1175, 80], [1568, 80], [2093, 220]], 'sine', 0.3, 0.01);
+  }
+  onScreen() { // the viewer switching to the caller: a soft rush and a chirp
+    if (!this.ok) return;
+    const t = this.ctx.currentTime, n = this.out(0.18, 0.5);
+    this.env(n, t, 0.12, 0.05, 0.4); this.noise(t, 0.6, n, 'bandpass', 800, 3000, 0.9);
+    setTimeout(() => this.chirp([[1319, 60], [1760, 130]], 'sine', 0.25), 180);
+  }
   // ---------------------------------------------------------------- engines
-  warpEngage() { // the stretch and the snap into warp - soft, not a bang
+  // Breathy, filtered-noise swells rather than tones: a soft power-up, then a gentle release.
+  warpEngage() { // the warp field forms: a rush that opens up and fades
     if (!this.ok) return;
-    const t = this.ctx.currentTime, g = this.out(0.4, 0.7);
-    this.env(g, t, 0.25, 0.15, 1.3);
-    this.osc('sine', 160, 1100, t, 0.5, g);
-    this.osc('triangle', 80, 520, t, 0.5, g);
-    const n = this.out(0.28, 0.6); this.env(n, t + 0.2, 0.05, 0.1, 1.2); this.noise(t + 0.2, 1.4, n, 'bandpass', 600, 3500, 1.5);
+    const t = this.ctx.currentTime;
+    const n = this.out(0.34, 0.8); this.env(n, t, 0.08, 0.15, 1.6);
+    this.noise(t, 1.9, n, 'lowpass', 500, 4200, 0.5);
+    const s = this.out(0.18, 0.7); this.env(s, t + 0.05, 0.1, 0.1, 1.4);
+    this.noise(t + 0.05, 1.7, s, 'bandpass', 1500, 6000, 0.7);
+    const b = this.out(0.22, 0.2); this.env(b, t, 0.02, 0.08, 0.6); this.osc('sine', 70, 45, t, 0.7, b); // a soft low thump
   }
-  jumpEngage() { // the jump drive fires: a deep drop and a long rush
+  jumpEngage() { // the jump drive fires: a deep rolling rush
     if (!this.ok) return;
-    const t = this.ctx.currentTime, g = this.out(0.6, 0.8);
-    this.env(g, t, 0.05, 0.4, 2.2);
-    this.osc('sine', 220, 35, t, 2.5, g);
-    this.osc('sawtooth', 110, 30, t, 1.2, g);
-    const n = this.out(0.35, 0.8); this.env(n, t, 0.3, 1.0, 2.0); this.noise(t, 3.3, n, 'bandpass', 300, 2600, 1.2);
+    const t = this.ctx.currentTime;
+    const n = this.out(0.42, 0.9); this.env(n, t, 0.06, 0.6, 2.6);
+    this.noise(t, 3.3, n, 'lowpass', 2600, 160, 0.4);
+    const s = this.out(0.16, 0.9); this.env(s, t, 0.3, 0.6, 2.0);
+    this.noise(t, 3, s, 'bandpass', 600, 2400, 0.6);
+    const b = this.out(0.28, 0.3); this.env(b, t, 0.05, 0.3, 1.6); this.osc('sine', 52, 30, t, 2, b);
   }
-  arrive() {
+  arrive() { // dropping out of the lane: the rush settles
     if (!this.ok) return;
-    const t = this.ctx.currentTime, g = this.out(0.45, 0.7);
-    this.env(g, t, 0.01, 0.1, 1.4);
-    this.osc('sine', 900, 120, t, 1.4, g);
-    this.noise(t, 1.2, g, 'lowpass', 3000, 200, 0.7);
+    const t = this.ctx.currentTime, g = this.out(0.3, 0.8);
+    this.env(g, t, 0.02, 0.15, 1.5);
+    this.noise(t, 1.7, g, 'lowpass', 3500, 250, 0.5);
   }
-  // a looping hum that rises with charge (kind: 'warp' | 'jump'); p = 0..1, or -1 to stop
+  // a looping power-up that rises with charge (kind: 'warp' | 'jump'); p = 0..1, or -1 to stop.
+  // Mostly filtered noise (a breath that brightens) over a quiet low drone, so it doesn't sound like a siren.
   charge(kind, p) {
     if (!this.ctx) return;
     let L = this.loops[kind];
     if (p < 0 || !this.ok) {
-      if (L) { const t = this.ctx.currentTime; L.g.gain.cancelScheduledValues(t); L.g.gain.setTargetAtTime(0.0001, t, 0.08); L.o1.stop(t + 0.4); L.o2.stop(t + 0.4); L.lfo.stop(t + 0.4); delete this.loops[kind]; }
+      if (L) { const t = this.ctx.currentTime; L.g.gain.cancelScheduledValues(t); L.g.gain.setTargetAtTime(0.0001, t, 0.12); for (const n of L.nodes) n.stop(t + 0.6); delete this.loops[kind]; }
       return;
     }
-    const t = this.ctx.currentTime;
+    const t = this.ctx.currentTime, jump = kind === 'jump';
     if (!L) {
-      const g = this.out(kind === 'jump' ? 0.32 : 0.22, 0.4);
-      const o1 = this.ctx.createOscillator(), o2 = this.ctx.createOscillator();
-      o1.type = 'sine'; o2.type = kind === 'jump' ? 'sawtooth' : 'triangle';
-      const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
-      o1.connect(g); o2.connect(f); f.connect(g);
-      const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain(); lfo.frequency.value = kind === 'jump' ? 5 : 7; lg.gain.value = 0.35 * g.level;
-      lfo.connect(lg); lg.connect(g.gain); lfo.start(); o1.start(); o2.start();
-      L = this.loops[kind] = { g, o1, o2, lfo, f };
-      g.gain.setTargetAtTime(g.level, t, 0.2);
+      const g = this.out(jump ? 0.3 : 0.24, 0.5);
+      const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
+      const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7; f.frequency.value = 300;
+      const f2 = this.ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.Q.value = 0.8; f2.frequency.value = 900;
+      const ng = this.ctx.createGain(); ng.gain.value = 0.9;
+      src.connect(f); f.connect(f2); f2.connect(ng); ng.connect(g);
+      const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = jump ? 45 : 70;
+      const og = this.ctx.createGain(); og.gain.value = 0.35; o.connect(og); og.connect(g);
+      const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain(); lfo.frequency.value = 0.8; lg.gain.value = 0.12;
+      lfo.connect(lg); lg.connect(ng.gain);
+      src.start(); o.start(); lfo.start();
+      g.gain.setTargetAtTime(g.level * 0.25, t, 0.3);
+      L = this.loops[kind] = { g, f, f2, o, lfo, nodes: [src, o, lfo] };
     }
-    const base = kind === 'jump' ? 55 : 110, top = kind === 'jump' ? 420 : 880;
-    L.o1.frequency.setTargetAtTime(base + (top - base) * p, t, 0.1);
-    L.o2.frequency.setTargetAtTime((base + (top - base) * p) / 2, t, 0.1);
-    L.f.frequency.setTargetAtTime(400 + 2200 * p, t, 0.1);
-    L.lfo.frequency.setTargetAtTime((kind === 'jump' ? 4 : 6) + 14 * p, t, 0.1);
+    const e = p * p;
+    L.g.gain.setTargetAtTime(L.g.level * (0.25 + 0.75 * p), t, 0.2);   // swells as it charges
+    L.f.frequency.setTargetAtTime((jump ? 220 : 300) + (jump ? 2200 : 3800) * e, t, 0.2);
+    L.f2.frequency.setTargetAtTime((jump ? 500 : 800) + (jump ? 1500 : 2600) * e, t, 0.2);
+    L.o.frequency.setTargetAtTime((jump ? 42 : 65) * (1 + 0.6 * p), t, 0.3);
+    L.lfo.frequency.setTargetAtTime(0.8 + 4 * e, t, 0.2);
   }
   // call every frame: keeps the charging hums in step with the ship
-  update(w) {
+  // opts.hail: play the incoming-hail call (viewscreens, the COMMS phone); opts.screen: play the "on screen" sound
+  update(w, opts = {}) {
     if (!this.ctx || !w || !w.have) return;
     const P = w.P, run = w.game === K.GS_RUN;
+    const d = w.slow && w.slow.dlg, seq = d ? d.seq : 0;
+    if (run && seq && seq !== this.lastDlg && opts.hail) this.hailIncoming();
+    if (run && opts.screen && w.view === K.VM_COMMS && this.lastView !== undefined && this.lastView !== K.VM_COMMS) setTimeout(() => this.onScreen(), seq !== this.lastDlg ? 700 : 0);
+    this.lastDlg = seq; this.lastView = w.view;
     const wc = run && P.warpSet > 0 && !P.warping && P.warpCharge > 0 && P.warpCharge < 1;
     this.charge('warp', wc ? P.warpCharge : -1);
     const jc = run && P.jumpTo !== K.NO_ID && !(P.jumping > 0) && P.jumpCharge > 0;

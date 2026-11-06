@@ -306,6 +306,29 @@ export class Gfx {
       up: (px, py) => onChange(val(py), true, false),
     });
   }
+  // a vertical slider whose top part (above cap) can't be reached: greyed and hatched. value/vmax/cap in the same units.
+  capSlider(id, x, y, w, h, value, vmax, cap, col, step, onChange, active, segs = 12) {
+    const tx = x + 10, tw = w - 20, sh = h / segs, c = this.ctx;
+    for (let s = 0; s < segs; s++) {
+      const sy = y + h - (s + 1) * sh + 2, top = (s + 1) * vmax / segs, mid = top - vmax / segs / 2;
+      const reach = mid <= cap + 1e-6, on = value >= mid;
+      this.rect(tx, sy, tw, sh - 3, !reach ? '#1a1a22' : on ? col : C.SEG_OFF);
+      if (!reach) { c.save(); c.beginPath(); c.rect(tx, sy, tw, sh - 3); c.clip(); c.strokeStyle = '#33333f'; c.lineWidth = 2; for (let k = -sh; k < tw; k += 7) { c.beginPath(); c.moveTo(tx + k, sy + sh); c.lineTo(tx + k + sh, sy); c.stroke(); } c.restore(); }
+    }
+    this.rect(x + 4, y, 1, h, C.GRID);
+    this.rect(x + w - 5, y, 1, h, C.GRID);
+    const cy = y + h - Math.min(cap, vmax) * h / vmax; // the cap line
+    if (cap < vmax) { this.rect(x, cy - 1, w, 2, C.YELLOW); }
+    let ty = clampf(y + h - value * h / vmax, y + 4, y + h - 4);
+    this.rrect(x + 2, ty - 5, w - 4, 10, 5, active ? C.WHITE : C.PEACH);
+    const raw = (py) => clampf((y + h - py) * vmax / h, 0, vmax);
+    const val = (py) => Math.round(Math.min(raw(py), cap) / step) * step;
+    this.hit(x - 6, y - 12, w + 12, h + 24, {
+      down: (px, py) => onChange(val(py), false, true, raw(py) > cap + step),
+      move: (px, py) => onChange(val(py), false, false, raw(py) > cap + step),
+      up: (px, py) => onChange(val(py), true, false, raw(py) > cap + step),
+    });
+  }
   brackets(x, y, r, col) {
     const l = r / 2;
     const c = this.ctx;

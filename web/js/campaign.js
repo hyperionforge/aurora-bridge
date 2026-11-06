@@ -195,7 +195,7 @@ export function installCampaign(Sim) {
       if (CAMPAIGNS[this.selCamp | 0] && CAMPAIGNS[this.selCamp | 0].id === 'argus') { this.argusStart(ch); return; }
       ch = clampf(ch | 0, 1, 5);
       const save = this.campSaveOf('chorus');
-      this.camp = { id: 'chorus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [] };
+      this.camp = { id: 'chorus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [], bondOf: (w) => this.chorusBond(w) };
       this.camp.f.linSaved = false;
       this.greeted.add(0); // Voss speaks first
       // skipping ahead: you have what earlier chapters would have given you
@@ -544,29 +544,24 @@ export function installCampaign(Sim) {
     // friends you made come back
     campAllies(which) {
       const c = this.camp, f = c.f, P = this.P;
-      const call = (who, n, type, civ, name, line) => {
-        const [x, y] = this.pointNear(P.x, P.y, 5000);
-        let first = NO_ID;
-        for (let i = 0; i < n; i++) {
-          const id = this.spawnAt(type, F_FRIEND, this.clampSec(x + i * 1300), this.clampSec(y + i * 900), bearingTo(x, y, P.x, P.y));
-          if (id === NO_ID) continue;
-          Object.assign(this.npc[id], { ai: AI_ALLY, aiTarget: NO_ID, scan: 2, civ, name: n > 1 ? `${name} ${i + 1}` : name, short: n > 1 ? `${name.split(' ')[0]} ${i + 1}` : name.split(' ')[0] });
-          this.boomAt(this.npc[id].x, this.npc[id].y, 2);
-          if (first === NO_ID) first = id;
-        }
-        if (first !== NO_ID) { this.say(first, 3, line); this.msgs[0].who = who; if (CHARS[who] && CHARS[who].civ >= 3) this.msgs[0].lang = CHARS[who].civ; }
-        (c.allies || (c.allies = new Set())).add(who);
-      };
-      if (which.includes('ressh') && (f.ressh === 'freed' || f.ressh === 'friend'))
-        call('ressh', f.ressh === 'friend' ? 2 : 1, CT_RAIDER, CIV_KESSARI, 'RESSH\'S RAIDER', 'THIS FLEET SHIP SPARED MY CREW. TODAY RESSH PAYS HIS DEBT!');
-      if (which.includes('silk') && f.silk === 'ally')
-        call('silk', 1, CT_RAIDER, CIV_NONE, 'NIGHTJAR', 'YOU HELPED MY PEOPLE, FLEET. NOW I HELP YOURS. TRY TO KEEP UP.');
-      if (which.includes('korvath') && (f.korvath === 'ally' || f.korvath === 'respect'))
-        call('korvath', 2, CT_DESTROYER, CIV_ORRAN, 'ORRAN WARSHIP', 'ORR STANDS WITH THE AURORA!');
-      if (which.includes('lin') && this.flags.linSaved)
-        call('lin', 2, CT_FREIGHTER, CIV_COLONY, 'MERIDIAN MILITIA', 'THE MERIDIAN STAR AND THE DEEP HOLLOW MILITIA, AURORA! WE OWE YOU!');
-      if (which.includes('draal') && f.draal === 'freed')
-        call('draal', 2, CT_RAIDER, CIV_KESSARI, 'KESSARI WAR-BAND', 'THE KESSARI PAY THEIR DEBTS, FLEET. DRAAL IS HERE.');
+      // how much each friend will do depends on how we treated them (allies.js)
+      const call = (who, n, type, civ, name, line, grudging) => this.callAlly(who, { ships: n, type, civ, name, line, grudging });
+      if (which.includes('ressh')) call('ressh', 3, CT_RAIDER, CIV_KESSARI, 'RESSH\'S RAIDER', 'THIS FLEET SHIP SPARED MY CREW. TODAY RESSH PAYS HIS DEBT!', 'YOU LET ME GO, FLEET. RESSH PAYS WHAT HE OWES - NO MORE.');
+      if (which.includes('silk')) call('silk', 2, CT_RAIDER, CIV_NONE, 'NIGHTJAR', 'YOU HELPED MY PEOPLE, FLEET. NOW I HELP YOURS. TRY TO KEEP UP.');
+      if (which.includes('korvath')) call('korvath', 3, CT_DESTROYER, CIV_ORRAN, 'ORRAN WARSHIP', 'ORR STANDS WITH THE AURORA!', 'YOU BEAT ME IN THE CIRCLE, OUTSIDER. ONE SHIP OF ORR WILL HONOUR THAT.');
+      if (which.includes('lin')) call('lin', 3, CT_FREIGHTER, CIV_COLONY, 'MERIDIAN MILITIA', 'THE MERIDIAN STAR AND THE DEEP HOLLOW MILITIA, AURORA! WE OWE YOU!');
+      if (which.includes('draal')) call('draal', 3, CT_RAIDER, CIV_KESSARI, 'KESSARI WAR-BAND', 'THE KESSARI PAY THEIR DEBTS, FLEET. DRAAL IS HERE.');
+    },
+    chorusBond(who) { // how the Chorus campaign's choices translate into an ally's bond
+      const f = this.camp.f;
+      switch (who) {
+        case 'ressh': return f.ressh === 'friend' ? 3 : f.ressh === 'freed' ? 1 : 0;           // let him go = grudging; paid him off = devoted
+        case 'silk': return f.refugees === 'bought' ? 3 : f.silk === 'ally' ? 2 : 0;           // bought their freedom = devoted
+        case 'korvath': return f.korvath === 'ally' ? 3 : f.korvath === 'respect' ? 1 : 0;     // the truth = devoted; a duel won = grudging
+        case 'lin': return this.flags.linSaved ? (f.linGift ? 4 : 2) : 0;
+        case 'draal': return f.draal === 'freed' ? 2 : 0;
+      }
+      return 0;
     },
     campFinale(choice) {
       const c = this.camp, P = this.P;

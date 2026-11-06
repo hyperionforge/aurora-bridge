@@ -28,7 +28,7 @@ export const SYSTEMS = [
     planets: [
       P('THESS', 24000, 420, 0.6, 1700, '#a0a0aa', '#6e6e78'),
       P('VESPERA', 48000, 900, 2.4, 2700, '#4678c8', '#28a05a'),
-      P('OKARA', 76000, 1500, 4.1, 4300, '#c88c46', '#965a32', { ring: true }),
+      P('OKARA', 66000, 1500, 4.1, 4300, '#c88c46', '#965a32', { ring: true }),
     ],
     belts: [],
     nebulae: [{ name: 'KALOS NEBULA', x: 124000, y: 50000, r: 13000, col: '#5a2d82' }],
@@ -38,7 +38,7 @@ export const SYSTEMS = [
   {
     id: 'meridian', name: 'MERIDIAN REACH', gx: 300, gy: 140, star: { col: '#ffb25e', glow: '#ff7a1e', r: 4300, type: 'ORANGE DWARF' },
     desc: 'A RICH ASTEROID BELT WORKED BY INDEPENDENT COLONISTS.',
-    planets: [P('HOLLOWAY', 18000, 380, 1.0, 1400, '#9a7a62', '#6e5644'), P('MERIDIAN IV', 72000, 1700, 3.3, 2400, '#d8e8f0', '#9ab4c8')],
+    planets: [P('HOLLOWAY', 18000, 380, 1.0, 1400, '#9a7a62', '#6e5644'), P('MERIDIAN IV', 68000, 1700, 3.3, 2400, '#d8e8f0', '#9ab4c8')],
     belts: [{ orbit: 42000, width: 9000, n: 700, col: '#6e6458' }],
     nebulae: [],
     stations: [{ name: 'DEEP HOLLOW', kind: SK_OUTPOST, civ: CIV_COLONY, x: 52000, y: 52000 }],
@@ -47,8 +47,8 @@ export const SYSTEMS = [
   {
     id: 'velanar', name: "VEL'ANAR", gx: 320, gy: 460, star: { col: '#fff4e0', glow: '#ffe0a0', r: 6000, type: 'WHITE STAR' },
     desc: 'THE VELORI MERCHANT GUILD TRADES HERE UNDER THE GLOW OF ISHVA.',
-    planets: [P('SERAL', 26000, 520, 5.0, 1500, '#c8b48c', '#a08c6e'), P('ISHVA', 58000, 1300, 0.8, 6200, '#c8a0dc', '#8c64b4', { ring: true })],
-    belts: [{ orbit: 92000, width: 7000, n: 400, col: '#5a5a6e' }],
+    planets: [P('SERAL', 26000, 520, 5.0, 1500, '#c8b48c', '#a08c6e'), P('ISHVA', 46000, 1300, 0.8, 6200, '#c8a0dc', '#8c64b4', { ring: true })],
+    belts: [{ orbit: 64000, width: 6000, n: 400, col: '#5a5a6e' }],
     nebulae: [],
     stations: [{ name: 'THE LANTERN', kind: SK_HUB, civ: CIV_VELORI, x: 98000, y: 112000 }],
     lanes: ['kalos', 'cerulean', 'halcyon'],
@@ -77,7 +77,7 @@ export const SYSTEMS = [
   {
     id: 'halcyon', name: 'HALCYON', gx: 380, gy: 300, star: { col: '#bfe0ff', glow: '#6aa0ff', r: 4200, type: 'BINARY STARS', binary: true },
     desc: 'TWIN STARS AND THE FLEET\'S EPSILON RESEARCH ARRAY.',
-    planets: [P('LUMEN', 44000, 800, 1.7, 2000, '#e0d0a0', '#b4a070'), P('TARREN', 80000, 1600, 5.6, 3000, '#5a8c6e', '#3c6450')],
+    planets: [P('LUMEN', 44000, 800, 1.7, 2000, '#e0d0a0', '#b4a070'), P('TARREN', 68000, 1600, 5.6, 3000, '#5a8c6e', '#3c6450')],
     belts: [],
     nebulae: [],
     stations: [{ name: 'EPSILON ARRAY', kind: SK_ARRAY, civ: CIV_FLEET, x: 118000, y: 104000 }],
@@ -86,7 +86,7 @@ export const SYSTEMS = [
   {
     id: 'cerulean', name: 'CERULEAN DEEP', gx: 560, gy: 450, star: { col: '#9ec8ff', glow: '#3c78ff', r: 6800, type: 'BLUE GIANT' },
     desc: 'ICE, COMETS AND THE BROKEN MOON OF A VANISHED CIVILISATION.',
-    planets: [P('GLACIA', 56000, 1400, 2.9, 5200, '#a0dcff', '#64a0dc', { ring: true }), P('RIME', 86000, 2100, 0.4, 1600, '#e6f4ff', '#b4c8dc')],
+    planets: [P('GLACIA', 56000, 1400, 2.9, 5200, '#a0dcff', '#64a0dc', { ring: true }), P('RIME', 70000, 2100, 0.4, 1600, '#e6f4ff', '#b4c8dc')],
     belts: [{ orbit: 30000, width: 6000, n: 500, col: '#8ca0b4' }],
     nebulae: [{ name: 'BLUE VEIL', x: 36000, y: 120000, r: 14000, col: '#283c78' }],
     stations: [],
@@ -95,7 +95,7 @@ export const SYSTEMS = [
   {
     id: 'orra', name: 'ORRA PRIME', gx: 730, gy: 330, star: { col: '#ff8a5a', glow: '#c83c14', r: 8200, type: 'RED GIANT' },
     desc: 'THRONE WORLD OF THE ORRAN DOMINION. OUTSIDERS ARE TOLERATED, BARELY.',
-    planets: [P('ORRA', 40000, 1000, 3.1, 3600, '#a0643c', '#6e3c1e'), P('KHEB', 76000, 1800, 0.9, 2200, '#8c8c64', '#646446')],
+    planets: [P('ORRA', 40000, 1000, 3.1, 3600, '#a0643c', '#6e3c1e'), P('KHEB', 68000, 1800, 0.9, 2200, '#8c8c64', '#646446')],
     belts: [],
     nebulae: [],
     stations: [{ name: 'BASTION OF ORR', kind: SK_CITADEL, civ: CIV_ORRAN, x: 46000, y: 118000 }],
@@ -115,10 +115,12 @@ export const SYS_INDEX = Object.fromEntries(SYSTEMS.map((s, i) => [s.id, i]));
 export const sysAt = (i) => SYSTEMS[i] || SYSTEMS[0];
 export const lanesOf = (i) => sysAt(i).lanes.map((id) => SYS_INDEX[id]);
 
+// planets crawl round their stars (slow enough that a ship can match them and orbit)
+export const PERIOD_SCALE = 6;
 // planet i of system s at game time t (seconds)
 export function planetPos(s, i, t) {
   const p = s.planets[i];
-  const a = p.phase + (t / p.period) * Math.PI * 2;
+  const a = p.phase + (t / (p.period * PERIOD_SCALE)) * Math.PI * 2;
   return [SYS_C + Math.cos(a) * p.orbit, SYS_C + Math.sin(a) * p.orbit];
 }
 // binary stars circle the centre

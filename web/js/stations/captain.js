@@ -4,7 +4,7 @@
 //   HAILS    the COMMS page: talk to whoever is on the line
 import * as K from '../config.js';
 import { C, CMD } from '../config.js';
-import { fmtDist, mmss, orderText, pad3 } from '../util.js';
+import { fmtDist, mmss, orderText, pad3, warpTxt } from '../util.js';
 import { dim, healthColor } from '../gfx.js';
 import { drawShip, factionColor, ART_CRUISER } from '../ships.js';
 import { comms } from './helm.js';
@@ -32,7 +32,7 @@ export const capStatus = { draw(g, w, app, L) {
   g.text(x, y + 62, `ENERGY ${Math.round(P.energy)}  ${P.energyRate >= 0 ? '+' : ''}${P.energyRate.toFixed(1)}/S`, 12, P.energy > 300 ? C.SKY : C.ORANGE);
   g.bar(x + 160, y + 65, lw - 160, 8, P.energy / 10, P.energy > 300 ? C.SKY : P.energy > 120 ? C.YELLOW : C.RED);
   const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : 'MANUAL HELM';
-  g.textFit(x, y + 77, `HDG ${pad3(P.hdg)}  ${P.warping ? 'WARP ' + P.warpSet : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, 12, C.SKY, 'left', lw);
+  g.textFit(x, y + 77, `HDG ${pad3(P.hdg)}  ${P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, 12, C.SKY, 'left', lw);
   y += 94;
   g.header(x, y, lw, 'SYSTEMS', C.TAN);
   g.text(x + lw * 0.52, y + 20, 'PWR    HEAT   TEAM', 11, C.GREY_TXT);

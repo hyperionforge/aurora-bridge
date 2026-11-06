@@ -138,6 +138,8 @@ export class CastVoice {
 
 // ---------------------------------------------------------------- the narrator
 // Watches the message log and speaks the lines meant for the viewer.
+// Speech is switched off for now (the code stays so it can come back later).
+export const VOICES_ON = false;
 export class Narrator {
   constructor(engine) { this.engine = engine; this.lastId = -1; this.enabled = true; this.started = false; }
   // call with the world each frame (cheap); speaks anything new
@@ -153,7 +155,7 @@ export class Narrator {
     const fresh = msgs.filter((m) => m.id > this.lastId).reverse();
     if (!fresh.length) return;
     this.lastId = msgs[0].id;
-    if (!this.enabled || !this.engine || !this.engine.ok || leftComms) return;
+    if (!VOICES_ON || !this.enabled || !this.engine || !this.engine.ok || leftComms) return;
     if (fresh.length > 4) this.engine.stop(); // a flood (e.g. after a reconnect): don't read it all
     // a reply that closed the channel isn't read; a last word from the other side still is
     for (const m of fresh.slice(-4)) if (!(ended && m.reply)) this.speak(m);

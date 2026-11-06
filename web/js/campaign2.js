@@ -21,6 +21,7 @@ import * as G from './cargo.js';
 import { DIALOGS, CHARS } from './dialogue.js';
 import { SYS_INDEX, SYS_C, CIV_FLEET, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN, CIV_NONE, sysAt, planetPos } from './galaxy.js';
 import { distTo, bearingTo, clampf } from './util.js';
+const flash4 = (ms) => Math.floor(ms / 400) % 2 === 0;
 
 const { NO_ID, US, MAX_CONTACTS, CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTROYER, CT_ANOMALY, CT_BUOY, CT_POI, F_FRIEND, F_NEUTRAL, F_HOSTILE,
   FROM_CREW, FROM_COMMAND, FROM_COMPUTER, GS_RUN, MK_AREA, MK_POINT } = K;
@@ -75,6 +76,8 @@ const convoyNode = (i) => ({
     opts: [
       ...(CONVOY[i].key === 'nava' ? [{ t: 'YOU HAVE 61 ABOARD, NOT 60', do: (s) => { s.sayAs('nava', 'SIXTY-ONE SINCE LAST NIGHT, CAPTAIN. A GIRL, BORN IN THE DARK BETWEEN STARS. WE NAMED HER HALCYON.'); return 'start'; } }] : []),
       ...(CONVOY[i].key === 'ark' ? [{ t: 'WHAT ARE THE CHRONITON READINGS?', if: (s) => s.npc[s.camp.convoyIds[i]].scan >= 2, do: (s) => { s.sayAs('ark', 'ISOTOPE DECAY, CAPTAIN. PERFECTLY NORMAL. NOW IF YOU\'LL EXCUSE US.'); return 'start'; } }] : []),
+      ...(CONVOY[i].key === 'ishara' ? [{ t: 'WE\'RE HOLDING YOU UP. TAKE AN ANTIMATTER CELL FOR THE DELAY', if: (s) => !s.camp.f.isharaGift && s.P.cargo[G.R_CELL] >= 1,
+        do: (s) => { s.P.cargo[G.R_CELL]--; s.camp.f.isharaGift = true; s.repAdd(CIV_VELORI, 10); s.sayAs('ishara', 'A FLEET CAPTAIN WHO PAYS FOR OTHER PEOPLE\'S TIME? I WILL REMEMBER THIS, AURORA - AND SO WILL MY SISTERS\' SHIPS.'); return 'start'; } }] : []),
       { t: 'YOU\'RE CARRYING THE LANCE CORE. HEAVE TO.', do: (s) => { s.argusAccuse(i); return null; } },
       { t: 'SAFE TRAVELS' },
     ] },
@@ -145,7 +148,7 @@ Object.assign(DIALOGS, {
       opts: [
         { t: 'LET THE ORRANS EVACUATE THEM', do: (s) => { s.argusTarren('orran'); return null; } },
         { t: 'NO ONE INTERFERES. THE PRIME DIRECTIVE HOLDS.', do: (s) => { s.argusTarren('law'); return null; } },
-        { t: 'WE SHIELD THEM OURSELVES - UNSEEN', do: (s) => { s.argusTarren('shield'); return null; } },
+        { t: 'WE SHIELD THEM OURSELVES - UNSEEN (THE VEGA PROJECTS A SCREEN, WE PROTECT HER)', do: (s) => { s.argusTarren('shield'); return null; } },
       ] },
   } },
   // ------------------------------------------------ chapter 4
@@ -183,7 +186,7 @@ export function installArgus(Sim) {
     argusStart(ch) {
       ch = clampf(ch | 0, 1, 5);
       const save = this.campSaveOf('argus');
-      this.camp = { id: 'argus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, purge: [], fixes: {}, lines: [], stab: 0 };
+      this.camp = { id: 'argus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, purge: [], fixes: {}, lines: [], stab: 0, bondOf: (w) => this.argusBond(w) };
       this.greeted.add(0);
       if (ch >= 2) this.addArt('recorder', 2);
       if (ch >= 5 && this.camp.f.lance !== 'lost') this.addArt('lancecore', 1);
@@ -203,22 +206,22 @@ export function installArgus(Sim) {
       const c = this.camp;
       c.step = k; c.t = 0;
       const obj = {
-        a1_brief: 'LISTEN TO ADMIRAL VOSS',
-        a1_tri: 'TRIANGULATE THE SIGNAL: TAKE A FIX FROM EACH SURVEY BUOY (WITHIN 3K, SCIENCE: FULL SCAN)',
-        a1_cross: 'SET A WAYPOINT WHERE THE BEARING LINES CROSS AND TAKE THE SHIP THERE',
-        a1_debris: 'INVESTIGATE THE DEBRIS',
-        a1_recorder: 'SCIENCE: EXTRACT THE FLIGHT RECORDER, THEN DEEP-SCAN IT IN THE HOLD',
-        a2_go: 'JUMP TO HALCYON AND FIND ARGUS',
-        a2_nodes: 'SCIENCE: FULL-SCAN ARGUS. THEN HAIL ARGUS AND CHOOSE WHICH CORE NODES TO PURGE',
-        a2_wait: 'STAND BY',
-        a3_go: 'GO TO THE RIFT IN HALCYON',
-        a3_anchor: 'FIND THE RIFT\'S THREE ANCHORS: SCIENCE WATCHES THE TACHYON FLUX, HELM FLIES TOWARD IT; DEPLOY A STABILISER AT 85%+',
-        a3_shield: 'GET WITHIN 6K OF TARREN WITH SHIELDS UP AND HOLD THEM THERE',
-        a4_go: 'JUMP TO VEL\'ANAR - FIND THE LANCE CORE IN THE CONVOY AT THE LANTERN',
-        a4_find: 'HAIL EACH CONVOY SHIP FOR ITS MANIFEST; COMPARE WITH A FULL SCAN. ACCUSE THE ONE CARRYING THE CORE',
-        a4_chase: 'STOP THE MERCY BEFORE SHE ESCAPES - DISABLE HER',
-        a5_go: 'RETURN TO THE RIFT IN HALCYON',
-        a5_hold: 'HOLD THE RIFT',
+        a1_brief: 'STAND BY - ADMIRAL VOSS HAS A DISTRESS CALL FOR US',
+        a1_tri: 'WHERE IS THE DISTRESS CALL COMING FROM? FLY WITHIN 3K OF EACH SURVEY BUOY (MARKED ON NAV) AND HAVE SCIENCE FULL-SCAN IT - EACH SCAN DRAWS A BEARING LINE ON THE NAV MAP',
+        a1_cross: 'THE CALL COMES FROM WHERE THE BEARING LINES CROSS. NAV: TAP THAT SPOT FOR A WAYPOINT. HELM: TAKE US THERE',
+        a1_debris: 'THE DEBRIS IS THE AURORA - OUR OWN SHIP, NINE DAYS FROM NOW. FIND OUT WHAT KILLED HER BEFORE THE SALVAGER TAKES IT',
+        a1_recorder: 'RECOVER OUR OWN FLIGHT RECORDER: SCIENCE EXTRACTS IT FROM THE STERN SECTION (WITHIN 2.5K, SHIELDS DOWN), THEN DEEP-SCANS IT IN THE CARGO HOLD',
+        a2_go: 'THE RECORDER SAYS ARGUS TRIED TO WARN US. JUMP TO HALCYON AND FIND THE ARGUS PROBE NEAR THE RIFT (MARKED ON NAV)',
+        a2_nodes: 'THE RIFT HAS INFECTED ARGUS. SCIENCE: FULL-SCAN IT TO READ ITS FOUR CORE NODES, THEN HAIL IT AND PURGE ONLY THE INFECTED ONES. CLUE: THE RIFT FREQUENCY IS IN OUR FLIGHT RECORDER. A HEALTHY NODE PURGED IS MEMORY LOST',
+        a2_wait: 'STAND BY FOR FLEET COMMAND',
+        a3_go: 'THE RIFT IS GROWING - ITS NEXT SURGE WILL HIT THE PLANET TARREN. GO TO THE RIFT IN HALCYON',
+        a3_anchor: 'PIN THE RIFT BEFORE IT SURGES: SCIENCE WATCHES THE TACHYON FLUX METER, HELM FLIES WHERE IT RISES; AT 85%+ SCIENCE DEPLOYS A STABILISER. THREE ANCHORS',
+        a3_shield: 'PROTECT THE VEGA WHILE SHE SHIELDS TARREN: FLY ALONGSIDE HER, SHIELDS UP, AND COVER HER WITH OUR SHIELD BUBBLE. RIFT DEBRIS IS INBOUND',
+        a4_go: 'THE LANCE CORE - THE WEAPON THAT TORE THE RIFT - IS HIDDEN IN A CONVOY. JUMP TO VEL\'ANAR AND FIND THE CONVOY AT THE LANTERN',
+        a4_find: 'ONE CONVOY SHIP CARRIES THE CORE. COMMS: HAIL EACH FOR ITS MANIFEST. SCIENCE: FULL-SCAN EACH. THE CORE LEAKS CHRONITONS - FIND THE SHIP WHOSE SCAN DOESN\'T MATCH ITS STORY, THEN ACCUSE IT',
+        a4_chase: 'THE MERCY IS RUNNING WITH THE CORE - DISABLE HER (HULL UNDER 40%) BEFORE SHE REACHES WARP',
+        a5_go: 'TERUK MEANS TO FIRE THE LANCE AGAIN. RETURN TO THE RIFT IN HALCYON',
+        a5_hold: 'HOLD THE RIFT - STAY WITHIN 14K OF IT WHILE THE ORRAN HARDLINERS ATTACK',
       }[k];
       if (obj) this.setObjective(`CH${c.ch}: ${obj}`);
       this.argusEnter(k);
@@ -350,7 +353,16 @@ export function installArgus(Sim) {
           this.argusChapterEnd(3);
         });
       } else {
-        c.shieldT = 0; c.shieldNeed = c.stab >= 3 ? 25 : 40; c.shieldWindow = 75;
+        // the Fleet science ship VEGA can throw a deflector over Tarren from low orbit - but the surge debris will tear her apart
+        const sys = sysAt(SYS_INDEX.halcyon), ti = sys.planets.findIndex((p) => p.name === 'TARREN'), pl = sys.planets[ti];
+        const [tx, ty] = planetPos(sys, ti, this.now / 1000);
+        c.vegaA = Math.atan2(RIFT[1] - ty, RIFT[0] - tx); c.vegaR = pl.r * 2.2; c.tarrenI = ti;
+        const vx = tx + Math.cos(c.vegaA) * c.vegaR, vy = ty + Math.sin(c.vegaA) * c.vegaR;
+        const id = this.spawnAt(K.CT_FREIGHTER, F_FRIEND, vx, vy, 0);
+        if (id !== NO_ID) { Object.assign(this.npc[id], { ai: AI_STATIC, scan: 2, civ: CIV_FLEET, name: 'FLEET SCIENCE SHIP VEGA', short: 'VEGA', hull: 100, shields: 0, shMax: 0, armor: 1 }); c.vegaId = id; }
+        c.surgeT = c.stab >= 3 ? 60 : 80; c.debrisT = 8; c.covered = 0;
+        this.M.mk.push({ x: vx, y: vy, kind: MK_POINT, r: 0 }); this.M.ver++;
+        this.argusSay('voss', 'THE VEGA IS IN TARREN ORBIT. HER DEFLECTOR CAN SCREEN THE WHOLE PLANET - BUT SHE HAS NO SHIELDS LEFT FOR HERSELF. AURORA: FLY ALONGSIDE AND PUT YOUR SHIELD BUBBLE AROUND HER. ENGINEERING, EVERYTHING YOU CAN SPARE INTO SHIELDS - MORE POWER MEANS A BIGGER BUBBLE.', 2, FROM_COMMAND);
         this.argusStep('a3_shield');
       }
     },
@@ -409,30 +421,28 @@ export function installArgus(Sim) {
     argusAllies() {
       const c = this.camp, f = c.f, P = this.P;
       c.allies = new Set();
-      const call = (who, n, type, civ, name, line, as = F_FRIEND, ai = AI_ALLY) => {
-        const [x, y] = this.pointNear(P.x, P.y, 5000);
-        let first = NO_ID;
-        for (let i = 0; i < n; i++) {
-          const id = this.spawnAt(type, as, this.clampSec(x + i * 1300), this.clampSec(y + i * 900), bearingTo(x, y, P.x, P.y));
-          if (id === NO_ID) continue;
-          Object.assign(this.npc[id], { ai, aiTarget: NO_ID, scan: 2, civ, name: n > 1 ? `${name} ${i + 1}` : name, short: n > 1 ? `${name.split(' ')[0]} ${i + 1}` : name.split(' ')[0] });
-          this.boomAt(this.npc[id].x, this.npc[id].y, 2);
-          if (first === NO_ID) first = id;
-        }
-        if (first !== NO_ID) this.argusSay(who, line, 3, first);
-        c.allies.add(who);
-        return first;
-      };
-      if (f.vey === 'friend' || f.vey === 'friend+') call('vey', f.vey === 'friend+' ? 2 : 1, CT_RAIDER, CIV_KESSARI, 'VEY\'S SALVAGER', 'YOU SHARED YOUR OWN WRECK WITH US, FLEET. VEY HAS COME TO SHARE A FIGHT.');
+      const call = (who, n, type, civ, name, line, grudging) => this.callAlly(who, { ships: n, type, civ, name, line, grudging });
+      call('vey', 3, CT_RAIDER, CIV_KESSARI, 'VEY\'S SALVAGER', 'YOU SHARED YOUR OWN WRECK WITH US, FLEET. VEY HAS COME TO SHARE A FIGHT.', 'YOU LET VEY KEEP THE SCRAP. VEY GIVES YOU ONE FIGHT FOR IT.');
       if (f.argus === 'ally' || f.argus === 'free') {
         const id = call('argus', 1, CT_DESTROYER, CIV_FLEET, 'ARGUS', f.argus === 'free' ? 'I SAID I WOULD REMEMBER. I REMEMBERED.' : 'I AM WITH YOU, CAPTAIN.');
         c.argusHere = id !== NO_ID;
         c.argusAllyId = id;
         if (f.argcore === 'infected' && id !== NO_ID) this.after(25, () => this.argusTurns());
       }
-      if (f.argus === 'fleet' || this.rep[CIV_FLEET] >= 60) call('hale', 2, CT_DESTROYER, CIV_FLEET, 'FLEET CRUISER', 'FLEET SQUADRON ON STATION, AURORA. ADMIRAL VOSS SENDS HER REGARDS - AND HER CRUISERS.');
-      if (f.tarren === 'orran' || this.rep[CIV_ORRAN] >= 30) call('hesk', 1, CT_DESTROYER, CIV_ORRAN, 'TALAN', 'NOT ALL OF ORR FOLLOWS TERUK, OUTSIDER. THE TALAN STANDS WITH YOU.');
-      if (f.convoy === 'right') call('ishara', 1, CT_FREIGHTER, CIV_VELORI, 'ISHARA', 'YOU DID NOT ACCUSE THE INNOCENT, FLEET. THE GUILD REMEMBERS FAIRNESS.');
+      call('hale', 3, CT_DESTROYER, CIV_FLEET, 'FLEET CRUISER', 'FLEET SQUADRON ON STATION, AURORA. ADMIRAL VOSS SENDS HER REGARDS - AND HER CRUISERS.', 'ONE CRUISER IS ALL FLEET CAN SPARE, AURORA. MAKE IT COUNT.');
+      call('hesk', 2, CT_DESTROYER, CIV_ORRAN, 'TALAN', 'NOT ALL OF ORR FOLLOWS TERUK, OUTSIDER. THE TALAN STANDS WITH YOU.', 'THE TALAN WILL FIGHT BESIDE YOU - FOR A LITTLE WHILE, OUTSIDER.');
+      call('ishara', 2, CT_FREIGHTER, CIV_VELORI, 'ISHARA', 'YOU DID NOT ACCUSE THE INNOCENT, FLEET. THE GUILD REMEMBERS FAIRNESS.');
+    },
+    argusBond(who) { // how this campaign's choices translate into each ally's bond (allies.js)
+      const f = this.camp.f;
+      switch (who) {
+        case 'vey': return f.vey === 'friend+' ? 3 : f.vey === 'friend' ? 1 : 0;              // shared the salvage = grudging; gave spares too = devoted
+        case 'argus': return f.argus === 'free' ? 4 : f.argus === 'ally' ? 2 : 0;
+        case 'hale': return f.argus === 'fleet' ? 3 : this.rep[CIV_FLEET] >= 60 ? 1 : 0;
+        case 'hesk': return f.tarren === 'orran' ? 2 : this.rep[CIV_ORRAN] >= 30 ? 1 : 0;
+        case 'ishara': return f.convoy === 'right' ? (f.isharaGift ? 3 : 1) : 0;
+      }
+      return 0;
     },
     argusTurns() { // the rift's echo was never purged from ARGUS
       const c = this.camp, n = this.npc[c.argusAllyId];
@@ -460,6 +470,7 @@ export function installArgus(Sim) {
     // ---- arrivals
     argusArrive(to) {
       const c = this.camp, sid = this.sysDef.id;
+      if (sid !== 'kalos') c.lines = [];
       if (sid === 'kalos' && c.step.startsWith('a1_') && !c.buoyIds) this.argusBuoys();
       if (sid === 'halcyon') {
         for (let i = 0; i < MAX_CONTACTS; i++) if (this.npc[i].active && this.npc[i].type === CT_STARBASE) this.npc[i].talk = 'a_marrin';
@@ -500,30 +511,37 @@ export function installArgus(Sim) {
         case 'a3_anchor': {
           c.surge -= dt;
           const left = Math.max(0, Math.ceil(c.surge));
-          if (sid === 'halcyon') this.setObjective(`CH3: FIND THE RIFT'S ANCHORS (${c.stab}/3) - SCIENCE WATCHES TACHYON FLUX, DEPLOY AT 85%+. SURGE IN ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`);
+          if (sid === 'halcyon') this.setObjective(`CH3: PIN THE RIFT BEFORE IT SURGES INTO TARREN - ANCHORS ${c.stab}/3. SCIENCE WATCHES THE TACHYON FLUX, HELM FLIES WHERE IT RISES, DEPLOY A STABILISER AT 85%+. SURGE IN ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`);
           if (c.surge <= 0) this.argusSurge();
           break;
         }
         case 'a3_shield': {
-          const ti = sysAt(SYS_INDEX.halcyon).planets.findIndex((p) => p.name === 'TARREN');
-          const [tx, ty] = planetPos(sysAt(SYS_INDEX.halcyon), ti, this.now / 1000);
-          c.shieldWindow -= dt;
-          const inPlace = sid === 'halcyon' && distTo(P.x, P.y, tx, ty) < 6000 && this.shieldsUp();
-          if (inPlace) {
-            c.shieldT += dt;
-            P.energy = Math.max(0, P.energy - 9 * dt);
-            for (let q = 0; q < 4; q++) P.shield[q] = Math.max(0, P.shield[q] - 4 * dt);
-            if (this.frand() < dt * 0.4) P.hull = Math.max(1, P.hull - 2);
+          const v = c.vegaId !== undefined ? this.npc[c.vegaId] : null;
+          const sys = sysAt(SYS_INDEX.halcyon), [tx, ty] = planetPos(sys, c.tarrenI, this.now / 1000);
+          if (v && v.alive) { // the VEGA holds station over Tarren, facing the rift
+            v.x = tx + Math.cos(c.vegaA) * c.vegaR; v.y = ty + Math.sin(c.vegaA) * c.vegaR; v.hdg = bearingTo(v.x, v.y, RIFT[0], RIFT[1]); v.speed = 0;
           }
-          this.setObjective(`CH3: SHIELD TARREN - WITHIN 6K, SHIELDS UP: ${Math.floor(c.shieldT)}/${c.shieldNeed}s (SURGE ENDS IN ${Math.max(0, Math.ceil(c.shieldWindow))}s)`);
-          if (c.shieldT >= c.shieldNeed) {
-            this.repAdd(CIV_FLEET, 5);
-            this.say(FROM_CREW, 3, 'THE SURGE IS PAST. OUR SHIELDS HELD IT OFF THE WHOLE NORTHERN CONTINENT. ON THE GROUND THEY SAW... A NEW STAR, BURNING BRIGHT FOR HALF A MINUTE, THEN GONE.');
-            this.argusChapterEnd(3); c.step = 'a3_done';
-          } else if (c.shieldWindow <= 0) {
-            c.f.tarren = 'law';
-            this.say(FROM_CREW, 2, 'THE SURGE HAS PASSED - WE COULDN\'T HOLD IT OFF LONG ENOUGH. PART OF TARREN\'S COAST IS GONE.');
-            this.argusChapterEnd(3); c.step = 'a3_done';
+          if (!v || !v.alive) {
+            c.f.tarren = 'law'; c.step = 'a3_done';
+            this.say(FROM_CREW, 2, 'THE VEGA IS GONE - AND HER DEFLECTOR WITH HER. THE SURGE TOOK TARREN\'S NORTHERN COAST.');
+            this.repAdd(CIV_FLEET, -5); this.argusChapterEnd(3); break;
+          }
+          c.surgeT -= dt; c.debrisT -= dt;
+          const cov = sid === 'halcyon' && this.sheltered(v);
+          if (cov) c.covered += dt;
+          if (c.debrisT <= 0 && sid === 'halcyon') { // a chunk of rift debris, flung at the VEGA
+            c.debrisT = (c.stab >= 3 ? 3.4 : 2.4) + this.frand() * 1.2;
+            const a = Math.atan2(RIFT[1] - v.y, RIFT[0] - v.x) + (this.frand() - 0.5) * 1.1, d = 9000;
+            const sx = v.x + Math.cos(a) * d, sy = v.y + Math.sin(a) * d;
+            this.launchTorp(K.HAZARD, K.T_PHOTON, sx, sy, bearingTo(sx, sy, v.x, v.y), c.vegaId, 14 + this.frand() * 8, K.SUB_HULL);
+          }
+          const tag = cov ? 'COVERED' : flash4(this.now) ? 'EXPOSED!' : 'NOT COVERED';
+          this.setObjective(`CH3: COVER THE VEGA WITH OUR SHIELD BUBBLE - ${tag}  VEGA HULL ${Math.max(0, Math.round(v.hull))}%  SURGE ENDS IN ${Math.max(0, Math.ceil(c.surgeT))}s`);
+          if (c.surgeT <= 0) {
+            c.f.tarren = 'shield'; c.step = 'a3_done';
+            this.repAdd(CIV_FLEET, 8);
+            this.argusSay('voss', 'THE SURGE IS PAST - AND TARREN IS WHOLE. ON THE GROUND THEY SAW A NEW STAR BURN FOR A MINUTE, THEN GO OUT. THEY\'LL NEVER KNOW. WELL DONE, BOTH OF YOU.', 3, FROM_COMMAND);
+            this.argusChapterEnd(3);
           }
           break;
         }
@@ -578,6 +596,7 @@ export function installArgus(Sim) {
     argusDebris() {
       const c = this.camp;
       c.step = 'a1_debris_spawned';
+      c.lines = []; // the bearing lines did their job
       this.clearMarkers();
       const [sx, sy] = SIGNAL;
       for (let i = 0; i < 4; i++) {

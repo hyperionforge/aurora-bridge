@@ -4,6 +4,8 @@ import {
   FREIGHTER_NAMES, ORDERS, NUM_ORDERS, SUBJ_CONTACT, SUBJ_SYSTEM, SUBJ_QUAD, SYS_NAME, QUAD_NAME, MAX_CONTACTS,
 } from './config.js';
 
+// 'WARP 3.4' - the factor we're really doing (capped by warp power)
+export const warpTxt = (P) => 'WARP ' + (Math.round(Math.min(P.warpSet, P.warpCap ?? 9) * 10) / 10);
 export const DEG = Math.PI / 180;
 export const clampf = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 export function wrap360(a) {

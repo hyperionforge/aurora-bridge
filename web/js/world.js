@@ -10,12 +10,13 @@ import { lerp, lerpAng, shortName, contactName, distTo, bearingTo } from './util
 import { sysAt } from './galaxy.js';
 
 const DELAY = 110;
-const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet: 0, warpCharge: 0, warping: false, evasive: false, autopilot: 0,
+const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet: 0, warpCap: 4, impCap: 160, warpCharge: 0, warping: false, evasive: false, autopilot: 0,
   apTarget: K.NO_ID, wpValid: false, wpx: 0, wpy: 0, dock: 0, dockT: 0, energy: 1000, energyRate: 0, hull: 100, shield: [0, 0, 0, 0],
   shieldMax: [100, 100, 100, 100], shieldsOn: false, shieldRaise: 0, reinforce: 0, phFreq: 0, health: [100, 100, 100, 100, 100, 100],
   power: [100, 100, 100, 100, 100, 100], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0], team: [K.NO_ID, K.NO_ID], phCharge: 0,
   autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0], target: K.NO_ID, sub: 0, scanId: K.NO_ID, scanProg: 0, lrs: 0,
-  cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: K.NO_ID, icPlot: K.NO_ID, jumpVec: -1 };
+  cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: K.NO_ID, icPlot: K.NO_ID, jumpVec: -1,
+  orb: null, orbitPl: -1, orbPlot: -1, oort: 0, bubR: 1700 };
 
 export class World {
   constructor() {

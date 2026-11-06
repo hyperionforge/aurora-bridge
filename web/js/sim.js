@@ -33,6 +33,7 @@ function newPlayer() {
     dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: NO_ID, icPlot: NO_ID,
     cargo: [...G.CARGO_START], arts: [], artSeq: 1, xId: NO_ID, xMode: 0, xProg: 0, refQ: [], refProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0,
     spareUse: 0, noSparesWarned: false,
+    vx: 0, vy: 0, inWell: false, orb: null, orbitPl: -1, orbitT: 0, orbPlot: -1, oort: 0, oortT: 0, skimT: 0,
   };
 }
 function newNpc() {
@@ -45,8 +46,10 @@ function newNpc() {
 }
 
 import { installVoyage } from './voyage.js';
+import * as O from './orbit.js';
 import { installCampaign } from './campaign.js';
 import { installArgus } from './campaign2.js';
+import { installAllies } from './allies.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -325,9 +328,24 @@ export class Sim {
   }
 
   // ---------------------------------------------------------------- damage
-  damageNpc(id, dmg, sub, attacker) {
+  // the shield bubble grows with shield power; anything friendly inside it shelters behind our shields
+  bubR() { return O.bubbleR(this.eff(S_SHIELDS)); }
+  sheltered(n) { return this.shieldsUp() && n.faction !== F_HOSTILE && distTo(this.P.x, this.P.y, n.x, n.y) < this.bubR(); }
+  absorb(fromX, fromY, dmg) { // our shields soak damage meant for something we're covering; returns what got through
+    const P = this.P, q = quadFromRel(angDiff(P.hdg, bearingTo(P.x, P.y, fromX, fromY)));
+    const a = Math.min(dmg, P.shield[q]);
+    P.shield[q] -= a;
+    if (a > 0) this.emit(K.EV_WE_HIT_SHIELD, q, 'shield');
+    return dmg - a;
+  }
+  damageNpc(id, dmg, sub, attacker, noShelter = false) {
     const n = this.npc[id];
     if (!n.alive || n.type === CT_ANOMALY) return;
+    if (attacker !== US && !noShelter && this.sheltered(n)) {
+      const src = attacker < MAX_CONTACTS && this.npc[attacker] ? this.npc[attacker] : n;
+      dmg = this.absorb(src.x, src.y, dmg);
+      if (dmg <= 0.01) return;
+    }
     if (n.shields > 0) {
       const a = Math.min(dmg, n.shields);
       n.shields -= a;
@@ -461,7 +479,7 @@ export class Sim {
       case CMD.WARP:
         if (a > 0 && P.dock) { this.denied('UNDOCK BEFORE ENGAGING WARP.'); break; }
         if (a > 0 && P.health[S_WARP] <= 0) { this.denied('WARP DRIVE OFFLINE.'); break; }
-        P.warpSet = Math.min(a, K.WARP_MAX);
+        P.warpSet = clampf(b === 1 ? a / 10 : a, 0, K.WARP_TOP); // b=1: a is in tenths (the helm slider)
         if (!P.warpSet) { P.warping = false; P.warpCharge = 0; }
         break;
       case CMD.STOP: P.throttle = 0; P.warpSet = 0; P.warping = false; P.warpCharge = 0; P.autopilot = K.AP_OFF; break;
@@ -473,7 +491,7 @@ export class Sim {
         P.apTarget = b;
         break;
       case CMD.WAYPOINT:
-        P.wpValid = !!a;
+        P.wpValid = !!a; P.orbPlot = -1;
         P.wpx = clampf(+c.c || 0, 0, SECTOR);
         P.wpy = clampf(+c.d || 0, 0, SECTOR);
         if (!P.wpValid && P.autopilot === K.AP_WAYPOINT) P.autopilot = K.AP_OFF;
@@ -497,10 +515,15 @@ export class Sim {
       }
       case CMD.UNDOCK: if (P.dock) { P.dock = 0; this.say(FROM_CREW, 0, 'UNDOCKED.'); } break;
       case CMD.JUMP: this.jumpCmd(a); break;
-      case CMD.PLOT: if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else P.icPlot = b; break;
+      case CMD.PLOT: if (a === 2) {
+        const pl = this.sysDef.planets[b];
+        P.orbPlot = pl ? b : -1;
+        if (pl) { P.wpValid = true; this.say(FROM_CREW, 0, `ORBIT INSERTION POINT PLOTTED FOR ${pl.name}. HELM: GET THERE SLOWLY - UNDER ${Math.round(O.circSpeed(pl, pl.r * 2.5) * 1.3)} - THEN TURN ALONG THE ORBIT AND CUT ENGINES.`); }
+        else if (P.autopilot === K.AP_WAYPOINT) { P.autopilot = K.AP_OFF; P.wpValid = false; }
+      } else if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else P.icPlot = b; break;
       case CMD.SAMPLE: case CMD.EXTRACT: this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
       case CMD.REFINE: this.refineCmd(a, b); break;
-      case CMD.USE: this.useCmd(a); break;
+      case CMD.USE: this.useCmd(a, b); break;
       case CMD.ANALYSE: this.analyseCmd(a, b); break;
       case CMD.JETTISON: this.jettisonCmd(a); break;
       case CMD.DREPLY: this.dialogReply(a, b); break;
@@ -863,6 +886,12 @@ export class Sim {
           this.boomAt(t.x, t.y, 0);
           t.dead = true;
         }
+      } else if (t.target < MAX_CONTACTS && this.npc[t.target].alive && this.sheltered(this.npc[t.target]) && distTo(t.x, t.y, P.x, P.y) < this.bubR()) {
+        // it hits our shield bubble, covering the ship it was aimed at
+        const left = this.absorb(t.x, t.y, t.dmg * 0.5);
+        if (left > 0.01) this.damageNpc(t.target, left, K.SUB_HULL, t.owner, true);
+        this.boomAt(t.x, t.y, 0);
+        t.dead = true;
       } else if (t.target < MAX_CONTACTS && this.npc[t.target].alive && distTo(t.x, t.y, this.npc[t.target].x, this.npc[t.target].y) < 350) {
         this.damageNpc(t.target, t.dmg * 0.5, K.SUB_HULL, t.owner);
         this.boomAt(t.x, t.y, 0);
@@ -873,6 +902,9 @@ export class Sim {
   }
 
   // ---------------------------------------------------------------- our ship
+  // the fastest the engines can go with the power engineering gives them
+  warpCap() { return clampf(K.WARP_MAX * this.eff(S_WARP), 0, K.WARP_TOP); }
+  impulseCap() { return K.IMPULSE_MAX * clampf(this.eff(S_IMPULSE), 0, 1.6); }
   dropWarp() { const P = this.P; P.warpSet = 0; P.warping = false; P.warpCharge = 0; }
   // ---------------------------------------------------------------- jump drive (between star systems)
   // the heading the ship must hold to jump toward system `to` (its direction on the galaxy chart)
@@ -929,7 +961,7 @@ export class Sim {
   }
   arrive(to) {
     const P = this.P, from = this.sysIdx;
-    P.jumpPlot = NO_ID; P.icPlot = NO_ID;
+    P.jumpPlot = NO_ID; P.icPlot = NO_ID; P.orbPlot = -1; P.inWell = false; P.orbitPl = -1;
     if (this.jobOnLeave) this.jobOnLeave(to);
     this.loadSystem(to);
     const a = Math.atan2(sysAt(from).gy - sysAt(to).gy, sysAt(from).gx - sysAt(to).gx);
@@ -976,8 +1008,11 @@ export class Sim {
 
     // ---- warp
     const effW = this.eff(S_WARP);
+    const well = O.wellAt(this.sysDef, P.x, P.y, this.now / 1000);
+    const deepWell = well && well.d < well.W * 0.7;
+    if (P.warping && deepWell) { this.dropWarp(); this.say(FROM_CREW, 1, `${well.p.name}'S GRAVITY WELL - DROPPING OUT OF WARP.`); }
     if (P.warpSet && !P.warping && !P.dock) {
-      if (effW < 0.1 || P.energy <= 0) P.warpCharge = 0;
+      if (effW < 0.1 || P.energy <= 0 || deepWell) P.warpCharge = 0;
       else {
         P.warpCharge += dt / K.WARP_CHARGE_S * clampf(effW, 0.3, 1.5);
         if (P.warpCharge >= 1) { P.warping = true; P.warpCharge = 1; this.emit(K.EV_WARP_ENGAGED); }
@@ -991,7 +1026,7 @@ export class Sim {
     // ---- speed
     let targetSpeed, acc;
     if (P.warping) {
-      targetSpeed = P.warpSet * K.WARP_SPEED * clampf(effW, 0.3, 1.5);
+      targetSpeed = Math.min(P.warpSet, this.warpCap()) * K.WARP_SPEED;
       acc = 1500;
     } else {
       targetSpeed = P.throttle / 100 * K.IMPULSE_MAX * clampf(this.eff(S_IMPULSE), 0, 1.6);
@@ -1004,17 +1039,72 @@ export class Sim {
       acc = P.speed > K.IMPULSE_MAX * 1.7 ? 2500 : K.IMPULSE_ACCEL * clampf(this.eff(S_IMPULSE), 0.3, 1.6);
     }
     if (P.dock) { targetSpeed = 0; acc = 200; }
-    P.speed += clampf(targetSpeed - P.speed, -acc * dt, acc * dt);
-    const r = P.hdg * DEG;
-    let nx = P.x + Math.sin(r) * P.speed * dt, ny = P.y - Math.cos(r) * P.speed * dt;
-    if (nx < 500 || ny < 500 || nx > SECTOR - 500 || ny > SECTOR - 500) {
-      if (P.warping || Math.abs(P.speed) > 50) this.say(FROM_CREW, 1, 'SECTOR BOUNDARY - ALL STOP.');
-      this.dropWarp(); P.speed = 0; P.throttle = 0;
-      nx = clampf(nx, 500, SECTOR - 500);
-      ny = clampf(ny, 500, SECTOR - 500);
+    const r = P.hdg * DEG, hx = Math.sin(r), hy = -Math.cos(r);
+    let nx, ny;
+    if (well && !P.dock && !P.warping) {
+      // ---- inside a planet's gravity well: true vector flight, in the planet's frame
+      if (!P.inWell) { P.inWell = true; P.vx = hx * P.speed; P.vy = hy * P.speed; }
+      const t0 = this.now / 1000, [qx, qy] = planetPos(this.sysDef, well.i, t0 + dt);
+      const g = well.pull * dt, ux = (well.px - P.x) / well.d, uy = (well.py - P.y) / well.d;
+      P.vx += ux * g; P.vy += uy * g;
+      const coast = P.throttle === 0 && P.autopilot === K.AP_OFF;   // engines idle: we fall freely
+      if (!coast) {
+        const dvx = hx * targetSpeed - P.vx, dvy = hy * targetSpeed - P.vy, m = Math.hypot(dvx, dvy);
+        if (m > 1e-6) { const k = Math.min(1, (acc * dt) / m); P.vx += dvx * k; P.vy += dvy * k; }
+      }
+      P.speed = Math.hypot(P.vx, P.vy);
+      nx = P.x + P.vx * dt + (qx - well.px) * well.wgt;
+      ny = P.y + P.vy * dt + (qy - well.py) * well.wgt;
+      // the atmosphere: bounce off it, and it hurts
+      const rx = nx - qx, ry = ny - qy, d = Math.hypot(rx, ry), floor = well.p.r * O.SURFACE_K;
+      if (d < floor) {
+        nx = qx + (rx / d) * floor; ny = qy + (ry / d) * floor;
+        const vr = (P.vx * rx + P.vy * ry) / d;
+        if (vr < 0) { P.vx -= (rx / d) * vr * 1.3; P.vy -= (ry / d) * vr * 1.3; }
+        P.skimT -= dt;
+        if (P.skimT <= 0) { P.skimT = 1.2; this.damagePlayer(qx, qy, 3 + Math.abs(vr) * 0.05); this.say(FROM_CREW, 2, `PROXIMITY ALERT - WE'RE SKIMMING ${well.p.name}'S ATMOSPHERE! PULL UP!`); }
+      }
+      const o = O.orbitOf(well.p, nx - qx, ny - qy, P.vx, P.vy);
+      P.orb = { pl: well.i, st: o.st, alt: Math.round(d - well.p.r), vc: Math.round(O.circSpeed(well.p, d)), peri: Math.round(o.peri - well.p.r), apo: o.apo === Infinity ? -1 : Math.round(o.apo - well.p.r), coast };
+      const stable = o.st === O.ORB_STABLE && coast;
+      if (stable) {
+        P.orbitT += dt;
+        if (P.orbitT >= 3 && P.orbitPl !== well.i) { P.orbitPl = well.i; this.emit(K.EV_FOUND); this.say(FROM_CREW, 0, `STANDARD ORBIT ESTABLISHED AROUND ${well.p.name}. COMMS CAN HAIL THE SURFACE.`); if (this.onOrbit) this.onOrbit(well.i); }
+      } else if (o.st !== O.ORB_STABLE) {
+        if (P.orbitPl === well.i) this.say(FROM_CREW, 1, o.st === O.ORB_DESCENT ? `ORBIT DECAYING - WE'RE FALLING TOWARDS ${well.p.name}!` : `WE'RE BREAKING ORBIT OF ${well.p.name}.`);
+        P.orbitT = 0; P.orbitPl = -1;
+      }
+    } else {
+      if (P.inWell) { P.inWell = false; P.speed = Math.max(0, P.vx * hx + P.vy * hy); if (P.orbitPl >= 0) this.say(FROM_CREW, 0, 'WE\'VE LEFT ORBIT.'); }
+      P.orb = null; P.orbitPl = -1; P.orbitT = 0;
+      P.speed += clampf(targetSpeed - P.speed, -acc * dt, acc * dt);
+      P.vx = hx * P.speed; P.vy = hy * P.speed;
+      nx = P.x + P.vx * dt; ny = P.y + P.vy * dt;
     }
+    // ---- the Oort cloud past the edge of the system: ice, dust and no way back for a warp field
+    const od = O.oortDepth(nx, ny);
+    if (od > 0) {
+      if (P.oort <= 0) { this.say(FROM_CREW, 2, 'WARNING: ENTERING THE OORT CLOUD - ICE AND DEBRIS! TURN BACK OR JUMP OUT.'); this.emit(K.EV_HAZARD); }
+      if (P.warping) { this.dropWarp(); this.say(FROM_CREW, 1, 'OORT DEBRIS IS SHREDDING THE WARP FIELD - DROPPING TO IMPULSE.'); }
+      P.oortT -= dt;
+      if (P.oortT <= 0) {
+        P.oortT = Math.max(0.5, 2.2 - od / 8000);
+        const a = this.rand() * Math.PI * 2;
+        this.damagePlayer(P.x + Math.sin(a) * 1000, P.y - Math.cos(a) * 1000, 2 + od / 2500);
+      }
+      if (od > O.OORT_MAX) { // the debris is too thick to push through
+        const lim = O.OORT_MAX;
+        nx = clampf(nx, -lim, SECTOR + lim); ny = clampf(ny, -lim, SECTOR + lim); P.speed = Math.min(P.speed, 20);
+      }
+    } else if (P.oort > 0) this.say(FROM_CREW, 0, 'CLEAR OF THE OORT CLOUD.');
+    P.oort = od;
     P.x = nx;
     P.y = ny;
+    // orbit insertion point follows its planet
+    if (P.orbPlot >= 0 && P.orbPlot < this.sysDef.planets.length) {
+      const [ix, iy] = O.insertionPoint(this.sysDef, P.orbPlot, this.now / 1000);
+      P.wpx = ix; P.wpy = iy; P.wpValid = true;
+    }
 
     // ---- docking
     if (P.dock === 1) {
@@ -1039,10 +1129,11 @@ export class Sim {
     // ---- energy use
     let use = 0;
     if (!P.warping && !P.dock) use += P.power[S_IMPULSE] / 100 * (0.4 + Math.abs(P.throttle) / 100 * 2.6);
-    if (P.warping || P.warpCharge > 0) use += P.power[S_WARP] / 100 * P.warpSet * 4.0;
+    if (P.warping || P.warpCharge > 0) use += P.power[S_WARP] / 100 * Math.min(P.warpSet, this.warpCap()) * 4.0;
     if (P.phCharge < 1) use += P.power[S_PHASERS] / 100 * 2.0;
     for (let t = 0; t < 2; t++) if (P.tubeState[t] === K.TUBE_LOADING) use += P.power[S_TORPS] / 100 * 1.0;
     if (P.shieldsOn) use += P.power[S_SHIELDS] / 100 * 2.5;
+    for (const h of P.arts) if (h.on && h.ident) use += 0.6; // active artefacts draw a little power
     use += P.power[S_SENSORS] / 100 * (0.8 + (P.scanId !== NO_ID ? 1.2 : 0));
     P.energyRate = K.ENERGY_GEN - use + (P.dock === 2 ? 60 : 0);
     P.energy = clampf(P.energy + (K.ENERGY_GEN - use) * dt, 0, K.ENERGY_MAX);
@@ -1153,6 +1244,7 @@ export class Sim {
         this.torpTick(dt);
         if (this.game === GS_RUN) this.missionTick(dt);
         if (this.game === GS_RUN) this.worldTick(dt);
+        if (this.game === GS_RUN && this.camp && this.allyTick) this.allyTick(dt);
       }
     }
     const now = this.now;
@@ -1575,7 +1667,7 @@ export class Sim {
     let v = key === 'hullRegen' || key === 'raid' ? 0 : 1;
     for (const h of this.P.arts) {
       const d = G.ART[h.a];
-      if (!(key in d.fx) || (!h.ident && !d.cursed)) continue;
+      if (!(key in d.fx) || (!(h.ident && h.on) && !d.cursed)) continue; // science switches each one on
       if (key === 'hullRegen' || key === 'raid') v += d.fx[key]; else v *= d.fx[key];
     }
     return v;
@@ -1769,8 +1861,17 @@ export class Sim {
     if (miss && !P.refQ.length) { this.denied(`NOT ENOUGH ${G.RES_NAME[miss[0]]} FOR ${r.name}.`); return; }
     P.refQ.push(a);
   }
-  useCmd(a) {
+  useCmd(a, b) {
     const P = this.P;
+    if (a === 10) { // switch an identified artefact on or off
+      const h = P.arts.find((q) => q.uid === b), d = h && G.ART[h.a];
+      if (!h || !h.ident) { this.denied('ANALYSE IT FIRST - WE DON\'T KNOW WHAT IT DOES.'); return; }
+      if (d.cursed) { this.denied('IT CAN\'T BE SWITCHED OFF. JETTISON IT.'); return; }
+      if (!Object.keys(d.fx).length) { this.denied('IT HAS NOTHING TO ACTIVATE - IT\'S A RECORD.'); return; }
+      h.on = !h.on;
+      this.say(FROM_CREW, 3, h.on ? `${d.name} ACTIVATED: ${d.effect}.` : `${d.name} POWERED DOWN.`);
+      return;
+    }
     if (a === 0) {
       if (P.cargo[G.R_PLATING] <= 0) { this.denied('NO HULL PLATING IN THE HOLD.'); return; }
       if (P.hull >= 100) { this.denied('THE HULL IS INTACT.'); return; }
@@ -1799,7 +1900,7 @@ export class Sim {
     P.anaUid = 0; P.anaProg = 0;
     const was = h.ident;
     h.ident = Math.max(h.ident, deep ? 2 : 1);
-    if (!was) this.say(FROM_CREW, d.cursed ? 2 : 3, `ANALYSIS: THE ${d.unk} IS A ${d.name}. ${d.effect}`);
+    if (!was) this.say(FROM_CREW, d.cursed ? 2 : 3, `ANALYSIS: THE ${d.unk} IS A ${d.name}. ${d.effect}${Object.keys(d.fx).length && !d.cursed ? ' SCIENCE CAN ACTIVATE IT IN THE CARGO HOLD.' : ''}`);
     if (deep) this.say(FROM_CREW, 0, `DEEP ANALYSIS - ${d.name}: ${d.lore}`);
     if (deep && d.set === 'chorus') this.checkShards();
   }
@@ -2202,3 +2303,4 @@ export class Sim {
 installVoyage(Sim);
 installCampaign(Sim);
 installArgus(Sim);
+installAllies(Sim);

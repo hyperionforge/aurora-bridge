@@ -85,9 +85,10 @@ for (let k = 0; k < 3; k++) {
 if (s.camp.stab !== 3) fail('stabilisers ' + s.camp.stab);
 run(8, godmode);
 if (s.camp.step === 'a3_shield') {
-  const sys = sysAt(SYS_INDEX.halcyon), ti = sys.planets.findIndex((p) => p.name === 'TARREN');
-  s.P.shieldsOn = true;
-  run(40, () => { godmode(); const [tx, ty] = planetPos(sys, ti, s.now / 1000); atXY(tx + 3000, ty); s.P.shieldsOn = true; });
+  // fly alongside the VEGA with shields up so the bubble covers her (shields topped up: we test the mechanic, not the balance)
+  s.P.shieldsOn = true; s.P.shieldRaise = 1;
+  run(90, () => { godmode(); const v = s.npc[s.camp.vegaId]; if (v && v.alive) atXY(v.x + 600, v.y); s.P.shieldsOn = true; for (let q = 0; q < 4; q++) s.P.shield[q] = 100; });
+  log(`  vega hull ${s.npc[s.camp.vegaId] && Math.round(s.npc[s.camp.vegaId].hull)} covered ${Math.round(s.camp.covered)}s tarren=${s.camp.f.tarren}`);
 }
 run(8, godmode);
 if (s.camp.ch !== 4) fail('ch4 not reached');

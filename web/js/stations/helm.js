@@ -1,14 +1,15 @@
 // stations/helm.js - HELM, NAV, SCIENCE and COMMS sub-stations (port of helm.h)
 import * as K from '../config.js';
 import { C, CMD } from '../config.js';
-import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, angDiff, mmss } from '../util.js';
+import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, angDiff, mmss, warpTxt } from '../util.js';
 import { dim, flash, healthColor } from '../gfx.js';
 import { drawShip, drawMarker, factionColor, ART_CRUISER } from '../ships.js';
-import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCampLines } from '../sysdraw.js';
+import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCampLines, drawOortFrame, drawOortWarn, drawBubble } from '../sysdraw.js';
+import * as O from '../orbit.js';
 import { CHARS, subtitle } from '../dialogue.js';
 import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
-import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, CIV_NAME, CIV_COL, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
+import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, planetPos, CIV_NAME, CIV_COL, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
 import { drawRadar, radarPick } from './common.js';
 
 export function fromName(w, from) {
@@ -20,7 +21,7 @@ export function fromName(w, from) {
 
 // ============================================================================ HELM
 export const helm = {
-  page: 0, dialDrag: false, localHdg: 0, thrDrag: false, localThr: 0, lastSend: 0,
+  page: 0, dialDrag: false, localHdg: 0, thrDrag: false, localThr: 0, warpDrag: false, localWarp: 0, lastSend: 0,
   draw(g, w, app, L) {
     const P = w.P, S = this;
     // ---- compass (big square)
@@ -52,10 +53,10 @@ export const helm = {
     g.text(L.bx + 2, L.by, 'HDG ' + pad3(P.hdg), 19, C.ORANGE);
     g.text(L.bx + 2, L.by + 22, 'CRS ' + pad3(des), 19, P.autopilot ? C.VIOLET : C.WHITE);
     if (P.autopilot) g.text(L.bx + 2, L.by + 45, P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : 'AUTOPILOT: INTERCEPT', 12, C.VIOLET);
-    g.text(L.bx + L.BIG - 2, L.by, P.warping ? 'WARP ' + P.warpSet : Math.round(P.speed) + ' KM/S', 19, C.SKY, 'right');
+    g.text(L.bx + L.BIG - 2, L.by, P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S', 19, C.SKY, 'right');
     g.text(L.bx + L.BIG - 2, L.by + 22, 'SECTOR ' + sectorName(P.x, P.y), 13, C.GREY_TXT, 'right');
     if (P.evasive) g.text(L.bx + 2, L.by + 60, 'EVASIVE MANOEUVRES', 12, flash(400) ? C.YELLOW : C.ORANGE);
-    g.text(L.bx + L.BIG / 2, L.by + L.BIG - 14, 'DRAG THE RING TO SET COURSE', 12, C.GREY_TXT, 'center');
+    if (!P.orb) g.text(L.bx + L.BIG / 2, L.by + L.BIG - 14, 'DRAG THE RING TO SET COURSE', 12, C.GREY_TXT, 'center');
     const angAt = (x, y) => wrap360(Math.atan2(x - cx, -(y - cy)) / DEG);
     g.hitCircle(cx, cy, R + 14, {
       down: (x, y) => { if ((x - cx) ** 2 + (y - cy) ** 2 < 60 * 60) return; S.dialDrag = true; S.localHdg = angAt(x, y); app.sound.tap(); },
@@ -75,44 +76,76 @@ export const helm = {
     const hot = P.jumpPlot !== K.NO_ID || P.jumpTo !== K.NO_ID;
     g.button('hpage', L.ux + 4 * (nw + 6), L.uy, nw * 2 + 6, L.uh, this.page ? 'ENGINES' : 'AUTOPILOT / JUMP', this.page ? C.ORANGE : hot && flash(500) ? '#78f0ff' : C.SKY, C.BLACK, 15,
       () => { this.page = this.page ? 0 : 1; }, { sound: 'toggle' });
-    if (this.page === 1) { this.drawAuto(g, w, app, L); return; }
-    // ---- right column: impulse slider, warp, stop, evasive, dock
-    const x = L.rx, y0 = L.y0;
-    const sw = 76, wx = x + sw + 12, ww = L.x1 - wx;
+    drawOortWarn(g, { x: L.bx, y: L.by + 40, w: L.BIG, h: L.BIG * 0.5 }, P.oort);
+    if (this.page === 1) { this.drawOrbit(g, w, L); this.drawAuto(g, w, app, L); return; }
+    // ---- right column: impulse and warp sliders (their tops are set by engineering's power), stop, evasive, dock
+    const x = L.rx, y0 = L.y0, sw = 72, sh = 246, gap = 10;
+    const bx = x + 2 * sw + 2 * gap, bw = L.x1 - bx;
+    const impCap = Math.max(0, P.impCap ?? K.IMPULSE_MAX), warpCap = Math.max(0, P.warpCap ?? K.WARP_MAX);
+    // impulse: the slider is in km/s; we send the throttle as a share of what the engines can give
+    const spd = S.thrDrag ? S.localThr : Math.max(0, P.throttle) / 100 * impCap;
     g.text(x + sw / 2, y0, 'IMPULSE', 13, C.PEACH, 'center');
-    const thr = S.thrDrag ? S.localThr : P.throttle;
-    g.vslider('thr', x, y0 + 20, sw, 250, Math.max(0, thr), 100, C.ORANGE, 5, (v, final, start) => {
+    g.capSlider('thr', x, y0 + 20, sw, sh, spd, K.IMPULSE_TOP, impCap, C.ORANGE, 2, (v, final, start, over) => {
       if (start) { S.thrDrag = true; app.sound.tap(); }
-      if (Math.floor(v / 10) !== Math.floor(S.localThr / 10)) app.sound.sliderTick();
-      S.localThr = v;
-      if (final) { S.thrDrag = false; app.send(CMD.THROTTLE, 0, 0, v); }
-      else if (performance.now() - S.lastSend > 150) { S.lastSend = performance.now(); app.send(CMD.THROTTLE, 0, 0, v); }
+      if (Math.floor(v / 20) !== Math.floor(S.localThr / 20)) app.sound.sliderTick();
+      S.localThr = v; S.overImp = over ? performance.now() : S.overImp;
+      const thr = impCap > 1 ? Math.round(clampf(v / impCap * 100, 0, 100)) : 0;
+      if (final) { S.thrDrag = false; app.send(CMD.THROTTLE, 0, 0, thr); }
+      else if (performance.now() - S.lastSend > 150) { S.lastSend = performance.now(); app.send(CMD.THROTTLE, 0, 0, thr); }
     }, S.thrDrag);
-    g.text(x + sw / 2, y0 + 278, thr + '%', 19, thr < 0 ? C.RED : C.PEACH, 'center');
-    g.button('rev', x, y0 + 304, sw, 34, 'REVERSE', P.throttle < 0 ? C.RED : C.GREY, P.throttle < 0 ? C.BLACK : C.GREY_TXT, 15,
-      () => app.send(CMD.THROTTLE, 0, 0, P.throttle < 0 ? 0 : -25), { sound: 'toggle' });
-    g.text(wx, y0, 'WARP FACTOR', 13, C.PEACH);
-    for (let wf = 4; wf >= 0; wf--) {
-      const sel = P.warpSet === wf;
-      const col = sel ? (wf ? (P.warping ? C.SKY : C.YELLOW) : C.ORANGE) : C.GREY;
-      g.button('warp' + wf, wx, y0 + 20 + (4 - wf) * 38, ww, 33, wf ? 'WARP ' + wf : 'IMPULSE', col, sel ? C.BLACK : C.GREY_TXT, 17, () => app.send(CMD.WARP, wf));
-    }
-    g.progress(wx, y0 + 214, ww, 8, P.warpCharge, C.SKY);
-    let ws = P.warping ? 'AT WARP' : P.warpSet ? 'ENGAGING...' : 'WARP DRIVE READY';
-    if (P.health[K.S_WARP] <= 0) ws = 'WARP DRIVE OFFLINE';
-    g.text(wx, y0 + 226, ws, 12, P.health[K.S_WARP] <= 0 ? C.RED : C.GREY_TXT);
-    g.button('stop', wx, y0 + 246, ww, 40, 'FULL STOP', C.RED, C.BLACK, 19, () => app.send(CMD.STOP));
-    g.button('evade', wx, y0 + 292, ww, 34, P.evasive ? 'EVASIVE: ON' : 'EVASIVE: OFF', P.evasive ? C.YELLOW : C.GREY, P.evasive ? C.BLACK : C.GREY_TXT, 17,
-      () => app.send(CMD.EVASIVE, P.evasive ? 0 : 1), { sound: 'toggle' });
+    g.text(x + sw / 2, y0 + sh + 26, Math.round(spd) + '', 19, C.PEACH, 'center');
+    g.text(x + sw / 2, y0 + sh + 46, `MAX ${Math.round(impCap)}`, 11, C.GREY_TXT, 'center');
+    // warp: 0 - 6, the reachable part set by warp power
+    const wx = x + sw + gap, wv = S.warpDrag ? S.localWarp : P.warpSet;
+    g.text(wx + sw / 2, y0, 'WARP', 13, P.warping ? C.SKY : C.PEACH, 'center');
+    g.capSlider('wrp', wx, y0 + 20, sw, sh, wv, K.WARP_TOP, warpCap, P.warping ? C.SKY : C.YELLOW, 0.1, (v, final, start, over) => {
+      if (start) { S.warpDrag = true; app.sound.tap(); }
+      if (Math.floor(v) !== Math.floor(S.localWarp || 0)) app.sound.sliderTick();
+      S.localWarp = v; if (over) S.overWarp = performance.now();
+      if (final) { S.warpDrag = false; app.send(CMD.WARP, Math.round(v * 10), 1); }
+      else if (performance.now() - S.lastSend > 200) { S.lastSend = performance.now(); app.send(CMD.WARP, Math.round(v * 10), 1); }
+    }, S.warpDrag);
+    g.text(wx + sw / 2, y0 + sh + 26, (Math.round(Math.min(wv, warpCap) * 10) / 10).toFixed(1), 19, P.warping ? C.SKY : C.PEACH, 'center');
+    g.text(wx + sw / 2, y0 + sh + 46, `MAX ${warpCap.toFixed(1)}`, 11, C.GREY_TXT, 'center');
+    // buttons
+    let by = y0 + 20;
+    g.button('stop', bx, by, bw, 44, 'FULL STOP', C.RED, C.BLACK, 19, () => app.send(CMD.STOP)); by += 52;
+    g.button('wdrop', bx, by, bw, 34, P.warpSet ? 'DROP TO IMPULSE' : 'AT IMPULSE', P.warpSet ? C.YELLOW : C.GREY, C.BLACK, 15, () => app.send(CMD.WARP, 0)); by += 40;
+    g.button('rev', bx, by, bw, 34, P.throttle < 0 ? 'REVERSE: ON' : 'REVERSE', P.throttle < 0 ? C.RED : C.GREY, P.throttle < 0 ? C.BLACK : C.GREY_TXT, 15,
+      () => app.send(CMD.THROTTLE, 0, 0, P.throttle < 0 ? 0 : -25), { sound: 'toggle' }); by += 40;
+    g.button('evade', bx, by, bw, 34, P.evasive ? 'EVASIVE: ON' : 'EVASIVE: OFF', P.evasive ? C.YELLOW : C.GREY, P.evasive ? C.BLACK : C.GREY_TXT, 15,
+      () => app.send(CMD.EVASIVE, P.evasive ? 0 : 1), { sound: 'toggle' }); by += 40;
     const st = nearestStation(w), db = st ? st.d : 1e9;
     let dl = 'DOCK', dc = db < K.DOCK_RANGE ? C.GREEN : C.GREY;
     if (P.dock === 1) { dl = `DOCKING ${Math.round(P.dockT / K.DOCK_TIME_S * 100)}%`; dc = C.YELLOW; }
     else if (P.dock === 2) { dl = 'UNDOCK'; dc = C.LILAC; }
-    g.button('dock', wx, y0 + 332, ww, 34, dl, dc, C.BLACK, 17, () => app.send(P.dock === 2 ? CMD.UNDOCK : CMD.DOCK));
-    if (db < 6000 && !P.dock) g.textFit(wx, y0 + 372, `${st.n.short || 'STATION'} ${fmtDist(db)} - DOCK < 1.8k, < 25 KM/S, SHIELDS DOWN`, 11, C.GREY_TXT, 'left', ww);
+    g.button('dock', bx, by, bw, 34, dl, dc, C.BLACK, 17, () => app.send(P.dock === 2 ? CMD.UNDOCK : CMD.DOCK)); by += 42;
+    // status lines
+    g.progress(bx, by, bw, 8, P.warpCharge, C.SKY); by += 14;
+    let ws = P.warping ? 'AT ' + warpTxt(P) : P.warpSet ? 'WARP CHARGING...' : 'WARP DRIVE READY';
+    if (P.health[K.S_WARP] <= 0) ws = 'WARP DRIVE OFFLINE';
+    else if (P.orb && P.orb.alt < w.sys.planets[P.orb.pl].r * 3.5 && !P.warping) ws = 'TOO DEEP IN A GRAVITY WELL FOR WARP';
+    g.textFit(bx, by, ws, 12, P.health[K.S_WARP] <= 0 ? C.RED : C.GREY_TXT, 'left', bw); by += 16;
+    const now = performance.now();
+    if (now - (S.overWarp || 0) < 2500 || now - (S.overImp || 0) < 2500) g.wrap(bx, by, bw, 'THE GREY ZONE NEEDS MORE POWER - ASK ENGINEERING.', 12, flash(300) ? C.YELLOW : C.ORANGE, 1.2, 2);
+    else if (db < 6000 && !P.dock) g.wrap(bx, by, bw, `${st.n.short || 'STATION'} ${fmtDist(db)} - DOCK < 1.8K, < 25 KM/S, SHIELDS DOWN`, 11, C.GREY_TXT, 1.2, 2);
+    this.drawOrbit(g, w, L);
     if (P.jumpTo !== K.NO_ID) g.text(L.bx + 2, L.by + 76, P.jumping > 0 ? 'IN THE JUMP LANE' : `JUMP CHARGING ${Math.round(P.jumpCharge * 100)}%`, 13, flash(400) ? C.WHITE : C.SKY);
     else if (P.jumpPlot !== K.NO_ID) g.text(L.bx + 2, L.by + 76, 'JUMP PLOTTED - SEE AUTOPILOT / JUMP', 12, '#78f0ff');
     if (w.flux >= 0) g.text(L.bx + L.BIG - 2, L.by + 40, `TACHYON FLUX ${w.flux}%`, 15, w.flux >= 85 ? C.GREEN : C.YELLOW, 'right');
+  },
+  // gravity well readout in the compass corner: what helm needs to get into (and stay in) orbit
+  drawOrbit(g, w, L) {
+    const P = w.P, o = P.orb;
+    if (!o) return;
+    const pl = w.sys.planets[o.pl]; if (!pl) return;
+    const x = L.bx + 2, y = L.by + L.BIG - 92;
+    const stc = [C.GREY_TXT, C.GREEN, C.RED, C.YELLOW][o.st];
+    g.text(x, y, `${pl.name} GRAVITY WELL`, 13, '#78f0ff');
+    g.text(x, y + 16, `ALT ${fmtDist(o.alt)}   ORBIT SPEED HERE ${o.vc}`, 12, C.PEACH);
+    g.text(x, y + 32, O.ORB_NAME[o.st] + (o.st === O.ORB_STABLE && !o.coast ? ' - CUT ENGINES TO HOLD IT' : ''), 12, o.st === O.ORB_DESCENT && flash(300) ? C.WHITE : stc);
+    if (o.st !== O.ORB_ESCAPE) g.text(x, y + 48, `LOW ${fmtDist(Math.max(0, o.peri))}  HIGH ${o.apo < 0 ? '--' : fmtDist(o.apo)}`, 11, C.GREY_TXT);
+    else g.text(x, y + 48, Math.round(P.speed) > o.vc * 1.3 ? 'TOO FAST TO BE CAUGHT - SLOW DOWN' : 'FLY ACROSS THE PULL AT ORBIT SPEED', 11, C.GREY_TXT);
   },
   // the second page: autopilot and the jump drive
   drawAuto(g, w, app, L) {
@@ -205,16 +238,24 @@ export const nav = {
       drawGalaxy(g, w, ox + 6, oy + 18, B - 12, B - 30, { sel: this.gsel, onPick: (i) => { this.gsel = i; app.sound.toggle(); } });
       g.text(ox + 4, oy + 2, 'GALAXY CHART - JUMP LANES', 11, C.GREY_TXT);
     } else {
-      if (this.zoom === 0) k = B / SYS_SIZE; else { k = B / 20000; x0 = P.x - 10000; y0 = P.y - 10000; }
+      const M = 9000; // the system view shows a strip of the Oort cloud round the grid
+      if (this.zoom === 0) { k = B / (SYS_SIZE + 2 * M); x0 = y0 = -M; } else { k = B / 20000; x0 = P.x - 10000; y0 = P.y - 10000; }
       const p2 = (wx, wy) => [ox + (wx - x0) * k, oy + (wy - y0) * k];
       const gs = this.zoom ? 2000 : SYS_SIZE / 10;
-      for (let gx = Math.floor(x0 / gs) * gs; gx < x0 + B / k; gx += gs) g.rect(p2(gx, 0)[0], oy, 1, B, '#121832');
-      for (let gy = Math.floor(y0 / gs) * gs; gy < y0 + B / k; gy += gs) g.rect(ox, p2(0, gy)[1], B, 1, '#121832');
+      const [gx0, gy0] = p2(0, 0), [gx1, gy1] = p2(SYS_SIZE, SYS_SIZE);
+      for (let gx = Math.max(0, Math.floor(x0 / gs) * gs); gx < Math.min(SYS_SIZE + 1, x0 + B / k); gx += gs) g.rect(p2(gx, 0)[0], Math.max(oy, gy0), 1, Math.min(oy + B, gy1) - Math.max(oy, gy0), '#121832');
+      for (let gy = Math.max(0, Math.floor(y0 / gs) * gs); gy < Math.min(SYS_SIZE + 1, y0 + B / k); gy += gs) g.rect(Math.max(ox, gx0), p2(0, gy)[1], Math.min(ox + B, gx1) - Math.max(ox, gx0), 1, '#121832');
+      drawOortFrame(g, p2, { x: ox, y: oy, w: B, h: B }, w.tSec);
       if (!this.zoom) for (let i = 0; i < 10; i++) {
-        g.text(ox + i * B / 10 + B / 20, oy + 2, String.fromCharCode(65 + i), 11, C.GRID, 'center');
-        g.text(ox + 3, oy + i * B / 10 + B / 20 - 6, String(i + 1), 11, C.GRID);
+        const cw = (gx1 - gx0) / 10;
+        g.text(gx0 + i * cw + cw / 2, oy + 2, String.fromCharCode(65 + i), 10, C.GRID, 'center');
+        g.text(ox + 2, gy0 + i * cw + cw / 2 - 6, String(i + 1), 10, C.GRID);
       }
       drawSystemLayer(g, w.sys, w.tSec, p2, k, { minR: this.zoom ? 3 : 2.5, well: true, dots: this.zoom ? 1 : 0.7 });
+      if (P.orbPlot >= 0 && w.sys.planets[P.orbPlot]) {
+        const [ppx, ppy] = p2(...planetPos(w.sys, P.orbPlot, w.tSec));
+        g.ctx.save(); g.ctx.setLineDash([3, 3]); g.circle(ppx, ppy, w.sys.planets[P.orbPlot].r * 2.5 * k, '#78f0ff', false, 1); g.ctx.restore();
+      }
       drawCampLines(g, w, p2);
       for (const m of w.M.mk) { const [sx, sy] = p2(m.x, m.y); drawMarker(g, sx, sy, m.kind, m.r * k, 11); }
       const pt = (w.slow && w.slow.ptrail) || [];
@@ -235,9 +276,18 @@ export const nav = {
         else g.circle(sx, sy, 3.5, col);
         g.text(sx + 8, sy + 3, w.shortName(c.id, c.known), 11, col);
       }
-      drawShip(g, ART_CRUISER, C.SKY, px, py, this.zoom ? 0.18 : 0.12, P.hdg);
-      g.text(ox + B - 4, oy + B - 15, 'TAP MAP = SET WAYPOINT', 11, C.GREY_TXT, 'right');
-      g.hit(ox, oy, B, B, { down: (x, y) => { app.sound.toggle(); app.send(CMD.WAYPOINT, 1, 0, Math.round(x0 + (x - ox) / k), Math.round(y0 + (y - oy) / k)); } });
+      drawShip(g, ART_CRUISER, C.SKY, clampf(px, ox + 6, ox + B - 6), clampf(py, oy + 6, oy + B - 6), this.zoom ? 0.18 : 0.12, P.hdg);
+      g.text(ox + B - 4, oy + B - 15, 'TAP MAP = WAYPOINT, TAP A PLANET = ORBIT', 11, C.GREY_TXT, 'right');
+      g.hit(ox, oy, B, B, { down: (x, y) => {
+        app.sound.toggle();
+        // a tap on (or near) a planet plots its orbit insertion point
+        for (let i = 0; i < w.sys.planets.length; i++) {
+          const [sx, sy] = p2(...planetPos(w.sys, i, w.tSec));
+          if (Math.hypot(x - sx, y - sy) < Math.max(14, w.sys.planets[i].r * 2 * k)) { app.send(CMD.PLOT, 2, i); return; }
+        }
+        app.send(CMD.WAYPOINT, 1, 0, Math.round(x0 + (x - ox) / k), Math.round(y0 + (y - oy) / k));
+      } });
+      drawOortWarn(g, { x: ox, y: oy, w: B, h: B }, P.oort);
     }
     g.unclip();
     g.strokeRect(ox, oy, B, B, C.GRID);
@@ -280,10 +330,19 @@ export const nav = {
       }
       app.send(CMD.WAYPOINT, 1, 0, Math.round(qx), Math.round(qy));
     }, { sound: 'toggle' }));
-    y += 40;
+    y += 38;
+    const pls = w.sys.planets;
+    if (pls.length) {
+      g.text(x, y, 'ORBIT INSERTION (THEN HELM SLOWS DOWN AND CUTS ENGINES)', 11, C.GREY_TXT);
+      y += 14;
+      const pw = (rw - 6 * (pls.length - 1)) / pls.length;
+      pls.forEach((pl, i) => g.button('orb' + i, x + i * (pw + 6), y, pw, 30, (P.orbPlot === i ? '> ' : '') + pl.name, P.orbPlot === i ? '#78f0ff' : '#3c6e78', C.BLACK, 12,
+        () => app.send(CMD.PLOT, 2, P.orbPlot === i ? K.NO_ID : i), { sound: 'toggle' }));
+      y += 36;
+    }
     g.header(x, y, rw, 'CONTACTS', C.VIOLET);
     y += 24;
-    const list = w.contacts().filter((c) => c.alive).sort((a, b) => w.range(a) - w.range(b)).slice(0, 4);
+    const list = w.contacts().filter((c) => c.alive).sort((a, b) => w.range(a) - w.range(b)).slice(0, pls.length ? 3 : 4);
     if (!list.length) g.text(x, y + 4, 'NOTHING ON SENSORS', 12, C.GREY_TXT);
     const bw2 = Math.min(92, (rw - 120) / 2);
     for (const c of list) {
@@ -361,11 +420,12 @@ export const science = {
   sel: K.NO_ID, rangeI: 1, hold: false, artSel: 0,
   draw(g, w, app, L) {
     const P = w.P, B = L.BIG, cx = L.bx + B / 2, cy = L.by + B / 2, R = B / 2 - 4;
-    const rl = ['5K', '10K', '20K', '40K'], bw = (L.uw - 30) / 6;
+    const rl = ['5K', '10K', '20K', '40K'], bw = (L.uw - 36) / 7.5;
     rl.forEach((l, i) => g.button('sr' + i, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, !this.hold && this.rangeI === i ? C.SKY : C.GREY, C.BLACK, 17, () => { this.rangeI = i; this.hold = false; }));
     g.button('lrs', L.ux + 4 * (bw + 6), L.uy, bw, L.uh, 'LRS', P.lrs > 0 ? C.YELLOW : C.LILAC, C.BLACK, 17, () => app.send(CMD.LRS));
     const nArt = (P.arts || []).length, unread = (P.arts || []).some((h) => !h.ident);
-    g.button('hold', L.ux + 5 * (bw + 6), L.uy, bw, L.uh, `HOLD ${nArt || ''}`, this.hold ? C.LILAC : unread && flash(600) ? C.YELLOW : C.GREY, C.BLACK, 17, () => { this.hold = !this.hold; }, { sound: 'toggle' });
+    const hx = L.ux + 5 * (bw + 6), hw = L.ux + L.uw - hx;
+    g.button('hold', hx, L.uy, hw, L.uh, this.hold ? '< BACK TO SENSORS' : `CARGO HOLD${nArt ? ' (' + nArt + ')' : ''}`, this.hold ? C.ORANGE : unread && flash(600) ? C.YELLOW : C.LILAC, C.BLACK, 18, () => { this.hold = !this.hold; }, { sound: 'toggle', bold: true });
     if (this.hold) { this.drawHold(g, w, app, L); return; }
     if (this.sel !== K.NO_ID && !w.findC(this.sel)) this.sel = K.NO_ID;
     drawRadar(g, w, cx, cy, R, SCI_RANGE[this.rangeI], false, this.sel, true);
@@ -478,13 +538,21 @@ export const science = {
     y += 28;
     if (!arts.length) g.wrap(x, y, B, 'NOTHING HERE YET. EXTRACT WRECKS, DERELICTS, RUINS AND CAPSULES TO FIND ARTEFACTS. A FULL SCAN SHOWS WHETHER SOMETHING IS INSIDE.', 13, C.GREY_TXT);
     if (this.artSel >= arts.length) this.artSel = Math.max(0, arts.length - 1);
+    const per = Math.max(1, Math.floor((B - 100) / 32)), first = Math.max(0, Math.min(this.artSel - per + 1, arts.length - per));
     arts.forEach((h, i) => {
+      if (i < first || i >= first + per) return;
       const d = ART[h.a], sel = i === this.artSel;
-      const col = !h.ident ? C.GREY : d.cursed ? C.RED : h.ident >= 2 ? C.LILAC : C.SKY;
+      const col = !h.ident ? C.GREY : d.cursed ? C.RED : h.on ? C.GREEN : h.ident >= 2 ? C.LILAC : C.SKY;
       const nm = h.ident ? d.name : d.unk;
-      g.button('art' + h.uid, x, y, B, 28, (sel ? '> ' : '') + nm + (h.ident ? '' : '  (?)'), sel ? col : dim(col, 0.6), C.BLACK, 15, () => { this.artSel = i; }, { sound: 'toggle' });
+      g.button('art' + h.uid, x, y, B, 28, (sel ? '> ' : '') + nm + (h.ident ? (h.on ? '  [ACTIVE]' : '') : '  (?)'), sel ? col : dim(col, 0.6), C.BLACK, 15, () => { this.artSel = i; }, { sound: 'toggle' });
       y += 32;
     });
+    // supplies the crew can spend right now
+    const cy0 = L.by + B - 66;
+    g.header(x, cy0, B, 'SUPPLIES', C.TAN);
+    const cwid = (B - 6) / 2, pl = P.cargo[7] || 0, ce = P.cargo[8] || 0;
+    g.button('usepl', x, cy0 + 24, cwid, 36, `FIT HULL PLATING (${pl})`, pl ? C.TAN : C.GREY, C.BLACK, 14, () => app.send(CMD.USE, 0), { silent: !pl });
+    g.button('usece', x + cwid + 6, cy0 + 24, cwid, 36, `LOAD ANTIMATTER CELL (${ce})`, ce ? C.TAN : C.GREY, C.BLACK, 14, () => app.send(CMD.USE, 1), { silent: !ce });
     // detail
     const rx = L.rx, rw = L.rw;
     y = L.y0;
@@ -501,11 +569,13 @@ export const science = {
     y += 22;
     if (h.ident) { y = g.wrap(rx, y, rw, d.effect, 15, d.cursed ? C.RED : C.SKY, 1.2, 3) + 8; }
     else y = g.wrap(rx, y, rw, 'ANALYSE IT TO FIND OUT WHAT IT IS AND WHAT IT DOES. ITS EFFECT ONLY WORKS ONCE WE UNDERSTAND IT.', 13, C.GREY_TXT, 1.2, 3) + 8;
-    if (h.ident >= 2) y = g.wrap(rx, y, rw, d.lore, 13, C.PEACH, 1.25, 6) + 6;
+    if (h.ident >= 2) y = g.wrap(rx, y, rw, d.lore, 13, C.PEACH, 1.25, h.ident && !d.cursed && Object.keys(d.fx).length ? 4 : 6) + 6;
     const by = L.y1 - 38, bw3 = (rw - 12) / 3;
     const busy = P.anaUid === h.uid;
     if (busy) g.progress(rx, by - 16, rw, 10, P.anaProg, C.YELLOW);
-    else g.text(rx, by - 18, `ANALYSE ${ANALYSE_COST} EN   DEEP ANALYSIS ${DEEP_COST} EN`, 12, C.GREY_TXT);
+    else if (!(h.ident && !d.cursed && Object.keys(d.fx).length)) g.text(rx, by - 18, `ANALYSE ${ANALYSE_COST} EN   DEEP ANALYSIS ${DEEP_COST} EN`, 12, C.GREY_TXT);
+    const canOn = h.ident && !d.cursed && Object.keys(d.fx).length;
+    if (canOn) g.button('act', rx, by - 50, rw, 40, h.on ? 'ACTIVE - TAP TO POWER DOWN' : 'ACTIVATE (DRAWS 0.6 EN/S)', h.on ? C.GREEN : C.ORANGE, C.BLACK, 18, () => app.send(CMD.USE, 10, h.uid), { bold: true });
     g.button('ana', rx, by, bw3, 36, busy && !P.anaDeep ? `${Math.round(P.anaProg * 100)}%` : 'ANALYSE', h.ident ? C.GREY : C.SKY, C.BLACK, 16, () => app.send(CMD.ANALYSE, h.uid, 0));
     g.button('deep', rx + bw3 + 6, by, bw3, 36, busy && P.anaDeep ? `${Math.round(P.anaProg * 100)}%` : 'DEEP SCAN', h.ident >= 2 ? C.GREY : C.LILAC, C.BLACK, 16, () => app.send(CMD.ANALYSE, h.uid, 1));
     g.button('jet', rx + 2 * (bw3 + 6), by, bw3, 36, 'JETTISON', C.RED_DIM, C.PEACH, 16, () => app.send(CMD.JETTISON, h.uid));
