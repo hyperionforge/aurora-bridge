@@ -8,8 +8,15 @@ import { buildField, hashRocks, rocksNear, insideBox, ROCK_SHIP_R, pathAt } from
 import { planetPos, SYS_C, WELL_R } from './galaxy.js';
 import { wellR } from './orbit.js';
 import { distTo, bearingTo, angDiff, clampf } from './util.js';
+import * as G from './cargo.js';
 const { NO_ID, US, FROM_CREW, FROM_COMMAND, S_PHASERS } = K;
 const near = [];
+// loose boulders: their colour tells you what they're made of (and science's scan confirms it)
+export const BOULDER = [
+  { name: 'AN ICE BOULDER', col: 'BLUE', freq: 0, res: G.R_ICE, resName: 'ICE' },
+  { name: 'AN IRON BOULDER', col: 'RUST-RED', freq: 2, res: G.R_ORE, resName: 'ORE' },
+  { name: 'A CRYSTAL BOULDER', col: 'VIOLET', freq: 4, res: G.R_CRYSTAL, resName: 'CRYSTAL' },
+];
 
 export function installField(Sim) {
   Object.assign(Sim.prototype, {
@@ -19,6 +26,7 @@ export function installField(Sim) {
       this.drifts = [];
     },
     fieldStop() { this.field = null; this.drifts = []; },
+    boulders() { const out = []; for (let i = 0; i < K.MAX_CONTACTS; i++) { const n = this.npc[i]; if (n.active && n.alive && n.rock) out.push([i, Math.round(n.x), Math.round(n.y), n.rock.r, n.rock.c, n.rock.tractor ? 1 : 0]); } return out; },
     rockHp(q) { const F = this.field; if (!F.hp.has(q.id)) F.hp.set(q.id, q.r * 0.25); return F.hp.get(q.id); },
     rockBreak(q) { // a static rock is destroyed
       const F = this.field; F.gone.add(q.id); F.hp.delete(q.id); this.boomAt(q.x, q.y, q.r > 300 ? 1 : 0);
@@ -42,7 +50,8 @@ export function installField(Sim) {
         }
         P.speed *= 0.3; P.vx *= 0.3; P.vy *= 0.3;
       }
-      // ---- boulders break loose and come at us
+      // ---- boulders break loose and come at us: real contacts that can be scanned, shot (at the right
+      // phaser frequency) or tractored in for their ore, ice or crystal
       if (inside && spec.driftEvery) {
         F.driftT -= dt;
         if (F.driftT <= 0) {
@@ -54,37 +63,91 @@ export function installField(Sim) {
             if (d < 2300 || d > 3900) continue;
             if (!pick || this.frand() < 0.3) pick = q;
           }
-          if (pick) {
-            F.gone.add(pick.id);
-            const v = 70 + this.frand() * 50, t = distTo(P.x, P.y, pick.x, pick.y) / v;
-            const lx = P.x + P.vx * t * 0.6, ly = P.y + P.vy * t * 0.6, dd = distTo(pick.x, pick.y, lx, ly) || 1;
-            this.drifts.push({ id: 900000 + F.nextId++, x: pick.x, y: pick.y, r: pick.r, vx: ((lx - pick.x) / dd) * v, vy: ((ly - pick.y) / dd) * v, hp: pick.r * 0.1, hp0: pick.r * 0.1, life: 70 });
-            this.say(FROM_CREW, 1, `A BOULDER HAS BROKEN LOOSE - BEARING ${String(Math.round(bearingTo(P.x, P.y, pick.x, pick.y))).padStart(3, '0')}, COMING AT US! TACTICAL: POINT DEFENCE. SHIELDS: REINFORCE THAT SIDE.`);
-            this.emit(K.EV_HAZARD);
-          }
+          if (pick) this.boulderLoose(pick);
         }
       }
-      // ---- drifting rocks
-      for (const q of this.drifts) {
-        q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt;
-        const d = distTo(P.x, P.y, q.x, q.y);
-        if (d < q.r + ROCK_SHIP_R) {
-          const rel = Math.hypot(q.vx - P.vx, q.vy - P.vy);
-          this.damagePlayer(q.x, q.y, 6 + q.r / 35 + rel * 0.06);
-          this.boomAt(q.x, q.y, 1); q.dead = true;
+      // ---- drifting boulders
+      for (let i = 0; i < K.MAX_CONTACTS; i++) {
+        const n = this.npc[i];
+        if (!n.active || !n.alive || !n.rock) continue;
+        const q = n.rock;
+        if (q.tractor) { // the tractor beam reels it in, gently
+          const dx = P.x - n.x, dy = P.y - n.y, d = Math.hypot(dx, dy) || 1, sp = 90;
+          n.vx += ((P.vx + (dx / d) * sp) - n.vx) * Math.min(1, dt * 1.5);
+          n.vy += ((P.vy + (dy / d) * sp) - n.vy) * Math.min(1, dt * 1.5);
+          if (d < 450) { this.boulderLanded(i); continue; }
+          if (d > 4500 || P.health[K.S_SENSORS] <= 0) { q.tractor = false; this.say(FROM_CREW, 1, 'TRACTOR LOCK LOST ON THE BOULDER!'); }
+        }
+        n.x += n.vx * dt; n.y += n.vy * dt; q.life -= dt;
+        n.speed = Math.hypot(n.vx, n.vy); if (n.speed > 1) n.hdg = bearingTo(0, 0, n.vx, n.vy);
+        const d = distTo(P.x, P.y, n.x, n.y);
+        if (!q.tractor && d < q.r + ROCK_SHIP_R) {
+          const rel = Math.hypot(n.vx - P.vx, n.vy - P.vy);
+          this.damagePlayer(n.x, n.y, 6 + q.r / 35 + rel * 0.06);
+          this.boomAt(n.x, n.y, 1); this.boulderGone(i);
           this.say(FROM_CREW, 2, 'THE BOULDER HIT US!');
-        } else if (q.life <= 0 || d > 15000) q.dead = true;
+        } else if (q.life <= 0 || d > 15000) this.boulderGone(i);
       }
-      this.drifts = this.drifts.filter((q) => !q.dead);
     },
-    // TACTICAL: shoot the most dangerous rock in front of us (a drifting one first, else whatever blocks the way)
+    boulderLoose(pick) {
+      const F = this.field, P = this.P;
+      const id = this.spawnAt(K.CT_POI, K.F_NEUTRAL, pick.x, pick.y, 0);
+      if (id === NO_ID) return;
+      F.gone.add(pick.id);
+      const c = this.irand(BOULDER.length), B = BOULDER[c], n = this.npc[id];
+      const v = 70 + this.frand() * 50, t = distTo(P.x, P.y, pick.x, pick.y) / v;
+      const lx = P.x + P.vx * t * 0.6, ly = P.y + P.vy * t * 0.6, dd = distTo(pick.x, pick.y, lx, ly) || 1;
+      const letter = 'ABCDEFGH'[F.nextId++ % 8];
+      Object.assign(n, { kind: 0, poi: -1, ai: 0, scan: 0, freq: B.freq, hull: 100, armor: 0, shMax: 0, shields: 0, name: `BOULDER ${letter}`, short: `BOULDER ${letter}`,
+        note: `${B.name}. IT ONLY BREAKS UNDER PHASERS TUNED TO FREQUENCY ${K.FREQ_CHAR[B.freq]}. A TRACTOR BEAM COULD REEL IT IN FOR ${B.resName}.`,
+        vx: ((lx - pick.x) / dd) * v, vy: ((ly - pick.y) / dd) * v, rock: { r: pick.r, c, life: 75, tractor: false } });
+      this.say(FROM_CREW, 1, `A ${B.col} BOULDER HAS BROKEN LOOSE - BEARING ${String(Math.round(bearingTo(P.x, P.y, pick.x, pick.y))).padStart(3, '0')}, COMING AT US! SCIENCE: SCAN IT FOR ITS FREQUENCY. TACTICAL: PHASERS. SHIELDS: REINFORCE THAT SIDE.`);
+      this.emit(K.EV_HAZARD);
+    },
+    boulderGone(i) { const n = this.npc[i]; n.alive = false; n.active = false; if (this.P.target === i) this.P.target = NO_ID; if (this.P.scanId === i) this.P.scanId = NO_ID; },
+    boulderLanded(i) {
+      const n = this.npc[i], B = BOULDER[n.rock.c], amt = 2 + Math.round(n.rock.r / 150);
+      const got = Math.min(amt, Math.max(0, G.HOLD_CAP - this.holdUsed()));
+      this.P.cargo[B.res] += got;
+      this.say(FROM_CREW, 3, got ? `BOULDER SECURED IN THE CARGO BAY: +${got} ${B.resName}.` : 'THE HOLD IS FULL - WE BROKE THE BOULDER UP AND LET IT GO.');
+      this.boulderGone(i);
+    },
+    // science's tractor beam on a boulder (from the EXTRACT / TRACTOR BEAM button)
+    boulderTractor(id) {
+      const P = this.P, n = this.npc[id];
+      const d = distTo(P.x, P.y, n.x, n.y);
+      if (n.rock.tractor) { n.rock.tractor = false; this.say(FROM_CREW, 0, 'TRACTOR BEAM RELEASED.'); return; }
+      if (d > 3500) { this.denied('TOO FAR FOR THE TRACTOR BEAM - GET WITHIN 3.5K.'); return; }
+      if (P.health[K.S_SENSORS] <= 0) { this.denied('SENSORS OFFLINE.'); return; }
+      if (P.energy < 15) { this.denied('NOT ENOUGH ENERGY FOR THE TRACTOR BEAM.'); return; }
+      P.energy -= 15;
+      n.rock.tractor = true;
+      this.say(FROM_CREW, 3, `TRACTOR BEAM LOCKED ON ${n.short} - REELING IT IN SLOWLY.`);
+    },
+    // phasers against a boulder: only the right frequency cracks it. true = handled.
+    boulderHit(id, dmg) {
+      const n = this.npc[id], P = this.P;
+      if (P.phFreq !== n.freq) {
+        if (this.now > (n.rock.wrongAt || 0)) { n.rock.wrongAt = this.now + 3000; this.say(FROM_CREW, 1, `PHASERS ARE SCATTERING OFF ${n.short} - WRONG FREQUENCY.${n.scan >= 2 ? ` IT NEEDS ${K.FREQ_CHAR[n.freq]}.` : ' SCIENCE: SCAN IT.'}`); }
+        return true;
+      }
+      n.hull -= dmg * (420 / Math.max(150, n.rock.r));
+      if (n.hull <= 0) { this.boomAt(n.x, n.y, 1); this.boulderGone(id); this.say(FROM_CREW, 3, 'BOULDER DESTROYED.'); }
+      return true;
+    },
+    // TACTICAL: shoot the most dangerous rock in front of us (a loose boulder first, else whatever blocks the way)
     pointDefence() {
       const P = this.P, F = this.field;
       if (!F) { this.denied('NO ASTEROIDS TO TARGET.'); return; }
       if (P.phCharge < 0.99) { this.denied('PHASERS ARE STILL CHARGING.'); return; }
       if (P.health[S_PHASERS] <= 0) { this.denied('PHASERS OFFLINE.'); return; }
-      let best = null, bs = -1e9;
-      for (const q of this.drifts) { const d = distTo(P.x, P.y, q.x, q.y); if (d < K.PH_RANGE && 10000 - d > bs) { bs = 10000 - d; best = q; } }
+      let best = null, bs = -1e9, bi = -1;
+      for (let i = 0; i < K.MAX_CONTACTS; i++) {
+        const n = this.npc[i];
+        if (!n.active || !n.alive || !n.rock || n.rock.tractor) continue;
+        const d = distTo(P.x, P.y, n.x, n.y);
+        if (d < K.PH_RANGE && 10000 - d > bs) { bs = 10000 - d; best = n; bi = i; }
+      }
       if (!best) for (const q of rocksNear(F.hash, P.x, P.y, near)) {
         if (F.gone.has(q.id)) continue;
         const d = distTo(P.x, P.y, q.x, q.y), rel = Math.abs(angDiff(P.hdg, bearingTo(P.x, P.y, q.x, q.y)));
@@ -97,11 +160,8 @@ export function installField(Sim) {
       const dmg = K.PH_DAMAGE * 1.6 * clampf(this.eff(S_PHASERS), 0.3, 1.6) * this.fx('ph');
       this.beams.push({ from: US, to: NO_ID, hit: true, t0: this.now, tx: best.x, ty: best.y });
       this.emit(K.EV_PHASER_HIT);
-      if (best.vx !== undefined) {
-        best.hp -= dmg;
-        if (best.hp <= 0) { best.dead = true; this.boomAt(best.x, best.y, 1); this.drifts = this.drifts.filter((q) => !q.dead); this.say(FROM_CREW, 3, 'BOULDER DESTROYED.'); }
-        else this.say(FROM_CREW, 0, `HIT - THE BOULDER IS BREAKING UP (${Math.round((best.hp / best.hp0) * 100)}% LEFT).`);
-      } else {
+      if (bi >= 0) this.boulderHit(bi, dmg);
+      else {
         const hp = this.rockHp(best) - dmg;
         if (hp <= 0) this.rockBreak(best); else F.hp.set(best.id, hp);
       }

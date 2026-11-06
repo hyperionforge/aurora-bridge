@@ -30,7 +30,7 @@ function tick() {
   }
 }
 const goSys = (id) => { if (s.game !== K.GS_RUN) return; s.P.dock = 0; s.arrive(SYS_INDEX[id]); run(1); };
-const at = (n, dx = 1500) => { if (s.game !== K.GS_RUN || !n) return; s.P.x = n.x + dx; s.P.y = n.y; s.P.speed = 0; s.P.throttle = 0; };
+const at = (n, dx = 1500) => { if (s.game !== K.GS_RUN || !n) return; s.P.x = n.x + dx; s.P.y = n.y; s.P.speed = 0; s.P.throttle = 0; s.P.vx = s.P.vy = 0; };
 const godmode = () => { s.P.hull = 100; s.P.energy = 1000; for (let i = 0; i < 6; i++) s.P.health[i] = 100; };
 const killHostiles = (frac = 0.2) => { for (let i = 0; i < 32; i++) if (s.hostileAlive(i) && s.npc[i].type !== 0) s.npc[i].hull = Math.min(s.npc[i].hull, 100 * frac); };
 run(4);

@@ -33,7 +33,7 @@ function newPlayer() {
     dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: NO_ID, icPlot: NO_ID,
     cargo: [...G.CARGO_START], arts: [], artSeq: 1, xId: NO_ID, xMode: 0, xProg: 0, refQ: [], refProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0,
     spareUse: 0, noSparesWarned: false,
-    labUid: 0, labTest: 0, labProg: 0, shRange: 0,
+    labUid: 0, labTest: 0, labProg: 0, shRange: 0, autoBrake: false, allStop: false,
     vx: 0, vy: 0, inWell: false, orb: null, orbitPl: -1, orbitT: 0, orbPlot: -1, oort: 0, oortT: 0, skimT: 0,
   };
 }
@@ -338,7 +338,7 @@ export class Sim {
   // ---------------------------------------------------------------- damage
   // the shield bubble grows with shield power; anything friendly inside it shelters behind our shields
   bubR() { return O.bubbleR(this.P.shRange); }
-  shK() { return O.SH_K[this.P.shRange | 0] || 1; }
+  shK() { return O.shK(this.P.shRange); }
   sheltered(n) { return this.shieldsUp() && n.faction !== F_HOSTILE && distTo(this.P.x, this.P.y, n.x, n.y) < this.bubR(); }
   absorb(fromX, fromY, dmg) { // our shields soak damage meant for something we're covering; returns what got through
     const P = this.P, q = quadFromRel(angDiff(P.hdg, bearingTo(P.x, P.y, fromX, fromY)));
@@ -448,6 +448,7 @@ export class Sim {
       let dmg = K.PH_DAMAGE * clampf(this.eff(S_PHASERS), 0.3, 1.6) * this.fx('ph');
       if (P.phFreq === n.freq) dmg *= K.FREQ_BONUS;
       const tid = P.target;
+      if (n.rock) this.boulderHit(tid, dmg); else
       this.damageNpc(tid, dmg, P.sub, US);
       this.boomAt(n.x, n.y, 0);
     }
@@ -483,6 +484,7 @@ export class Sim {
       case CMD.HEADING: P.desHdg = wrap360(+c.c || 0); P.autopilot = K.AP_OFF; break;
       case CMD.THROTTLE:
         P.throttle = Math.round(clampf(+c.c || 0, -25, 100));
+        if (P.throttle !== 0) P.allStop = false;
         if (P.dock === 2 && P.throttle > 0) { P.dock = 0; this.say(FROM_CREW, 0, 'UNDOCKED. CLEAR OF THE STARBASE.'); }
         break;
       case CMD.WARP:
@@ -491,7 +493,8 @@ export class Sim {
         P.warpSet = clampf(b === 1 ? a / 10 : a, 0, K.WARP_TOP); // b=1: a is in tenths (the helm slider)
         if (!P.warpSet) { P.warping = false; P.warpCharge = 0; }
         break;
-      case CMD.STOP: P.throttle = 0; P.warpSet = 0; P.warping = false; P.warpCharge = 0; P.autopilot = K.AP_OFF; break;
+      case CMD.STOP: P.throttle = 0; P.warpSet = 0; P.warping = false; P.warpCharge = 0; P.autopilot = K.AP_OFF; P.allStop = true; break;
+      case CMD.AUTOBRAKE: P.autoBrake = !!a; this.say(FROM_CREW, 0, P.autoBrake ? 'AUTO BRAKE ON - THE FLIGHT COMPUTER CANCELS DRIFT AND BRAKES WHEN THE THROTTLE IS CUT.' : 'AUTO BRAKE OFF - WE KEEP WHATEVER MOMENTUM WE HAVE. FULL STOP TO BRAKE.'); break;
       case CMD.EVASIVE: P.evasive = !!a; break;
       case CMD.AUTOPILOT:
         if (a === K.AP_WAYPOINT && !P.wpValid) { this.denied('NO WAYPOINT SET.'); break; }
@@ -531,7 +534,9 @@ export class Sim {
         if (pl) { P.wpValid = true; this.say(FROM_CREW, 0, `ORBIT INSERTION POINT PLOTTED FOR ${pl.name}. HELM: GET THERE SLOWLY - UNDER ${Math.round(O.circSpeed(pl, pl.r * 2.5) * 1.3)} - THEN TURN ALONG THE ORBIT AND CUT ENGINES.`); }
         else if (P.autopilot === K.AP_WAYPOINT) { P.autopilot = K.AP_OFF; P.wpValid = false; }
       } else if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else P.icPlot = b; break;
-      case CMD.SAMPLE: case CMD.EXTRACT: this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
+      case CMD.SAMPLE: case CMD.EXTRACT:
+        if (a < MAX_CONTACTS && this.npc[a].rock && this.npc[a].alive) { if (c.cmd === CMD.EXTRACT) this.boulderTractor(a); else this.denied('IT\'S MOVING TOO FAST TO SAMPLE - USE THE TRACTOR BEAM.'); break; }
+        this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
       case CMD.REFINE: this.refineCmd(a, b); break;
       case CMD.USE: this.useCmd(a, b); break;
       case CMD.ANALYSE: this.analyseCmd(a, b); break;
@@ -540,8 +545,9 @@ export class Sim {
       case CMD.CAMP: if (this.campAction) this.campAction(a, b); break;
       case CMD.PD: this.pointDefence(); break;
       case CMD.SHRANGE: {
-        const lv = clampf(a | 0, 0, 3);
-        if (lv !== P.shRange) { P.shRange = lv; this.say(FROM_CREW, 0, lv ? `SHIELD BUBBLE EXTENDED TO ${(O.SH_RANGE_R[lv] / 1000).toFixed(1)}K - STRENGTH ${Math.round(100 / O.SH_K[lv])}%. SHIPS ALONGSIDE US ARE COVERED.` : 'SHIELDS PULLED IN TIGHT - FULL STRENGTH.'); }
+        const t = clampf(a, 0, 100) / 100, was = P.shRange;
+        P.shRange = t;
+        if (b === 1 && Math.abs(t - was) > 0.001) this.say(FROM_CREW, 0, t > 0.01 ? `SHIELD BUBBLE ${(O.bubbleR(t) / 1000).toFixed(1)}K ACROSS OUR BEAM - STRENGTH ${Math.round(100 / O.shK(t))}%.` : 'SHIELDS PULLED IN TIGHT - FULL STRENGTH.');
         break;
       }
       case CMD.LAB: if (this.labCmd) this.labCmd(a, b, c.c | 0, c.d | 0); break;
@@ -923,7 +929,7 @@ export class Sim {
   // ---------------------------------------------------------------- our ship
   // the fastest the engines can go with the power engineering gives them
   warpCap() { return clampf(K.WARP_MAX * this.eff(S_WARP), 0, K.WARP_TOP); }
-  impulseCap() { return K.IMPULSE_MAX * clampf(this.eff(S_IMPULSE), 0, 1.6); }
+  impulseCap() { return K.IMPULSE_TOP * clampf(this.eff(S_IMPULSE), 0, 2) / 2; } // full impulse at full (200%) impulse power
   dropWarp() { const P = this.P; P.warpSet = 0; P.warping = false; P.warpCharge = 0; }
   // ---------------------------------------------------------------- jump drive (between star systems)
   // the heading the ship must hold to jump toward system `to` (its direction on the galaxy chart)
@@ -987,7 +993,7 @@ export class Sim {
     P.x = SYS_C + Math.cos(a) * 66000;
     P.y = SYS_C + Math.sin(a) * 66000;
     P.hdg = P.desHdg = bearingTo(P.x, P.y, SYS_C, SYS_C);
-    P.speed = 40; P.throttle = 0; P.autopilot = K.AP_OFF; P.wpValid = false;
+    P.speed = 40; P.vx = Math.sin(P.hdg * DEG) * 40; P.vy = -Math.cos(P.hdg * DEG) * 40; P.throttle = 0; P.allStop = false; P.autopilot = K.AP_OFF; P.wpValid = false;
     P.target = NO_ID; P.scanId = NO_ID; P.apTarget = NO_ID;
     P.jumpTo = NO_ID; P.jumpCharge = 0; P.jumping = 0;
     if (this.mode !== K.MODE_MISSION) this.clearMarkers();
@@ -1009,7 +1015,7 @@ export class Sim {
       const d = distTo(P.x, P.y, P.wpx, P.wpy);
       P.desHdg = bearingTo(P.x, P.y, P.wpx, P.wpy);
       if (P.warping && d < 5000) { this.dropWarp(); this.say(FROM_CREW, 0, 'APPROACHING WAYPOINT - DROPPING OUT OF WARP.'); }
-      if (d < 800) { P.autopilot = K.AP_OFF; P.throttle = 0; this.say(FROM_CREW, 0, 'WAYPOINT REACHED. ALL STOP.'); }
+      if (d < 800) { P.autopilot = K.AP_OFF; P.throttle = 0; P.allStop = true; this.say(FROM_CREW, 0, 'WAYPOINT REACHED. ALL STOP.'); }
     } else if (P.autopilot === K.AP_ESCORT) {
       // escort: hold station 900m off the ship's starboard side (a safe distance - SHIELDS widens the bubble to cover it)
       const n = P.apTarget < MAX_CONTACTS ? npc[P.apTarget] : null;
@@ -1059,7 +1065,7 @@ export class Sim {
       targetSpeed = Math.min(P.warpSet, this.warpCap()) * K.WARP_SPEED;
       acc = 1500;
     } else {
-      targetSpeed = P.throttle / 100 * K.IMPULSE_MAX * clampf(this.eff(S_IMPULSE), 0, 1.6);
+      targetSpeed = P.throttle / 100 * this.impulseCap();
       // INTERCEPT closes to ~2.5k then holds there facing the target
       if (P.autopilot === K.AP_TARGET && P.apTarget < MAX_CONTACTS && npc[P.apTarget].alive) {
         const d = distTo(P.x, P.y, npc[P.apTarget].x, npc[P.apTarget].y);
@@ -1075,45 +1081,61 @@ export class Sim {
     if (P.dock) { targetSpeed = 0; acc = 200; }
     const r = P.hdg * DEG, hx = Math.sin(r), hy = -Math.cos(r);
     let nx, ny;
-    if (well && !P.dock && !P.warping) {
-      // ---- inside a planet's gravity well: true vector flight, in the planet's frame
-      if (!P.inWell) { P.inWell = true; P.vx = hx * P.speed; P.vy = hy * P.speed; }
-      const t0 = this.now / 1000, [qx, qy] = planetPos(this.sysDef, well.i, t0 + dt);
-      const g = well.pull * dt, ux = (well.px - P.x) / well.d, uy = (well.py - P.y) / well.d;
-      P.vx += ux * g; P.vy += uy * g;
-      const coast = P.throttle === 0 && P.autopilot === K.AP_OFF;   // engines idle: we fall freely
-      if (!coast) {
-        const dvx = hx * targetSpeed - P.vx, dvy = hy * targetSpeed - P.vy, m = Math.hypot(dvx, dvy);
-        if (m > 1e-6) { const k = Math.min(1, (acc * dt) / m); P.vx += dvx * k; P.vy += dvy * k; }
-      }
-      P.speed = Math.hypot(P.vx, P.vy);
-      nx = P.x + P.vx * dt + (qx - well.px) * well.wgt;
-      ny = P.y + P.vy * dt + (qy - well.py) * well.wgt;
-      // the atmosphere: bounce off it, and it hurts
-      const rx = nx - qx, ry = ny - qy, d = Math.hypot(rx, ry), floor = well.p.r * O.SURFACE_K;
-      if (d < floor) {
-        nx = qx + (rx / d) * floor; ny = qy + (ry / d) * floor;
-        const vr = (P.vx * rx + P.vy * ry) / d;
-        if (vr < 0) { P.vx -= (rx / d) * vr * 1.3; P.vy -= (ry / d) * vr * 1.3; }
-        P.skimT -= dt;
-        if (P.skimT <= 0) { P.skimT = 1.2; this.damagePlayer(qx, qy, 3 + Math.abs(vr) * 0.05); this.say(FROM_CREW, 2, `PROXIMITY ALERT - WE'RE SKIMMING ${well.p.name}'S ATMOSPHERE! PULL UP!`); }
-      }
-      const o = O.orbitOf(well.p, nx - qx, ny - qy, P.vx, P.vy);
-      P.orb = { pl: well.i, st: o.st, alt: Math.round(d - well.p.r), vc: Math.round(O.circSpeed(well.p, d)), peri: Math.round(o.peri - well.p.r), apo: o.apo === Infinity ? -1 : Math.round(o.apo - well.p.r), coast };
-      const stable = o.st === O.ORB_STABLE && coast;
-      if (stable) {
-        P.orbitT += dt;
-        if (P.orbitT >= 3 && P.orbitPl !== well.i) { P.orbitPl = well.i; this.emit(K.EV_FOUND); this.say(FROM_CREW, 0, `STANDARD ORBIT ESTABLISHED AROUND ${well.p.name}. COMMS CAN HAIL THE SURFACE.`); if (this.onOrbit) this.onOrbit(well.i); }
-      } else if (o.st !== O.ORB_STABLE) {
-        if (P.orbitPl === well.i) this.say(FROM_CREW, 1, o.st === O.ORB_DESCENT ? `ORBIT DECAYING - WE'RE FALLING TOWARDS ${well.p.name}!` : `WE'RE BREAKING ORBIT OF ${well.p.name}.`);
-        P.orbitT = 0; P.orbitPl = -1;
-      }
-    } else {
-      if (P.inWell) { P.inWell = false; P.speed = Math.max(0, P.vx * hx + P.vy * hy); if (P.orbitPl >= 0) this.say(FROM_CREW, 0, 'WE\'VE LEFT ORBIT.'); }
-      P.orb = null; P.orbitPl = -1; P.orbitT = 0;
+    if (P.warping) {
+      // ---- at warp the field carries us along the heading
       P.speed += clampf(targetSpeed - P.speed, -acc * dt, acc * dt);
       P.vx = hx * P.speed; P.vy = hy * P.speed;
       nx = P.x + P.vx * dt; ny = P.y + P.vy * dt;
+      P.inWell = false; P.orb = null; P.orbitPl = -1; P.orbitT = 0;
+    } else {
+      // ---- impulse: a body in motion stays in motion. The engines push along the heading;
+      // AUTO BRAKE (or the autopilot, or docking) lets the flight computer steer the velocity onto the
+      // heading and brake when the throttle is cut; FULL STOP brakes us to a halt.
+      const assisted = P.autoBrake || P.autopilot !== K.AP_OFF || P.dock;
+      if (well) {
+        if (!P.inWell) P.inWell = true;
+        const g = well.pull * dt, ux = (well.px - P.x) / well.d, uy = (well.py - P.y) / well.d;
+        P.vx += ux * g; P.vy += uy * g;
+      } else if (P.inWell) { P.inWell = false; if (P.orbitPl >= 0) this.say(FROM_CREW, 0, 'WE\'VE LEFT ORBIT.'); }
+      let v = Math.hypot(P.vx, P.vy);
+      const cap = this.impulseCap() * 1.05 + 40;
+      if (v > cap) { const k = Math.max(cap, v - 2500 * dt) / v; P.vx *= k; P.vy *= k; v *= k; } // out of warp: shed the excess fast
+      if (P.allStop) {
+        const k = v > 1e-6 ? Math.max(0, v - acc * 1.3 * dt) / v : 0; P.vx *= k; P.vy *= k;
+        if (v * k < 0.5) { P.vx = P.vy = 0; P.allStop = false; }
+      } else if (assisted) {
+        const dvx = hx * targetSpeed - P.vx, dvy = hy * targetSpeed - P.vy, m = Math.hypot(dvx, dvy);
+        if (m > 1e-6) { const k = Math.min(1, (acc * dt) / m); P.vx += dvx * k; P.vy += dvy * k; }
+      } else if (targetSpeed !== 0) {
+        // thrust along (or, in reverse, against) the heading until we're doing the set speed that way
+        const vh = P.vx * hx + P.vy * hy, want = targetSpeed - vh;
+        if ((targetSpeed > 0 && want > 0) || (targetSpeed < 0 && want < 0)) { const dv = clampf(want, -acc * dt, acc * dt); P.vx += hx * dv; P.vy += hy * dv; }
+      }
+      P.speed = Math.hypot(P.vx, P.vy);
+      nx = P.x + P.vx * dt; ny = P.y + P.vy * dt;
+      const coast = !assisted && !P.allStop && P.throttle === 0;   // engines idle: we fall freely
+      if (well) {
+        const t0 = this.now / 1000, [qx, qy] = planetPos(this.sysDef, well.i, t0 + dt);
+        nx += (qx - well.px) * well.wgt; ny += (qy - well.py) * well.wgt;
+        // the atmosphere: bounce off it, and it hurts
+        const rx = nx - qx, ry = ny - qy, d = Math.hypot(rx, ry), floor = well.p.r * O.SURFACE_K;
+        if (d < floor) {
+          nx = qx + (rx / d) * floor; ny = qy + (ry / d) * floor;
+          const vr = (P.vx * rx + P.vy * ry) / d;
+          if (vr < 0) { P.vx -= (rx / d) * vr * 1.3; P.vy -= (ry / d) * vr * 1.3; }
+          P.skimT -= dt;
+          if (P.skimT <= 0) { P.skimT = 1.2; this.damagePlayer(qx, qy, 3 + Math.abs(vr) * 0.05); this.say(FROM_CREW, 2, `PROXIMITY ALERT - WE'RE SKIMMING ${well.p.name}'S ATMOSPHERE! PULL UP!`); }
+        }
+        const o = O.orbitOf(well.p, nx - qx, ny - qy, P.vx, P.vy);
+        P.orb = { pl: well.i, st: o.st, alt: Math.round(d - well.p.r), vc: Math.round(O.circSpeed(well.p, d)), peri: Math.round(o.peri - well.p.r), apo: o.apo === Infinity ? -1 : Math.round(o.apo - well.p.r), coast };
+        if (o.st === O.ORB_STABLE && coast) {
+          P.orbitT += dt;
+          if (P.orbitT >= 3 && P.orbitPl !== well.i) { P.orbitPl = well.i; this.emit(K.EV_FOUND); this.say(FROM_CREW, 0, `STANDARD ORBIT ESTABLISHED AROUND ${well.p.name}. COMMS CAN HAIL THE SURFACE.`); if (this.onOrbit) this.onOrbit(well.i); }
+        } else if (o.st !== O.ORB_STABLE) {
+          if (P.orbitPl === well.i) this.say(FROM_CREW, 1, o.st === O.ORB_DESCENT ? `ORBIT DECAYING - WE'RE FALLING TOWARDS ${well.p.name}!` : `WE'RE BREAKING ORBIT OF ${well.p.name}.`);
+          P.orbitT = 0; P.orbitPl = -1;
+        }
+      } else { P.orb = null; P.orbitPl = -1; P.orbitT = 0; }
     }
     // ---- the Oort cloud past the edge of the system: ice, dust and no way back for a warp field
     const od = O.oortDepth(nx, ny);
@@ -1128,7 +1150,7 @@ export class Sim {
       }
       if (od > O.OORT_MAX) { // the debris is too thick to push through
         const lim = O.OORT_MAX;
-        nx = clampf(nx, -lim, SECTOR + lim); ny = clampf(ny, -lim, SECTOR + lim); P.speed = Math.min(P.speed, 20);
+        nx = clampf(nx, -lim, SECTOR + lim); ny = clampf(ny, -lim, SECTOR + lim); { const v = Math.hypot(P.vx, P.vy); if (v > 20) { P.vx *= 20 / v; P.vy *= 20 / v; } }
       }
     } else if (P.oort > 0) this.say(FROM_CREW, 0, 'CLEAR OF THE OORT CLOUD.');
     P.oort = od;

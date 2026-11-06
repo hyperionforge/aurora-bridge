@@ -239,7 +239,7 @@ export class Host {
         id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
         hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
         sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
-        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}), ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
+        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}), ...(n.rock ? { rk: n.rock.c } : {}), ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
       });
     }
     return {
@@ -258,12 +258,12 @@ export class Host {
         anaUid: P.anaUid, anaProg: r2(P.anaProg), anaDeep: P.anaDeep, fxPh: this.sim.fx('ph'),
         dockId: P.dockId, jumpTo: P.jumpTo, jumpPlot: P.jumpPlot, icPlot: P.icPlot, jumpVec: P.jumpPlot !== K.NO_ID ? s.jumpVector(P.jumpPlot) : -1, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
         labUid: P.labUid, labTest: P.labTest, labProg: r2(P.labProg),
-        orb: P.orb, orbitPl: P.orbitPl, orbPlot: P.orbPlot, oort: Math.round(P.oort), bubR: Math.round(s.bubR()), shRange: P.shRange,
+        orb: P.orb, orbitPl: P.orbitPl, orbPlot: P.orbPlot, oort: Math.round(P.oort), bubR: Math.round(s.bubR()), shRange: Math.round(P.shRange * 100) / 100, vx: r1(P.vx), vy: r1(P.vy), autoBrake: P.autoBrake, allStop: P.allStop,
       },
       npc,
       torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),
       beams: s.beams.map((b) => (b.tx !== undefined ? { from: b.from, to: b.to, hit: b.hit, t0: b.t0, tx: Math.round(b.tx), ty: Math.round(b.ty) } : { from: b.from, to: b.to, hit: b.hit, t0: b.t0 })),
-      drift: (s.drifts || []).map((q) => [q.id, Math.round(q.x), Math.round(q.y), q.r]),
+      drift: s.boulders ? s.boulders() : [],
       booms: s.booms.map((b) => ({ x: Math.round(b.x), y: Math.round(b.y), size: b.size, t0: b.t0 })),
     };
   }

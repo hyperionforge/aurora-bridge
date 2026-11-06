@@ -5,7 +5,7 @@ import { DEG, wrap360, angDiff, fmtDist, pad3, clampf } from '../util.js';
 import { dim, flash, healthColor, lerpCol } from '../gfx.js';
 import { drawShip, factionColor, ART_CRUISER } from '../ships.js';
 import { drawBubble } from '../sysdraw.js';
-import { SH_RANGE_R, SH_K, SH_RANGE_NAME } from '../orbit.js';
+import { bubbleR, shK } from '../orbit.js';
 import { drawRadar, radarPick } from './common.js';
 import * as G from '../cargo.js';
 
@@ -130,7 +130,7 @@ export const shields = {
       const bx = cx + Math.sin(rel) * (R + 30), by = cy - Math.cos(rel) * (R + 30);
       g.tri(tx, ty, bx + Math.cos(rel) * 8, by + Math.sin(rel) * 8, bx - Math.cos(rel) * 8, by - Math.sin(rel) * 8, C.RED);
     }
-    const bub = P.bubR || 600, Rb = R * (0.32 + 0.6 * clampf((bub - 600) / 2400, 0, 1)), thin = 1 / (SH_K[P.shRange | 0] || 1);
+    const t = this.srDrag ? this.srLocal : P.shRange || 0, bub = bubbleR(t), Rb = R * (0.42 + 0.52 * t), thin = 1 / shK(t);
     drawBubble(g, cx, cy, Rb, 0, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1) * thin), raise, 0);
     // friendly ships near us, placed bow-up at bubble scale: inside the ring they're covered
     for (const c of w.contacts()) {
@@ -141,7 +141,7 @@ export const shields = {
       g.circle(sx, sy, 5, inb ? C.SKY : C.GREEN);
       g.text(sx, sy + 7, (inb ? 'COVERED ' : '') + w.shortName(c.id, c.known), 11, inb ? C.SKY : C.GREEN, 'center');
     }
-    drawShip(g, ART_CRUISER, C.SKY, cx, cy, B / 320, 0);
+    drawShip(g, ART_CRUISER, C.SKY, cx, cy, B / 620, 0); // stylised: small enough that even a tight bubble wraps it
     g.text(L.bx + B, L.by + 20, `BUBBLE ${fmtDist(bub)}`, 15, C.SKY, 'right');
     g.text(L.bx + B, L.by + 38, 'WIDER = WEAKER', 11, C.GREY_TXT, 'right');
     if (raise < 0.99) g.text(cx, cy + 40, raise > 0 ? 'RAISING' : 'SHIELDS DOWN', 19, raise > 0 ? C.YELLOW : C.GREY_TXT, 'center');
@@ -162,12 +162,24 @@ export const shields = {
     }
     y += 214;
     // shield range: wider covers ships alongside us, but every hit drains the shields faster
-    const lv = P.shRange | 0;
-    g.header(x, y, rw, `SHIELD RANGE - STRENGTH ${Math.round(100 / SH_K[lv])}%`, lv ? C.YELLOW : C.SKY);
-    const qw = (rw - 18) / 4;
-    for (let i = 0; i < 4; i++)
-      g.button('sr' + i, x + i * (qw + 6), y + 24, qw, 34, `${SH_RANGE_NAME[i]} ${(SH_RANGE_R[i] / 1000).toFixed(1)}K`, lv === i ? (i ? C.YELLOW : C.SKY) : C.GREY, lv === i ? C.BLACK : C.GREY_TXT, 13, () => app.send(CMD.SHRANGE, i), { sound: 'toggle' });
-    y += 66;
+    const st = this.srDrag ? this.srLocal : P.shRange || 0, wide = st > 0.01;
+    g.header(x, y, rw, `SHIELD SIZE ${(bubbleR(st) / 1000).toFixed(1)}K - STRENGTH ${Math.round(100 / shK(st))}%`, wide ? C.YELLOW : C.SKY);
+    { // a slider: tight (full strength) .. wide (covers ships alongside, thinner)
+      const sy = y + 24, sh = 36, tx0 = x + 54, tx1 = x + rw - 54, my = sy + sh / 2;
+      g.rrect(x, sy, rw, sh, sh / 2, '#1c2a3a');
+      g.text(x + 10, my - 7, 'TIGHT', 12, C.SKY); g.text(x + rw - 10, my - 7, 'WIDE', 12, C.YELLOW, 'right');
+      g.rect(tx0, my - 2, tx1 - tx0, 4, C.GREY);
+      const kx = tx0 + (tx1 - tx0) * st;
+      g.rect(tx0, my - 2, kx - tx0, 4, C.YELLOW);
+      g.circle(kx, my, this.srDrag ? 14 : 12, this.srDrag ? C.WHITE : wide ? C.YELLOW : C.SKY);
+      const val = (px) => clampf((px - tx0) / (tx1 - tx0), 0, 1);
+      g.hit(x, sy - 6, rw, sh + 12, {
+        down: (px) => { this.srDrag = true; this.srLocal = val(px); app.sound.tap(); },
+        move: (px) => { this.srLocal = val(px); if (performance.now() - (this.srSent || 0) > 150) { this.srSent = performance.now(); app.send(CMD.SHRANGE, Math.round(this.srLocal * 100)); } },
+        up: (px) => { this.srDrag = false; this.srLocal = val(px); app.send(CMD.SHRANGE, Math.round(this.srLocal * 100), 1); },
+      });
+    }
+    y += 68;
     g.header(x, y, rw, 'ALERT', C.RED);
     const al = ['RED ALERT', 'YELLOW', 'STAND DOWN'], ac = [C.RED, C.YELLOW, C.GREEN], aw = (rw - 12) / 3;
     for (let i = 0; i < 3; i++) {

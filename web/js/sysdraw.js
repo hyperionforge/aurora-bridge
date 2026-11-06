@@ -417,36 +417,31 @@ export function drawOortWarn(g, r, depth, u = 1) {
 }
 
 // ---------------------------------------------------------------- the shield bubble
-// a segmented sphere seen from above at a tilt. q = [fore, aft, port, stbd] strength 0..1, hdg in degrees,
-// hit = 0..1 flash. Front segments are bright, the far side dim, so it reads as 3D.
+// A glow: bright at the rim, fading towards the middle so the ship shows through. Each quarter
+// (q = [fore, aft, port, stbd] strength 0..1, hdg in degrees) glows by its own strength, and the
+// glow dips where one quarter meets the next. hit = 0..1 white flash.
 export function drawBubble(g, cx, cy, R, hdg, q, raise = 1, hit = 0) {
   if (R < 4 || raise <= 0.02) return;
-  const c = g.ctx, tilt = 0.5, cosT = Math.cos(tilt), sinT = Math.sin(tilt), H = (hdg * Math.PI) / 180;
+  const c = g.ctx, H = ((hdg - 90) * Math.PI) / 180; // canvas angle of the bow
+  const rim = hit > 0 ? [255, 255, 255] : [110, 200, 255];
+  const grd = c.createRadialGradient(cx, cy, 0, cx, cy, R * 1.04);
+  grd.addColorStop(0, `rgba(${rim},0)`); grd.addColorStop(0.55, `rgba(${rim},0.02)`);
+  grd.addColorStop(0.82, `rgba(${rim},0.12)`); grd.addColorStop(0.95, `rgba(${rim},0.55)`);
+  grd.addColorStop(0.985, `rgba(${rim},0.85)`); grd.addColorStop(1, `rgba(${rim},0)`);
+  const N = 18, quarter = Math.PI / 2;
   c.save();
-  // soft volume: brighter rim (fresnel), faint middle
-  const gr = c.createRadialGradient(cx, cy - R * 0.25, R * 0.1, cx, cy, R);
-  gr.addColorStop(0, `rgba(120,200,255,${0.02 * raise})`); gr.addColorStop(0.75, `rgba(90,170,255,${0.07 * raise})`);
-  gr.addColorStop(1, `rgba(150,220,255,${(0.28 + hit * 0.4) * raise})`);
-  c.fillStyle = gr; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
-  // which quadrant a direction (world azimuth, radians, 0 = up) belongs to
-  const quad = (az) => { let rel = ((az - H) * 180) / Math.PI; rel = ((rel % 360) + 540) % 360 - 180; return Math.abs(rel) <= 45 ? 0 : Math.abs(rel) >= 135 ? 1 : rel < 0 ? 2 : 3; };
-  // sphere point (lat, lon) -> screen, depth z (+ = towards the viewer)
-  const pt = (lat, lon) => {
-    const x = Math.cos(lat) * Math.sin(lon), y0 = -Math.cos(lat) * Math.cos(lon), z0 = Math.sin(lat);
-    const y = y0 * cosT - z0 * sinT, z = y0 * sinT + z0 * cosT;
-    return [cx + x * R, cy + y * R, z, lon];
-  };
-  const seg = (a, b) => {
-    const z = (a[2] + b[2]) / 2, s = q[quad((a[3] + b[3]) / 2)] ?? 1;
-    const alpha = (z > 0 ? 0.55 + 0.4 * z : 0.12 + 0.12 * (1 + z)) * raise * (0.25 + 0.75 * s);
-    c.strokeStyle = hit > 0 ? `rgba(255,255,255,${Math.min(1, alpha + hit * 0.5)})` : `rgba(${Math.round(110 + 120 * s)},${Math.round(190 + 50 * s)},255,${alpha})`;
-    c.lineWidth = z > 0 ? 1.4 : 0.8;
-    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
-  };
-  const NL = 28;
-  for (const lat of [-0.9, -0.45, 0, 0.45, 0.9]) { let p0 = pt(lat, 0); for (let i = 1; i <= NL; i++) { const p1 = pt(lat, (i / NL) * Math.PI * 2); seg(p0, p1); p0 = p1; } }
-  for (let m = 0; m < 12; m++) { const lon = (m / 12) * Math.PI * 2; let p0 = pt(-Math.PI / 2, lon); for (let i = 1; i <= 14; i++) { const p1 = pt(-Math.PI / 2 + (i / 14) * Math.PI, lon); seg(p0, p1); p0 = p1; } }
-  // outline
-  c.strokeStyle = `rgba(170,225,255,${0.5 * raise})`; c.lineWidth = 1.5; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.stroke();
+  // quarter order around the circle starting at the bow, clockwise: fore, stbd, aft, port
+  const order = [0, 3, 1, 2];
+  for (let k = 0; k < 4; k++) {
+    const s = Math.max(0, Math.min(1, q[order[k]] ?? 1));
+    for (let i = 0; i < N; i++) {
+      const f = (i + 0.5) / N, edge = Math.min(f, 1 - f) * 2; // 0 at a seam, 1 mid-quarter
+      const seam = 0.35 + 0.65 * Math.min(1, edge * 2.2);
+      const a0 = H - quarter / 2 + k * quarter + (i / N) * quarter, a1 = a0 + quarter / N + 0.004;
+      c.globalAlpha = raise * (0.2 + 0.8 * s) * seam * (hit > 0 ? 1 : 1);
+      c.fillStyle = grd;
+      c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R * 1.04, a0, a1); c.closePath(); c.fill();
+    }
+  }
   c.restore();
 }

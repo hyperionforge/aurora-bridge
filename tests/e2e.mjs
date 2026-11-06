@@ -322,7 +322,7 @@ const showTab = async (i, t, pre) => phones[i].evaluate(async ([t, pre]) => { co
 const hO = await ownerOf2(0), tO = await ownerOf2(4), sO = await ownerOf2(2), nO = await ownerOf2(1), cO = await ownerOf2(3);
 await showTab(hO, 0); await sleep(400); await phones[hO].screenshot({ path: `${OUT}/c1_helm_field.png` });
 await showTab(tO, 4); await sleep(400); await phones[tO].screenshot({ path: `${OUT}/c1_tactical_field.png` });
-await showTab(nO, 1, "async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 1; }"); await sleep(400); await phones[nO].screenshot({ path: `${OUT}/c1_nav_field.png` });
+await showTab(nO, 1, "async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 0; m.nav.zf = 0.25; }"); await sleep(400); await phones[nO].screenshot({ path: `${OUT}/c1_nav_field.png` });
 await phones[0].evaluate(() => window.auroraApp.send(10, 0, 255)); await sleep(600); await tv.screenshot({ path: `${OUT}/c1_tv_forward_field.png` });
 await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(900); await tv.screenshot({ path: `${OUT}/c1_tv_tactical_field.png` });
 // the lab on the red shard

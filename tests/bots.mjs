@@ -121,6 +121,7 @@ export function playMission(sim, type, diff, maxSec = 1500, hook) {
   sim.game = K.GS_TITLE;
   sim.handleCmd({ cmd: CMD.SELECT, a: type, b: diff });
   sim.handleCmd({ cmd: CMD.START });
+  sim.handleCmd({ cmd: CMD.AUTOBRAKE, a: 1 }); // the bots fly with the flight computer's help
   const crew = makeCrew(sim);
   let acc = 0;
   while (sim.game === K.GS_RUN && sim.missionT < maxSec) {

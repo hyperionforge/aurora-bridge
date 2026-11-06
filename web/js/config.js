@@ -52,7 +52,7 @@ export const SECTOR = 160000;     // size of one star system (see galaxy.js SYS_
 export const MAX_CONTACTS = 32;
 
 // ---------------------------------------------------------------- flight
-export const IMPULSE_MAX = 160, IMPULSE_TOP = 256, WARP_TOP = 6, WARP_SPEED = 900, WARP_MAX = 4, WARP_CHARGE_S = 3, TURN_RATE = 32, IMPULSE_ACCEL = 45;
+export const IMPULSE_MAX = 160, IMPULSE_TOP = 333, WARP_TOP = 6, WARP_SPEED = 900, WARP_MAX = 4, WARP_CHARGE_S = 3, TURN_RATE = 32, IMPULSE_ACCEL = 45;
 export const DOCK_RANGE = 1800, DOCK_MAX_SPEED = 25, DOCK_TIME_S = 5;
 
 // ---------------------------------------------------------------- energy / engineering
@@ -86,7 +86,7 @@ export const CMD = {
   START: 1, HEADING: 2, THROTTLE: 3, WARP: 4, STOP: 5, EVASIVE: 6, AUTOPILOT: 7, WAYPOINT: 8, DOCK: 9, VIEW: 10,
   SCAN: 11, LRS: 12, HAIL: 13, REPLY: 14, TARGET: 15, SUB: 16, FIRE_PH: 17, AUTOFIRE: 18, PH_FREQ: 19,
   TUBE_LOAD: 20, TUBE_UNLOAD: 21, TUBE_FIRE: 22, SHIELDS: 23, REINFORCE: 24, ALERT: 25, POWER: 26, COOLANT: 27,
-  TEAM: 28, PRESET: 29, UNDOCK: 30, RESTART: 31, SELECT: 32, ORDER_ACK: 33, ORDER: 34, JUMP: 35, SAMPLE: 36, EXTRACT: 37, REFINE: 38, USE: 39, ANALYSE: 40, JETTISON: 41, DREPLY: 42, PLOT: 43, CAMP: 44, PD: 45, LAB: 46, SHRANGE: 47,
+  TEAM: 28, PRESET: 29, UNDOCK: 30, RESTART: 31, SELECT: 32, ORDER_ACK: 33, ORDER: 34, JUMP: 35, SAMPLE: 36, EXTRACT: 37, REFINE: 38, USE: 39, ANALYSE: 40, JETTISON: 41, DREPLY: 42, PLOT: 43, CAMP: 44, PD: 45, LAB: 46, SHRANGE: 47, AUTOBRAKE: 48,
 };
 
 // ---------------------------------------------------------------- static world

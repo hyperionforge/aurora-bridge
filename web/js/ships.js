@@ -122,7 +122,8 @@ export function drawAnomaly(g, cx, cy, scale, t) {
   g.circle(cx, cy, R / 5 + 1, C.WHITE);
 }
 
-export const artFor = (type) => (type === CT_RAIDER ? ART_RAIDER : type === CT_DESTROYER ? ART_DESTROYER : type === CT_FREIGHTER ? ART_FREIGHTER : ART_CRUISER);
+// only real ships get a ship sprite; anything else falls back to the freighter, never our own cruiser
+export const artFor = (type) => (type === CT_RAIDER ? ART_RAIDER : type === CT_DESTROYER ? ART_DESTROYER : ART_FREIGHTER);
 export const accentFor = (type) => (type === CT_RAIDER ? C.RED : type === CT_DESTROYER ? '#c82828' : type === CT_FREIGHTER ? '#a0825a' : C.SKY);
 export const factionColor = (f) => (f === F_FRIEND ? C.GREEN : f === F_NEUTRAL ? C.SKY : f === F_HOSTILE ? C.RED : C.YELLOW);
 

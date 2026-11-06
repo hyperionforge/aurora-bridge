@@ -3,7 +3,7 @@ import * as K from '../config.js';
 import { C } from '../config.js';
 import { DEG } from '../util.js';
 import { dim, flash, lerpCol } from '../gfx.js';
-import { drawShip, drawStarbase, drawAnomaly, factionColor, artFor, accentFor, ART_CRUISER } from '../ships.js';
+import { drawShip, drawStarbase, drawAnomaly, drawContact, factionColor, artFor, accentFor, ART_CRUISER } from '../ships.js';
 import { fmtDist } from '../util.js';
 import { bodies, drawStation, drawPoi } from '../sysdraw.js';
 import { drawRocks } from '../field.js';
@@ -53,9 +53,11 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     if ((sx - cx) ** 2 + (sy - cy) ** 2 > R * R) continue;
     const col = factionColor(c.faction);
     const h = c.hdg - (headingUp ? w.P.hdg : 0);
-    if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, 0.13, w.now, c.civ);
+    if (c.rk !== undefined) { /* a loose boulder: drawn with the rocks */ }
+    else if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, 0.13, w.now, c.civ);
     else if (c.type === K.CT_ANOMALY) drawAnomaly(g, sx, sy, 0.15, w.now);
     else if (c.type === K.CT_POI) drawPoi(g, c.kind ?? 0, sx, sy, 0.16, w.now, (c.civ ?? 0) * 0.7);
+    else if (c.type === K.CT_BUOY || c.type === K.CT_GROUND) drawContact(g, c.type, sx, sy, 0.13, h, w.now);  // buoys and surface sites have their own marks, never the ship's
     else if (c.known) drawShip(g, artFor(c.type), accentFor(c.type), sx, sy, 0.17, h);
     else { g.circle(sx, sy, 5, col); g.circle(sx, sy, 8, col, false, 1.5); }
     g.text(sx, sy + 14, w.shortName(c.id, c.known), 12, col, 'center');

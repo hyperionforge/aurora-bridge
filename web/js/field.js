@@ -7,7 +7,9 @@
 // ============================================================================
 import { makeRng } from './util.js';
 
-export const ROCK_SHIP_R = 140;      // our ship's collision radius
+export const ROCK_SHIP_R = 140;
+// loose boulders by composition: ice (phaser freq A), iron (C), crystal (E)
+export const BOULDER_COL = ['#8cc8ff', '#c8643c', '#b482ff'];      // our ship's collision radius
 export const CELL = 2000;            // spatial hash cell for collision lookups
 
 // the channel: a polyline from the west edge to the east edge of the box
@@ -87,13 +89,13 @@ export function drawRocks(g, rocks, p2, k, box, opts = {}) {
     const [sx, sy] = p2(q.x, q.y), rr = Math.max(minR, q.r * k);
     if (sx < box.x - rr || sx > box.x + box.w + rr || sy < box.y - rr || sy > box.y + box.h + rr) continue;
     const h = (q.id * 2654435761) >>> 0;
-    c.fillStyle = q.drift ? (opts.driftCol || '#d2a064') : ['#6e665c', '#5c5650', '#7a7066'][h % 3];
+    c.fillStyle = q.drift ? BOULDER_COL[q.c ?? 1] : ['#6e665c', '#5c5650', '#7a7066'][h % 3];
     if (rr < 2.5) { c.fillRect(sx - rr, sy - rr, rr * 2, rr * 2); continue; }
     // a lumpy rock: a polygon with jittered radius
     c.beginPath();
     for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2 + (h % 10), f = 0.75 + (((h >>> (i * 3)) & 7) / 7) * 0.35; const px = sx + Math.cos(a) * rr * f, py = sy + Math.sin(a) * rr * f; if (i) c.lineTo(px, py); else c.moveTo(px, py); }
     c.closePath(); c.fill();
     if (rr > 5) { c.fillStyle = 'rgba(0,0,0,0.25)'; c.beginPath(); c.arc(sx + rr * 0.25, sy + rr * 0.2, rr * 0.45, 0, Math.PI * 2); c.fill(); }
-    if (q.drift && opts.mark) { c.strokeStyle = '#ff8c3c'; c.lineWidth = 1.5; c.beginPath(); c.arc(sx, sy, rr + 4, 0, Math.PI * 2); c.stroke(); }
+    if (q.drift && opts.mark) { c.strokeStyle = q.tr ? '#78f0ff' : '#ff8c3c'; c.lineWidth = 1.5; c.setLineDash(q.tr ? [3, 3] : []); c.beginPath(); c.arc(sx, sy, rr + 4, 0, Math.PI * 2); c.stroke(); c.setLineDash([]); }
   }
 }

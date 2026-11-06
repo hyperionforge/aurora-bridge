@@ -41,7 +41,7 @@ function tick() {
   }
 }
 const goSys = (id) => { if (s.game !== K.GS_RUN) return; s.P.dock = 0; s.arrive(SYS_INDEX[id]); run(1); };
-const atXY = (x, y) => { s.P.x = x; s.P.y = y; s.P.speed = 0; s.P.throttle = 0; };
+const atXY = (x, y) => { s.P.x = x; s.P.y = y; s.P.speed = 0; s.P.throttle = 0; s.P.vx = s.P.vy = 0; };
 const at = (n, dx = 1500) => { if (n) atXY(n.x + dx, n.y); };
 const godmode = () => { s.P.hull = 100; s.P.energy = 1000; for (let i = 0; i < 6; i++) s.P.health[i] = 100; };
 const fullScan = (id) => { for (let k = 0; k < 2 && s.npc[id].scan < 2; k++) { s.P.scanId = id; s.P.scanProg = 0.99; run(1); } };
@@ -88,7 +88,7 @@ if (s.camp.step === 'a3_shield') {
   // fly alongside the VEGA with shields up so the bubble covers her (shields topped up: we test the mechanic, not the balance)
   s.P.shieldsOn = true; s.P.shieldRaise = 1;
   { const v = s.npc[s.camp.vegaId]; atXY(v.x + 4000, v.y); }
-  cmd(K.CMD.PLOT, 1, s.camp.vegaId); cmd(K.CMD.AUTOPILOT, K.AP_ESCORT, s.camp.vegaId); cmd(K.CMD.SHRANGE, 1); cmd(K.CMD.REINFORCE, K.RF_FORE);
+  cmd(K.CMD.PLOT, 1, s.camp.vegaId); cmd(K.CMD.AUTOPILOT, K.AP_ESCORT, s.camp.vegaId); cmd(K.CMD.SHRANGE, 30, 1); cmd(K.CMD.REINFORCE, K.RF_FORE);
   run(90, () => { godmode(); s.P.shieldsOn = true; for (let q = 0; q < 4; q++) s.P.shield[q] = Math.max(s.P.shield[q], 60); });
   log(`  escort: ${Math.round(distTo(s.P.x, s.P.y, s.npc[s.camp.vegaId].x, s.npc[s.camp.vegaId].y))}m from the VEGA, autopilot ${s.P.autopilot}`);
   log(`  vega hull ${s.npc[s.camp.vegaId] && Math.round(s.npc[s.camp.vegaId].hull)} covered ${Math.round(s.camp.covered)}s tarren=${s.camp.f.tarren}`);

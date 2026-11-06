@@ -10,7 +10,7 @@ import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
 import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel, drawCampLines, drawBubble, drawOortWarn, drawOortFrame } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
-import { drawRocks } from './field.js';
+import { drawRocks, BOULDER_COL } from './field.js';
 import { drawLab, drawRing } from './lab.js';
 import { CHARS } from './dialogue.js';
 import { CAMPAIGNS } from './campaign.js';
@@ -189,7 +189,7 @@ export class Scene {
     const objs = [];
     for (const b of bodies(w.sys, w.tSec)) { const p = this.project(w, r, b.x, b.y, b.star ? 0.02 : 0.05); if (p) objs.push({ ...p, kind: -1, b }); }
     for (const n of w.npc) {
-      if (!n.alive || n.type === K.CT_GROUND) continue;
+      if (!n.alive || n.type === K.CT_GROUND || n.rk !== undefined) continue; // boulders are drawn as rocks
       const p = this.project(w, r, n.x, n.y, ((n.id * 37) % 11 - 5) * 0.025);
       if (p && p.d < 40000) objs.push({ ...p, kind: 1, n });
     }
@@ -202,7 +202,7 @@ export class Scene {
     for (const o of objs) {
       if (o.kind === 2) { // an asteroid
         const q = o.q, rad = Math.min(90 * u, Math.max(1.2 * u, (q.r / o.d) * r.F)), sh = Math.max(0.15, 1 - o.d / 9000);
-        g.circle(o.sx, o.sy, rad, q.drift ? '#b48c5a' : dim('#8a8076', sh));
+        g.circle(o.sx, o.sy, rad, q.drift ? BOULDER_COL[q.c ?? 1] : dim('#8a8076', sh));
         if (rad > 4) g.circle(o.sx + rad * 0.3, o.sy + rad * 0.25, rad * 0.55, dim('#3c3630', sh));
         if (q.drift && rad > 2) g.circle(o.sx, o.sy, rad + 4 * u, flash(250) ? C.RED : C.ORANGE, false, 1.5 * u);
         continue;
@@ -346,7 +346,7 @@ export class Scene {
       const [sx, sy] = w2t(n.x, n.y);
       if (sx < r.x - 40 || sx > r.x + r.w + 40 || sy < r.y - 40 || sy > r.y + r.h + 40) continue;
       const sc = (n.type === K.CT_STARBASE ? clampf(1500 * k / u / 70, 0.25, 1.2) : 0.28) * u;
-      drawContact(g, n.type, sx, sy, sc, n.hdg, t, 1, n.kind, n.civ);
+      if (n.rk === undefined) drawContact(g, n.type, sx, sy, sc, n.hdg, t, 1, n.kind, n.civ);
       g.text(sx, sy + 26 * u, w.shortName(n.id, known), 11 * u, fc, 'center');
       if (n.scan >= 2 && n.type !== K.CT_ANOMALY && n.type !== K.CT_POI) {
         g.rect(sx - 15 * u, sy + 40 * u, 30 * u, 3 * u, C.SEG_OFF);
@@ -366,7 +366,7 @@ export class Scene {
     if (w.shieldsUp() || P.shieldRaise > 0) {
       // the bubble grows with shield power; friendly ships inside it are covered
       const BR = Math.max(30 * u, (P.bubR || 600) * k), hit = clampf((this.shieldFlashUntil - performance.now()) / 300, 0, 1);
-      const thin = 1 / ([1, 1.4, 1.9, 2.5][P.shRange | 0] || 1);
+      const thin = 1 / (1 + 1.5 * clampf(P.shRange || 0, 0, 1));
       drawBubble(g, cx, cy, BR, P.hdg, [0, 1, 2, 3].map((q) => clampf(P.shield[q] / 100, 0, 1) * thin), P.shieldRaise, hit);
       if (w.shieldsUp()) for (const n of w.npc) {
         if (!n.alive || !n.vis || n.faction === K.F_HOSTILE || n.type === K.CT_POI || n.type === K.CT_ANOMALY) continue;
