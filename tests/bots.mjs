@@ -138,7 +138,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const seed of seeds) {
     const sim = new Sim(makeRng(seed));
     let ok = 0;
-    for (let type = 1; type < K.NUM_MT; type++)
+    for (let type = 1; type <= K.MT_DEFEND; type++) // the asteroid field is flown by tests/field.mjs
       for (let diff = 0; diff < 3; diff++) {
         const r = playMission(sim, type, diff);
         if (r.game === K.GS_WIN) ok++;

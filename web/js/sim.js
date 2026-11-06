@@ -33,6 +33,7 @@ function newPlayer() {
     dockId: NO_ID, jumpTo: NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: NO_ID, icPlot: NO_ID,
     cargo: [...G.CARGO_START], arts: [], artSeq: 1, xId: NO_ID, xMode: 0, xProg: 0, refQ: [], refProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0,
     spareUse: 0, noSparesWarned: false,
+    labUid: 0, labTest: 0, labProg: 0,
     vx: 0, vy: 0, inWell: false, orb: null, orbitPl: -1, orbitT: 0, orbPlot: -1, oort: 0, oortT: 0, skimT: 0,
   };
 }
@@ -50,6 +51,10 @@ import * as O from './orbit.js';
 import { installCampaign } from './campaign.js';
 import { installArgus } from './campaign2.js';
 import { installAllies } from './allies.js';
+import { installField } from './fieldsim.js';
+import { installGround } from './ground.js';
+import { installLab } from './lab.js';
+import { installCarto } from './campaign3.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -58,6 +63,7 @@ export class Sim {
     this.events = [];           // {type, arg, flash} - flushed by the host every tick
     this.P = newPlayer();
     this.npc = Array.from({ length: MAX_CONTACTS }, newNpc);
+    this.field = null; this.drifts = [];
     this.torp = [];
     this.beams = [];
     this.booms = [];
@@ -160,6 +166,7 @@ export class Sim {
     });
     if (idx === 0) this.spawnNpc(ID_BONUS, CT_ANOMALY, F_UNKNOWN, 120000, 54000, 0);
     this.spawnPois(idx);
+    this.spawnGround();
     if (this.onSystemLoaded) this.onSystemLoaded(idx);
   }
   irand(n) { return Math.floor(this.rand() * n); }
@@ -216,6 +223,7 @@ export class Sim {
     const n = this.npc[id], P = this.P;
     if (!n || !n.active) return false;
     if (n.type === CT_STARBASE) return true;
+    if (n.type === K.CT_GROUND) return this.groundVisible(n);
     const d = distTo(P.x, P.y, n.x, n.y);
     let r = this.sensorRange();
     if (this.inNebula(n.x, n.y) && !this.inNebula(P.x, P.y) && P.lrs <= 0) r *= 0.5;
@@ -462,7 +470,7 @@ export class Sim {
         this.selType = ((a % K.NUM_MT) + K.NUM_MT) % K.NUM_MT;
         this.selDiff = ((b % 3) + 3) % 3;
         this.selMode = ((c.c | 0) % 3 + 3) % 3;
-        this.selCamp = Math.max(0, Math.min(1, c.d | 0)); // which campaign
+        this.selCamp = Math.max(0, Math.min(this.campMaxes().length - 1, c.d | 0)); // which campaign
         this.M.ver++;
       }
       return;
@@ -528,6 +536,8 @@ export class Sim {
       case CMD.JETTISON: this.jettisonCmd(a); break;
       case CMD.DREPLY: this.dialogReply(a, b); break;
       case CMD.CAMP: if (this.campAction) this.campAction(a, b); break;
+      case CMD.PD: this.pointDefence(); break;
+      case CMD.LAB: if (this.labCmd) this.labCmd(a, b, c.c | 0, c.d | 0); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
@@ -620,6 +630,7 @@ export class Sim {
     const n = this.npc[id], M = this.M;
     if (!n.alive) { this.denied('NO RESPONSE - THE VESSEL HAS BEEN DESTROYED.'); return; }
     if (opt === K.OPT_CLOSE) { this.say(FROM_CREW, 0, 'CHANNEL CLOSED.'); return; }
+    if (n.type === K.CT_GROUND && this.groundHail(n)) return;
     if (opt === 0 && this.jobHandIn && this.jobHandIn(id)) return;
     if (opt === 0 && n.talk && DIALOGS[n.talk]) { this.startDialog(n.talk, id, n.talkCtx || {}); return; }
     if (n.type === CT_POI) { this.say(FROM_CREW, 0, `IT'S ${/^[AEIOU]/.test(G.POI_NAME[n.poi]) ? 'AN' : 'A'} ${G.POI_NAME[n.poi]}, CAPTAIN. NOBODY TO HAIL - BUT SCIENCE CAN SAMPLE IT.`); return; }
@@ -681,6 +692,7 @@ export class Sim {
   npcTick(id, dt) {
     const n = this.npc[id], P = this.P, game = this.game;
     if (!n.active || !n.alive) return;
+    if (n.type === K.CT_GROUND) { this.groundPlace(n); if (n.onTick) n.onTick(n, dt); return; }
     let targetSpeed = 0, turn = 45, fight = false;
     let ai = n.ai;
     if (ai === AI_ALLY) { // friends: fight the nearest hostile, otherwise fly with us
@@ -922,7 +934,7 @@ export class Sim {
         return 'HOSTILES TOO CLOSE - THEIR WEAPONS FIRE DISRUPTS THE JUMP FIELD.';
     if (P.energy < K.JUMP_COST) return `NOT ENOUGH ENERGY TO JUMP (${K.JUMP_COST} NEEDED).`;
     const v = this.jumpVector(to);
-    if (Math.abs(angDiff(P.hdg, v)) > tol) return `HELM: ALIGN THE SHIP TO THE JUMP VECTOR, HEADING ${String(v).padStart(3, '0')}.`;
+    if (Math.abs(angDiff(P.hdg, v)) > tol) return `HELM: ALIGN THE SHIP TO THE JUMP VECTOR, HEADING ${String(v).padStart(3, '0')}.${P.evasive ? ' (EVASIVE MANOEUVRES ARE ON - SWITCH THEM OFF.)' : ''}`;
     return '';
   }
   jumpCmd(to) {
@@ -983,6 +995,7 @@ export class Sim {
   playerTick(dt) {
     const P = this.P, npc = this.npc;
     this.cargoTick(dt);
+    this.labTick(dt);
     if (P.jumpTo !== NO_ID && this.jumpTick(dt)) { P.speed = K.WARP_SPEED * 6; return; } // in the jump tunnel
     // ---- steering
     if (P.autopilot === K.AP_WAYPOINT && P.wpValid) {
@@ -1239,6 +1252,7 @@ export class Sim {
     } else {
       this.missionT += dt;
       this.playerTick(dt);
+      if (this.field) this.fieldTick(dt);
       if (this.game === GS_RUN) {
         for (let i = 0; i < MAX_CONTACTS; i++) this.npcTick(i, dt);
         this.torpTick(dt);
@@ -1648,6 +1662,7 @@ export class Sim {
       case K.MT_ESCORT: this.escortStart(); break;
       case K.MT_SURVEY: this.surveyStart(); break;
       case K.MT_DEFEND: this.defendStart(); break;
+      case K.MT_FIELD: this.fieldMissionStart(); break;
     }
     M.ver++;
   }
@@ -2132,6 +2147,7 @@ export class Sim {
         case K.MT_ESCORT: this.escortTick(); break;
         case K.MT_SURVEY: this.surveyTick(); break;
         case K.MT_DEFEND: this.defendTick(); break;
+        case K.MT_FIELD: this.fieldMissionTick(); break;
       }
     } else if (M.stage === K.ST_RETURN) {
       const db = distTo(P.x, P.y, this.bx, this.by);
@@ -2304,3 +2320,7 @@ installVoyage(Sim);
 installCampaign(Sim);
 installArgus(Sim);
 installAllies(Sim);
+installField(Sim);
+installGround(Sim);
+installLab(Sim);
+installCarto(Sim);

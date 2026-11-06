@@ -39,7 +39,7 @@ const trade = (s, give, get, line) => { // give/get: [[res, n]...] - 'photon'/'q
   s.say(s.FROM_CREW, 3, line);
 };
 const canGive = (s, give) => give.every(([r, n]) => has(s, r, n));
-const tradeOpt = (label, give, get, line, after = 'start') => ({
+export const tradeOpt = (label, give, get, line, after = 'start') => ({
   t: label, if: (s) => canGive(s, give), do: (s) => { trade(s, give, get, line); return after; },
 });
 const rumour = (s) => s.rumour();

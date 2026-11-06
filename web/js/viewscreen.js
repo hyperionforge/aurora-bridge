@@ -10,6 +10,8 @@ import { dim, lerpCol, healthColor, flash } from './gfx.js';
 import { drawShip, drawContact, drawPlanet, drawMarker, drawStarbase, drawNebula, factionColor, ART_CRUISER } from './ships.js';
 import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel, drawCampLines, drawBubble, drawOortWarn, drawOortFrame } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
+import { drawRocks } from './field.js';
+import { drawLab, drawRing } from './lab.js';
 import { CHARS } from './dialogue.js';
 import { CAMPAIGNS } from './campaign.js';
 const campOf = (id) => CAMPAIGNS.find((c) => c.id === id) || CAMPAIGNS[0];
@@ -140,7 +142,21 @@ export class Scene {
       case K.VM_TARGET: this.drawTarget(g, w, r); break;
       case K.VM_COMMS: this.drawComms(g, w, r); break;
       case K.VM_STATUS: this.drawStatus(g, w, r); break;
+      case K.VM_LAB: this.drawLabView(g, w, r); break;
     }
+  }
+  // the science lab on the main viewer, so the whole crew can puzzle over it
+  drawLabView(g, w, r) {
+    const u = r.u, P = w.P, cp = w.slow && w.slow.camp, ring = cp && cp.ring;
+    const uid = (w.slow && w.slow.labShow) || 0, h = (P.arts || []).find((q) => q.uid === uid);
+    g.rect(r.x, r.y, r.w, r.h, '#05070e');
+    g.text(r.x + 14 * u, r.y + 8 * u, 'SCIENCE LAB', 18 * u, C.SKY, 'left', true);
+    const pad = 14 * u, top = r.y + 34 * u;
+    if (ring && (!ring.solved || !h)) {
+      drawRing(g, w, ring, { x: r.x + pad, y: top, w: r.w - 2 * pad, h: h ? r.h * 0.45 : r.h - 50 * u }, u);
+      if (h) drawLab(g, w, h, { x: r.x + pad, y: r.y + r.h * 0.55, w: r.w - 2 * pad, h: r.h * 0.43 }, u * 0.8);
+    } else if (h) drawLab(g, w, h, { x: r.x + pad, y: top, w: r.w - 2 * pad, h: r.h - 44 * u }, u);
+    else g.text(r.x + r.w / 2, r.y + r.h / 2, 'NO SPECIMEN ON THE BENCH', 16 * u, C.GREY_TXT, 'center');
   }
   // ---------------------------------------------------------------- forward view
   project(w, r, wx, wy, elev) {
@@ -173,12 +189,24 @@ export class Scene {
     const objs = [];
     for (const b of bodies(w.sys, w.tSec)) { const p = this.project(w, r, b.x, b.y, b.star ? 0.02 : 0.05); if (p) objs.push({ ...p, kind: -1, b }); }
     for (const n of w.npc) {
-      if (!n.alive) continue;
+      if (!n.alive || n.type === K.CT_GROUND) continue;
       const p = this.project(w, r, n.x, n.y, ((n.id * 37) % 11 - 5) * 0.025);
       if (p && p.d < 40000) objs.push({ ...p, kind: 1, n });
     }
+    for (const q of w.rocks()) {
+      if (Math.abs(q.x - P.x) > 9000 || Math.abs(q.y - P.y) > 9000) continue;
+      const p = this.project(w, r, q.x, q.y, (((q.id * 13) % 9) - 4) * 0.07);
+      if (p && p.d > 250) objs.push({ ...p, kind: 2, q });
+    }
     objs.sort((a, b) => b.d - a.d);
     for (const o of objs) {
+      if (o.kind === 2) { // an asteroid
+        const q = o.q, rad = Math.min(90 * u, Math.max(1.2 * u, (q.r / o.d) * r.F)), sh = Math.max(0.15, 1 - o.d / 9000);
+        g.circle(o.sx, o.sy, rad, q.drift ? '#b48c5a' : dim('#8a8076', sh));
+        if (rad > 4) g.circle(o.sx + rad * 0.3, o.sy + rad * 0.25, rad * 0.55, dim('#3c3630', sh));
+        if (q.drift && rad > 2) g.circle(o.sx, o.sy, rad + 4 * u, flash(250) ? C.RED : C.ORANGE, false, 1.5 * u);
+        continue;
+      }
       if (o.kind < 0) {
         const pl = o.b;
         const rad = Math.max(pl.star ? 3 * u : 2, pl.r / o.d * r.F);
@@ -219,7 +247,7 @@ export class Scene {
     const rt = w.rt;
     for (const b of w.beams) {
       const age = (rt - b.t0) / 600;
-      const nf = w.n(b.from), nt = w.n(b.to);
+      const nf = w.n(b.from), nt = b.tx !== undefined ? { x: b.tx, y: b.ty, id: 0 } : w.n(b.to);
       if (b.from === K.US && nt) {
         const p = this.project(w, r, nt.x, nt.y, ((nt.id * 37) % 11 - 5) * 0.025);
         if (p) {
@@ -293,6 +321,7 @@ export class Scene {
     g.text(cx + R2 + 4 * u, cy - 6 * u, fmtDist(this.tacRange), 11 * u, C.GRID);
     g.text(cx + R2 / 2 + 4 * u, cy - 6 * u, fmtDist(this.tacRange / 2), 11 * u, C.GRID);
     drawSystemLayer(g, w.sys, w.tSec, w2t, k, { u, orbits: true, minR: 3 });
+    { const rk = w.rocks(); if (rk.length) drawRocks(g, rk, w2t, k, r, { minR: 1, mark: true }); }
     if (P.wpValid) {
       const [sx, sy] = w2t(P.wpx, P.wpy);
       if (sx > r.x + 10 && sx < r.x + r.w - 10 && sy > r.y + 10 && sy < r.y + r.h - 10) {
@@ -357,7 +386,7 @@ export class Scene {
       g.circle(sx, sy, u, C.WHITE);
     }
     for (const b of w.beams) {
-      const nf = w.n(b.from), nt = w.n(b.to);
+      const nf = w.n(b.from), nt = b.tx !== undefined ? { x: b.tx, y: b.ty } : w.n(b.to);
       const [x0, y0] = b.from === K.US ? [cx, cy] : nf ? w2t(nf.x, nf.y) : [cx, cy];
       let [x1, y1] = b.to === K.US ? [cx, cy] : nt ? w2t(nt.x, nt.y) : [cx, cy];
       if (!b.hit) { x1 += 14 * u; y1 -= 10 * u; }
@@ -394,6 +423,7 @@ export class Scene {
     g.clip(mx, my, S, S);
     drawSystemLayer(g, w.sys, w.tSec, (x, y) => [gx + x * k, gy + y * k], k, { u, minR: 3.5, well: true });
     drawCampLines(g, w, (x, y) => [gx + x * k, gy + y * k], u);
+    { const rk = w.rocks(); if (rk.length) drawRocks(g, rk, (x, y) => [gx + x * k, gy + y * k], k, { x: mx, y: my, w: S, h: S }, { minR: 0.6 }); }
     g.unclip();
     for (const m of w.M.mk) drawMarker(g, gx + m.x * k, gy + m.y * k, m.kind, m.r * k, 11 * u);
     g.circle(gx + P.x * k, gy + P.y * k, w.sensorRange * k, '#1e3c5a', false, u);

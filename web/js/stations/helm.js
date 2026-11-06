@@ -6,6 +6,8 @@ import { dim, flash, healthColor } from '../gfx.js';
 import { drawShip, drawMarker, factionColor, ART_CRUISER } from '../ships.js';
 import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCampLines, drawOortFrame, drawOortWarn, drawBubble } from '../sysdraw.js';
 import * as O from '../orbit.js';
+import { drawRocks } from '../field.js';
+import { drawLab, drawRing, isRare } from '../lab.js';
 import { CHARS, subtitle } from '../dialogue.js';
 import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
@@ -43,6 +45,17 @@ export const helm = {
     if (P.jumpVec >= 0) { // the jump vector: a cyan diamond on the ring
       const b = P.jumpVec * DEG, jx = cx + Math.sin(b) * (R - 42), jy = cy - Math.cos(b) * (R - 42), k = flash(300) ? 9 : 7;
       g.tri(jx, jy - k, jx + k, jy, jx, jy + k, '#78f0ff'); g.tri(jx, jy - k, jx - k, jy, jx, jy + k, '#78f0ff');
+    }
+    { // rocks within 4k on the compass (bow-relative is not used: north up, like the ring)
+      const rk = w.rocks();
+      if (rk.length) {
+        const kk = (R - 34) / 4000;
+        g.clip(cx - R + 34, cy - R + 34, 2 * (R - 34), 2 * (R - 34));
+        const nearR = rk.filter((q) => Math.abs(q.x - P.x) < 4500 && Math.abs(q.y - P.y) < 4500 && Math.hypot(q.x - P.x, q.y - P.y) < 4000);
+        drawRocks(g, nearR, (x, y) => [cx + (x - P.x) * kk, cy + (y - P.y) * kk], kk, { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R }, { minR: 1.5, mark: true });
+        g.unclip();
+        if (nearR.length) g.text(cx, cy + R - 50, 'ROCKS WITHIN 4K', 11, C.TAN, 'center');
+      }
     }
     const dr = des * DEG;
     g.tri(cx + Math.sin(dr) * (R + 1), cy - Math.cos(dr) * (R + 1), cx + Math.sin(dr - 0.07) * (R - 22), cy - Math.cos(dr - 0.07) * (R - 22),
@@ -139,7 +152,7 @@ export const helm = {
     const P = w.P, o = P.orb;
     if (!o) return;
     const pl = w.sys.planets[o.pl]; if (!pl) return;
-    const x = L.bx + 2, y = L.by + L.BIG - 92;
+    const x = L.bx + 2, y = L.by + 96; // top-left corner, clear of the compass labels
     const stc = [C.GREY_TXT, C.GREEN, C.RED, C.YELLOW][o.st];
     g.text(x, y, `${pl.name} GRAVITY WELL`, 13, '#78f0ff');
     g.text(x, y + 16, `ALT ${fmtDist(o.alt)}   ORBIT SPEED HERE ${o.vc}`, 12, C.PEACH);
@@ -181,7 +194,7 @@ export const helm = {
     g.text(x, y, `JUMP VECTOR ${pad3(v)}   HEADING ${pad3(P.hdg)}`, 15, C.PEACH);
     g.text(x + rw, y, off <= 5 ? 'ALIGNED' : `${off}° OFF`, 15, off <= 5 ? C.GREEN : C.YELLOW, 'right');
     y += 24;
-    g.button('jalign', x, y, rw, 32, 'ALIGN TO THE JUMP VECTOR', off <= 5 ? C.GREY : C.SKY, C.BLACK, 16, () => app.send(CMD.HEADING, 0, 0, v));
+    g.button('jalign', x, y, rw, 32, 'ALIGN TO THE JUMP VECTOR', off <= 5 ? C.GREY : C.SKY, C.BLACK, 16, () => { if (P.evasive) app.send(CMD.EVASIVE, 0); app.send(CMD.HEADING, 0, 0, v); });
     y += 40;
     const why = (w.slow && w.slow.jumpWhy && w.slow.jumpWhy[to]) || '';
     const by = L.y1 - 44;
@@ -257,6 +270,7 @@ export const nav = {
         g.ctx.save(); g.ctx.setLineDash([3, 3]); g.circle(ppx, ppy, w.sys.planets[P.orbPlot].r * 2.5 * k, '#78f0ff', false, 1); g.ctx.restore();
       }
       drawCampLines(g, w, p2);
+      { const rk = w.rocks(); if (rk.length) drawRocks(g, rk, p2, k, { x: ox, y: oy, w: B, h: B }, { minR: this.zoom ? 1 : 0.6, mark: true }); }
       for (const m of w.M.mk) { const [sx, sy] = p2(m.x, m.y); drawMarker(g, sx, sy, m.kind, m.r * k, 11); }
       const pt = (w.slow && w.slow.ptrail) || [];
       for (let i = 0; i < pt.length; i += 2) { const [sx, sy] = p2(pt[i], pt[i + 1]); g.rect(sx, sy, 1.5, 1.5, C.SKY); }
@@ -501,6 +515,25 @@ export const science = {
     g.button('sint', x + hw + 6, by, hw, 36, ic ? 'PLOTTED FOR HELM' : 'PLOT INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 16,
       () => app.send(CMD.PLOT, 1, ic ? K.NO_ID : c.id));
   },
+  // assembling the relic ring: tap two shards to swap them, FLIP the selected one, then ALIGN
+  drawRingPage(g, w, app, L, ring) {
+    const box = { x: L.x0 + 8, y: L.y0, w: L.x1 - L.x0 - 16, h: L.uy - L.y0 - 84 };
+    g.header(box.x, box.y, box.w - 140, 'RELIC RING - FIT THE SHARDS EDGE TO EDGE', C.ORANGE);
+    g.button('ringx', box.x + box.w - 132, box.y - 2, 132, 24, '< BACK TO HOLD', C.LILAC, C.BLACK, 13, () => { this.ringMode = false; }, { sound: 'toggle' });
+    if (this.rsel >= ring.order.length) this.rsel = -1;
+    drawRing(g, w, ring, { x: box.x, y: box.y + 30, w: box.w, h: box.h - 30 }, 1, app, this.rsel ?? -1, (sl) => {
+      app.sound.toggle();
+      if (this.rsel === undefined || this.rsel < 0) this.rsel = sl;
+      else if (this.rsel === sl) this.rsel = -1;
+      else { app.send(CMD.LAB, 5, this.rsel, sl); this.rsel = -1; }
+    });
+    const by = L.uy - 52, bw = (box.w - 18) / 4, sel = this.rsel ?? -1;
+    g.text(box.x, by - 18, sel >= 0 ? 'TAP ANOTHER SHARD TO SWAP, OR FLIP THIS ONE' : 'TAP A SHARD TO PICK IT UP', 12, C.GREY_TXT);
+    g.button('rflip', box.x, by, bw, 40, 'FLIP SHARD', sel >= 0 && !ring.solved ? C.LILAC : C.GREY, C.BLACK, 16, () => { if (sel >= 0) { app.send(CMD.LAB, 7, sel); } else app.sound.denied(); });
+    g.button('rlock', box.x + bw + 6, by, bw * 2 + 6, 40, ring.solved ? 'RING ALIGNED' : 'ALIGN THE RING', ring.solved ? C.GREEN : C.ORANGE, C.BLACK, 18, () => app.send(CMD.LAB, 6), { bold: true });
+    const shown = w.view === K.VM_LAB;
+    g.button('rview', box.x + 3 * (bw + 6), by, bw, 40, shown ? 'ON VIEWER' : 'TO VIEWER', shown ? C.ORANGE : C.SKY, C.BLACK, 16, () => app.send(CMD.LAB, 4, 0));
+  },
   drawPoiPanel(g, w, app, L, c, y) {
     const P = w.P, x = L.rx, rw = L.rw, d = w.range(c);
     y = g.wrap(x, y - 4, rw, POI_TIP[c.kind ?? 0], 12, C.GREY_TXT, 1.2, 2) + 2;
@@ -533,8 +566,11 @@ export const science = {
   // ---- the artefact hold
   drawHold(g, w, app, L) {
     const P = w.P, arts = P.arts || [], B = L.BIG;
+    const cp = w.slow && w.slow.camp, ring = cp && cp.ring;
+    if (ring && this.ringMode) { this.drawRingPage(g, w, app, L, ring); return; }
     let x = L.bx, y = L.by;
-    g.header(x, y, B, 'ARTEFACT HOLD', C.LILAC);
+    g.header(x, y, ring ? B - 132 : B, 'ARTEFACT HOLD', C.LILAC);
+    if (ring) g.button('ringm', x + B - 126, y - 2, 126, 24, ring.solved ? 'THE RING' : 'ASSEMBLE RING', ring.solved ? C.GREEN : flash(700) ? C.YELLOW : C.ORANGE, C.BLACK, 13, () => { this.ringMode = true; }, { sound: 'toggle' });
     y += 28;
     if (!arts.length) g.wrap(x, y, B, 'NOTHING HERE YET. EXTRACT WRECKS, DERELICTS, RUINS AND CAPSULES TO FIND ARTEFACTS. A FULL SCAN SHOWS WHETHER SOMETHING IS INSIDE.', 13, C.GREY_TXT);
     if (this.artSel >= arts.length) this.artSel = Math.max(0, arts.length - 1);
@@ -563,6 +599,16 @@ export const science = {
       return;
     }
     const d = ART[h.a];
+    if (isRare(h)) { // rare finds go through the lab rather than a timed scan
+      drawLab(g, w, h, { x: rx, y, w: rw, h: L.y1 - y - 90 }, 1, app);
+      const by = L.y1 - 38, bw2 = (rw - 6) / 2;
+      const canOn = h.ident >= 2 && !d.cursed && Object.keys(d.fx).length;
+      if (canOn) g.button('act', rx, by - 46, rw, 40, h.on ? 'ACTIVE - TAP TO POWER DOWN' : 'ACTIVATE (DRAWS 0.6 EN/S)', h.on ? C.GREEN : C.ORANGE, C.BLACK, 18, () => app.send(CMD.USE, 10, h.uid), { bold: true });
+      const shown = w.view === K.VM_LAB && w.slow && w.slow.labShow === h.uid;
+      g.button('lview', rx, by, bw2, 36, shown ? 'ON THE VIEWER' : 'PUT LAB ON VIEWER', shown ? C.ORANGE : C.SKY, C.BLACK, 15, () => app.send(CMD.LAB, 4, h.uid));
+      g.button('jet', rx + bw2 + 6, by, bw2, 36, 'JETTISON', C.RED_DIM, C.PEACH, 16, () => app.send(CMD.JETTISON, h.uid));
+      return;
+    }
     g.textFit(rx, y, h.ident ? d.name : d.unk, 22, d.cursed && h.ident ? C.RED : C.LILAC, 'left', rw, true);
     y += 30;
     g.text(rx, y, ['UNIDENTIFIED', 'IDENTIFIED', 'FULLY ANALYSED'][h.ident], 13, h.ident ? C.GREEN : C.YELLOW);
@@ -633,12 +679,17 @@ export const comms = {
     }
     g.header(x, y, rw, 'HAIL', C.LILAC);
     y += 24;
-    const list = w.contacts().filter((c) => c.alive).slice(0, 5);
+    // surface sites first (only seen in a planet's gravity well; they answer from a standard orbit)
+    const all = w.contacts().filter((c) => c.alive), ground = all.filter((c) => c.type === K.CT_GROUND);
+    const list = ground.concat(all.filter((c) => c.type !== K.CT_GROUND)).slice(0, 5);
     if (this.sel !== K.NO_ID && !list.some((c) => c.id === this.sel)) this.sel = K.NO_ID;
     if (!list.length) g.text(x, y + 4, 'NO CONTACTS IN RANGE', 12, C.GREY_TXT);
+    const P = w.P, orbPl = P.orbitPl;
     for (const c of list) {
-      const sel = this.sel === c.id;
-      g.button('hail' + c.id, x, y, rw, 28, `${w.shortName(c.id, c.known)}  ${fmtDist(w.range(c))}`, sel ? factionColor(c.faction) : C.GREY, sel ? C.BLACK : C.GREY_TXT, 16,
+      const sel = this.sel === c.id, gr = c.type === K.CT_GROUND;
+      const ok = !gr || (orbPl >= 0 && P.orb && P.orb.pl === orbPl);
+      const lab = gr ? `SURFACE: ${c.short || w.shortName(c.id, true)}${ok ? '' : ' (NEED ORBIT)'}` : `${w.shortName(c.id, c.known)}  ${fmtDist(w.range(c))}`;
+      g.button('hail' + c.id, x, y, rw, 28, lab, sel ? (gr ? '#a0c8b4' : factionColor(c.faction)) : gr ? '#2c4a40' : C.GREY, sel ? C.BLACK : gr ? '#a0c8b4' : C.GREY_TXT, gr ? 14 : 16,
         () => { this.sel = c.id; }, { sound: 'toggle' });
       y += 32;
     }

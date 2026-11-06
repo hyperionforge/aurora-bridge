@@ -6,6 +6,7 @@ import { dim, flash, lerpCol } from '../gfx.js';
 import { drawShip, drawStarbase, drawAnomaly, factionColor, artFor, accentFor, ART_CRUISER } from '../ships.js';
 import { fmtDist } from '../util.js';
 import { bodies, drawStation, drawPoi } from '../sysdraw.js';
+import { drawRocks } from '../field.js';
 
 // world -> radar screen. headingUp rotates the picture so the bow points up
 export function w2r(w, wx, wy, range, cx, cy, R, headingUp) {
@@ -40,6 +41,7 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     const [sx, sy] = w2r(w, nb.x, nb.y, range, cx, cy, R, headingUp);
     g.circle(sx, sy, nb.r * R / range, nb.col, false, 1.5);
   }
+  { const rk = w.rocks(); if (rk.length) drawRocks(g, rk, (x, y) => w2r(w, x, y, range, cx, cy, R, headingUp), R / range, { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R }, { minR: 1, mark: true }); }
   if (w.P.wpValid) {
     const [sx, sy] = w2r(w, w.P.wpx, w.P.wpy, range, cx, cy, R, headingUp);
     g.strokeRect(sx - 4, sy - 4, 9, 9, C.VIOLET, 1.5);

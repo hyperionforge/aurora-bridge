@@ -28,7 +28,7 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 1. Everyone joins the **same Wi-Fi**. The host's phone hotspot works too.
 2. The host taps **HOST A NEW BRIDGE**. The others open the app and tap the bridge in the list. If the list stays empty, they can type the address the host's lobby shows, or scan its QR code with the phone camera to join in the browser.
 3. In **CREW ASSEMBLY**, each player taps the role cards they want (tap one of yours again to give it back), or someone taps **AUTO-ASSIGN**. Pick a mission and difficulty, then **START MISSION**. It starts once all 9 roles (the 8 stations plus the captain) are taken and everyone has at least one.
-   **CAPTAIN** is the strip under the role cards. The captain gets three tabs: **CAPTAIN** (the whole ship at a glance, contacts, and the first officer's advice - tap ORDER to pass it on), **ORDERS** (pick a station and an order; it pops up on that crewmate's phone and the log times how fast it's done) and **HAILS** (take any call).
+   **CAPTAIN** is the banner across the top of the role cards, and the bridge needs one. The captain's screen shows the whole ship at a glance, the contacts, and the first officer's advice (tap ORDER to pass it on to that station).
 4. On your phone, the tabs are down the left. **VIEWER** (top right) shows the main viewer and changes it for the whole bridge. **☰** has sound, vibration, the screen-edge margin for rounded corners, *change my roles* (tap twice: your roles go back, you pick new ones in the crew screen, then **CONFIRM - BACK TO THE BRIDGE**) and *leave game*.
 5. **Host:** keep the app open and the screen on during a mission. The game runs on your phone. The app keeps the screen awake for you.
 
@@ -38,9 +38,19 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 
 **Hails:** stations call you when you come near, and you can hail them from COMMS. The speaker appears on the main viewer with subtitles; Velori, Kessari, Orran and Chorus speech is shown in its own script while the computer translates (the Chorus can't be fully translated). The COMMS officer picks the reply on their phone: trade materials, ask for news (rumours mark hidden artefacts on your NAV map), challenge the Orran champion to a duel. Kessari raiders sometimes warp in and demand your surrender: fight, pay tribute, bluff, hand back what's theirs, or give up your cargo. They don't wait forever. What you do changes how each faction treats you.
 
-**Voices:** the main viewer reads the dialogue out loud: just the spoken lines, not names or system messages. Every speaker has their own voice, each race its own manner (lilting Velori, hissing Kessari, slow and heavy Orrans, the many-voiced Chorus). Your replies are spoken by the captain in a calm, measured British voice. Speech stops as soon as the conversation ends or the viewer leaves COMMS. On a TV or laptop browser, click once to allow sound (press V to switch voices off). Most Chromecasts have no speech engine, so the casting phone renders the speech and streams the audio to the Chromecast, which plays it through the TV. ☰ > HAIL VOICES switches between *on the TV*, *this phone* and *off*.
+**Flying:** HELM has two sliders, IMPULSE (km/s) and WARP (0-6, in tenths). How far up each one goes depends on the power ENGINEERING gives impulse and warp: the part you can't reach is greyed and hatched, and dragging into it tells you to ask for more power. Planets have gravity wells (dotted rings on NAV). Inside one the ship flies like a real spacecraft: with the engines idle you fall, and at the right speed sideways you stay in orbit. NAV taps a planet (or its button) to plot the orbit insertion point; HELM arrives slowly, turns along the orbit, matches the ORBIT SPEED shown on the compass and cuts the engines until it says STABLE ORBIT. There's no wall at the edge of a system any more: past the grid is the Oort cloud, where ice hammers the hull and the warp field won't hold, so turn back or jump out.
 
-**Sounds:** softer, Trek-style bridge sounds. Warp and the jump drive hum and rise while they charge before they engage.
+**Shields:** more shield power makes the shield bubble bigger (SHIELDS shows its size). Anything friendly inside the bubble is covered: hits meant for it land on our shields instead. Fly alongside a ship to protect it.
+
+**Planets you can call:** some planets have people on them. In a standard orbit, COMMS lists the surface sites (SURFACE: ...) and can hail them. TACTICAL can target them too, if it comes to that.
+
+**Asteroid fields:** dense fields with one clear channel through them. HELM flies the channel, and rocks you hit do damage. TACTICAL's POINT DEFENCE shoots the most dangerous rock ahead, usually a boulder that has broken loose and is coming at you. SHIELDS reinforce towards it, and SCIENCE scans whatever is in there. The new **ASTEROID FIELD** mission is all about this.
+
+**The science lab:** rare finds aren't identified by waiting. SCIENCE runs tests on them in the CARGO HOLD (spectrometry, resonance, thermal, gravimetry, dating; each costs energy), then taps the class whose reference signature matches the readings. A wrong call costs a 12-second cool-down. PUT LAB ON VIEWER shows it on the main viewer so everyone can help. Identified artefacts are switched on with ACTIVATE (each draws a little power), and hull plating and antimatter cells can be used straight from the hold.
+
+**Main viewer:** it always shows the forward view; whatever a station puts on screen opens in a frame over it. Hail voices are switched off for now.
+
+**Sounds:** soft, breathy power-ups for warp and the jump drive while they charge, a hail call on the viewer and the COMMS phone when someone calls, and a chirp when the caller is put on screen.
 
 **Sandbox life:** ask any friendly station *"ANY WORK FOR US?"* for a contract: bounties on hidden raiders, surveys, rescues, salvage, deliveries, or courier runs to another system. Fleet Command sometimes calls with work too. Traffic passes and hails, Velori traders offer deals, Orran patrols demand inspections, freighters send maydays (one captain will remember whether you came), and odd things drift onto sensors. Your standing with each faction is on the COMMS screen.
 
@@ -48,7 +58,11 @@ Requirements: Android 7.0 or newer. Casting needs Google Play services, which al
 
 **ECHOES OF THE CHORUS**: five chapters that move you across the galaxy - a mining colony gone silent, a smuggler with refugees in her hold, a lost ship's vault locked by a song, the Orran Dominion's secret, and the Silent Choir itself. There's fighting, salvage and science, a puzzle (the escape pods' logs tell you what to count), and hard choices: spare an enemy captain or arrest him, hand refugees over or fight for them, free the Chorus, seal it away or take it for the Fleet. The people you helped come back to fight beside you in the finale; there are four endings. Chapters you've reached can be started directly from the lobby.
 
+**Allies:** how generous you were decides how much a friend does for you. Someone you gave a fair deal comes to one battle with one ship, leaves after a minute ("we're even"), and pulls out if badly hurt. Real help gets a loyal ship for every battle. Generosity gets two or three ships that stay to the end.
+
 **THE ARGUS PARADOX**: a distress call from the Aurora, dated nine days from now. Triangulate it from three survey buoys (each full scan draws a bearing line on the NAV map) and find your own wreck. Deep-scan the flight recorder. Then find ARGUS, a Fleet survey AI with something from the rift living in its core, and decide which of its core nodes to purge: the recorder holds the clue (the rift's carrier frequency), and Halcyon's science station explains harmonics. Hunt the rift's hidden anchors with SCIENCE's tachyon flux meter, and decide what to do about a pre-warp world in the surge's path. Work out which ship in a convoy is smuggling the Lance Core by comparing manifests with scans, then hold the rift against Orran hardliners. Your choices decide who comes to help, whether ARGUS can be trusted, and which of four endings you get.
+
+**THE CARTOGRAPHERS**: a people who mapped every star left a ring of crystal shards, and something at the end of the map. Rescue a survey ship from inside an asteroid field (the whole bridge flies it together) and decide whose discovery the first shard is. Orbit the ice world Rime, hail its settlers and survive a missile from the surface; then bombard the launch site or talk the Keepers down. Use the lab to tell a relic dealer's genuine shard from his forgery. Bargain with the Orran Archive for the last one. Then assemble the ring on the main viewer: swap and flip the shards until every edge rune matches, and read the message with the codex. It leads down a hidden lane to the Atlas, the people you helped come to defend it, and you decide what the machine does with its last act.
 
 If someone's phone drops out, they rejoin from the same phone and get their roles back. During a mission their roles stay reserved, but another player can take them over if they don't come back.
 
@@ -106,7 +120,8 @@ Keep the black window open while you play; closing it ends the game. Chromecast 
 ## Tests
 ```
 node tests/bots.mjs 1,2,3,4,5,6,7,8        # scripted crew plays all 18 missions per seed
-node tests/campaign.mjs; node tests/campaign2.mjs   # both campaigns end to end
+node tests/campaign.mjs; node tests/campaign2.mjs; node tests/campaign3.mjs   # the three campaigns end to end
+node tests/field.mjs 1 1                   # a scripted crew flies the ASTEROID FIELD mission
 node tests/e2e.mjs node 3 1                # relay + host + 3 phones (picking roles by hand) + TV in headless Chromium, screenshots in shots/
 javac -d build/relay android/app/src/main/java/com/aurora/bridge/RelayServer.java tools/relay-pc/RelayMain.java
 node tests/e2e.mjs java 5 0                # 5 phones with AUTO-ASSIGN, through the app's Java relay server

@@ -177,7 +177,7 @@ await phones[helmOwner].evaluate(async () => { const a = window.auroraApp; a.vie
 await sleep(500);
 console.log('blocked before align:', await host.evaluate(() => window.auroraHost.sim.jumpBlock(1)));
 await phones[helmOwner].screenshot({ path: `${OUT}/p63_helm_jump_unaligned.png` });
-await phones[helmOwner].evaluate(() => { const a = window.auroraApp; a.send(2, 0, 0, Math.round(a.w.P.jumpVec)); });
+await phones[helmOwner].evaluate(() => { const a = window.auroraApp; a.send(6, 0); a.send(2, 0, 0, Math.round(a.w.P.jumpVec)); });
 for (let i = 0; i < 40; i++) { await sleep(500); if (!(await host.evaluate(() => window.auroraHost.sim.jumpBlock(1)))) break; }
 await phones[helmOwner].screenshot({ path: `${OUT}/p64_helm_jump_aligned.png` });
 await phones[helmOwner].evaluate(() => window.auroraApp.send(35, 1));
@@ -304,6 +304,48 @@ console.log('campaign step:', await host.evaluate(() => window.auroraHost.sim.ca
 await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.camp.allies = new Set(['ressh', 'silk', 'lin']); s.campEnding('free'); });
 await sleep(1500);
 await tv.screenshot({ path: `${OUT}/tv83_epilogue.png` });
+// ---- THE CARTOGRAPHERS: the field, an orbit + ground site, the lab and the ring
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.game = 0; });
+await sleep(500);
+await host.evaluate(() => { window.auroraApp.send(32, 0, 1, 2, 2); });
+await sleep(800);
+await host.screenshot({ path: `${OUT}/p97_lobby_carto.png` });
+await host.evaluate(() => window.auroraApp.send(1));
+await sleep(3000);
+// chapter 1 in the Shatter, near the Calliope, with a boulder coming
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.P.dock = 0; s.camp.step = 'e1_go'; s.arrive(1); });
+await sleep(800);
+await host.evaluate(async () => { const s = window.auroraHost.sim, F = await import('./js/field.js'); const [x, y] = F.pathAt(s.field.f.pts, 0.4); s.P.x = x; s.P.y = y; s.P.hdg = s.P.desHdg = 90; s.P.speed = 30; s.P.shieldsOn = true; s.P.shieldRaise = 1; s.field.driftT = 0; s.endDialog(true); });
+await sleep(2500);
+const ownerOf2 = async (t) => { for (let i = 0; i < n; i++) if (await phones[i].evaluate((t) => window.auroraApp.myStation().tabs.includes(t), t)) return i; return 0; };
+const showTab = async (i, t, pre) => phones[i].evaluate(async ([t, pre]) => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(t); if (pre) await (new Function('return ' + pre))()(); }, [t, pre || '']);
+const hO = await ownerOf2(0), tO = await ownerOf2(4), sO = await ownerOf2(2), nO = await ownerOf2(1), cO = await ownerOf2(3);
+await showTab(hO, 0); await sleep(400); await phones[hO].screenshot({ path: `${OUT}/c1_helm_field.png` });
+await showTab(tO, 4); await sleep(400); await phones[tO].screenshot({ path: `${OUT}/c1_tactical_field.png` });
+await showTab(nO, 1, "async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 1; }"); await sleep(400); await phones[nO].screenshot({ path: `${OUT}/c1_nav_field.png` });
+await phones[0].evaluate(() => window.auroraApp.send(10, 0, 255)); await sleep(600); await tv.screenshot({ path: `${OUT}/c1_tv_forward_field.png` });
+await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(900); await tv.screenshot({ path: `${OUT}/c1_tv_tactical_field.png` });
+// the lab on the red shard
+await host.evaluate(() => { const s = window.auroraHost.sim; s.addArt('rshard', 0); const h = s.P.arts[s.P.arts.length - 1]; h.read = ['CRYSTAL', 0, 0, 0, 'ANCIENT']; s.labShow = h.uid; s.view = 6; });
+await showTab(sO, 2, "async () => { const m = await import('./js/stations/helm.js'); m.science.hold = true; m.science.ringMode = false; m.science.artSel = 99; }");
+await sleep(800); await phones[sO].screenshot({ path: `${OUT}/c2_science_lab.png` });
+await tv.screenshot({ path: `${OUT}/c2_tv_lab.png` });
+// orbit of Rime with the surface sites, a missile in flight
+await host.evaluate(async () => { const s = window.auroraHost.sim, G = await import('./js/galaxy.js'), O = await import('./js/orbit.js');
+  s.field = null; s.arrive(6); const i = s.sysDef.planets.findIndex((p) => p.name === 'RIME'), p = s.sysDef.planets[i]; const [px, py] = G.planetPos(s.sysDef, i, s.now / 1000), d = p.r * 2.5;
+  s.camp.step = 'e2_go'; s.cartoRime(); s.P.x = px + d; s.P.y = py; s.P.hdg = s.P.desHdg = 180; s.P.throttle = 0; s.P.autopilot = 0; s.P.inWell = true; s.P.vx = 0; s.P.vy = O.circSpeed(p, d); s.endDialog(true); });
+await sleep(5000);
+await host.evaluate(() => { const s = window.auroraHost.sim; s.camp.signal = false; s.cartoSignal(); });
+await sleep(9000);
+await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(800);
+await tv.screenshot({ path: `${OUT}/c3_tv_orbit_missile.png` });
+await showTab(hO, 0); await sleep(300); await phones[hO].screenshot({ path: `${OUT}/c3_helm_orbit.png` });
+await showTab(cO, 3); await sleep(300); await phones[cO].screenshot({ path: `${OUT}/c3_comms_surface.png` });
+// the ring
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.addArt('codex', 2); s.camp.ring = null; s.cartoRingStart(); s.view = 6; });
+await showTab(sO, 2, "async () => { const m = await import('./js/stations/helm.js'); m.science.hold = true; m.science.ringMode = true; m.science.rsel = 1; }");
+await sleep(800); await phones[sO].screenshot({ path: `${OUT}/c4_science_ring.png` });
+await tv.screenshot({ path: `${OUT}/c4_tv_ring.png` });
 console.log('ERRORS:', errors.length ? '\n' + errors.join('\n') : 'none');
 await browser.close();
 if (server) server.close();

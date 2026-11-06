@@ -130,6 +130,12 @@ export function drawContact(g, type, cx, cy, scale, hdg, t, dimF = 1, kind, civ)
   if (type === CT_STARBASE) { if (kind !== undefined && kind !== null) drawStation(g, kind, cx, cy, scale, t, civ); else drawStarbase(g, cx, cy, scale, t / 100, t); }
   else if (type === CT_ANOMALY) drawAnomaly(g, cx, cy, scale, t);
   else if (type === CT_POI) drawPoi(g, kind ?? 0, cx, cy, scale, t, (civ ?? 0) * 0.7);
+  else if (type === 7) { // a surface site: a ringed diamond
+    const r = Math.max(4, 30 * scale);
+    g.tri(cx, cy - r, cx + r, cy, cx, cy + r, '#a0c8b4'); g.tri(cx, cy - r, cx - r, cy, cx, cy + r, '#a0c8b4');
+    g.circle(cx, cy, r * 0.45, Math.floor(t / 600) % 2 ? '#ffffff' : '#3c6e5a');
+    g.circle(cx, cy, r * 1.5, '#a0c8b4', false, 1);
+  }
   else if (type === CT_BUOY) {
     const r = Math.max(3, 14 * scale * 4);
     g.circle(cx, cy, r, '#787e8c');
