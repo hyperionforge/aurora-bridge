@@ -342,3 +342,54 @@ export class Gfx {
     c.stroke();
   }
 }
+
+// ---------------------------------------------------------------- battle damage: the screen cracks
+// dmg 0..1. Impacts appear one by one at fixed (seeded) points; each grows jagged radial cracks
+// and a spall ring. Drawn over everything, it doesn't stop taps getting through.
+const CRACKS = (() => {
+  let seed = 9173;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const out = [];
+  for (let i = 0; i < 9; i++) {
+    const imp = { x: 0.08 + rnd() * 0.84, y: 0.1 + rnd() * 0.8, arms: [] };
+    const n = 5 + Math.floor(rnd() * 4);
+    for (let a = 0; a < n; a++) {
+      const ang = (a / n) * Math.PI * 2 + rnd() * 0.6, pts = [];
+      let x = 0, y = 0, d = ang;
+      for (let k = 0; k < 7; k++) { d += (rnd() - 0.5) * 0.7; const step = 0.25 + rnd() * 0.35; x += Math.cos(d) * step; y += Math.sin(d) * step; pts.push([x, y]); }
+      imp.arms.push({ pts, len: 0.5 + rnd() * 0.5, branch: rnd() < 0.5 ? Math.floor(2 + rnd() * 3) : -1, bd: (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.6) });
+    }
+    out.push(imp);
+  }
+  return out;
+})();
+export function drawCracks(g, W, H, dmg) {
+  if (!(dmg > 0.01)) return;
+  const c = g.ctx, nImp = Math.min(CRACKS.length, Math.ceil(dmg * CRACKS.length)), S = Math.min(W, H) * 0.32;
+  c.save();
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  for (let i = 0; i < nImp; i++) {
+    const imp = CRACKS[i], grow = Math.min(1, dmg * CRACKS.length - i), R = S * (0.35 + 0.65 * grow) * (0.6 + dmg * 0.6);
+    const ox = imp.x * W, oy = imp.y * H;
+    for (const pass of [[`rgba(0,0,0,0.55)`, 3.2], [`rgba(220,235,255,${0.35 + 0.35 * dmg})`, 1.1]]) {
+      c.strokeStyle = pass[0]; c.lineWidth = pass[1];
+      for (const arm of imp.arms) {
+        const m = Math.max(1, Math.round(arm.pts.length * arm.len * grow));
+        c.beginPath(); c.moveTo(ox, oy);
+        for (let k = 0; k < m; k++) c.lineTo(ox + arm.pts[k][0] / 2.2 * R, oy + arm.pts[k][1] / 2.2 * R);
+        if (arm.branch >= 0 && arm.branch < m) { // a side crack off the arm
+          const [bx, by] = arm.pts[arm.branch];
+          c.moveTo(ox + bx / 2.2 * R, oy + by / 2.2 * R);
+          const ang = Math.atan2(by, bx) + arm.bd;
+          c.lineTo(ox + bx / 2.2 * R + Math.cos(ang) * R * 0.25, oy + by / 2.2 * R + Math.sin(ang) * R * 0.25);
+        }
+        c.stroke();
+      }
+      c.beginPath(); c.arc(ox, oy, R * 0.12, 0, Math.PI * 2); c.stroke(); // spall ring at the impact
+    }
+    c.fillStyle = `rgba(255,255,255,${0.12 + 0.1 * dmg})`; c.beginPath(); c.arc(ox, oy, R * 0.05, 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+}
+// hull -> crack amount: the glass starts to go below 80% hull
+export const crackOf = (hull) => Math.max(0, Math.min(1, (80 - (hull ?? 100)) / 80));

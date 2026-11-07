@@ -82,7 +82,7 @@ export const helm = {
     }
     g.text(L.bx + 2, L.by, 'HDG ' + pad3(P.hdg), 19, C.ORANGE);
     g.text(L.bx + 2, L.by + 22, 'CRS ' + pad3(des), 19, P.autopilot ? C.VIOLET : C.WHITE);
-    if (P.autopilot) g.text(L.bx + 2, L.by + 45, ['', 'AUTOPILOT: COURSE', 'AUTOPILOT: INTERCEPT', P.apPlanet >= 0 ? 'AUTOPILOT: ORBIT' : 'AUTOPILOT: ESCORT'][P.autopilot], 12, C.VIOLET);
+    if (P.autopilot) g.text(L.bx + 2, L.by + 45, ['', 'AUTOPILOT: COURSE', 'AUTOPILOT: INTERCEPT', P.apPlanet >= 0 ? 'AUTOPILOT: ORBIT' : 'AUTOPILOT: ESCORT', 'AUTOPILOT: DOCKING'][P.autopilot], 12, C.VIOLET);
     else if (P.evasive) g.text(L.bx + 2, L.by + 45, 'EVASIVE MANOEUVRES', 12, flash(400) ? C.YELLOW : C.ORANGE);
     g.text(L.bx + L.BIG - 2, L.by, P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S', 19, C.SKY, 'right');
     g.text(L.bx + L.BIG - 2, L.by + 22, 'SECTOR ' + sectorName(P.x, P.y), 13, C.GREY_TXT, 'right');
@@ -239,34 +239,39 @@ export const helm = {
     const route = P.route && P.route.length ? P.route : P.wpValid ? [[P.wpx, P.wpy]] : [];
     const ic = w.findC(P.icPlot), opl = P.orbPlot >= 0 ? w.sys.planets[P.orbPlot] : null;
     const esc = ic && ic.faction !== K.F_HOSTILE && ic.type !== K.CT_STARBASE && ic.type !== K.CT_GROUND && ic.type !== K.CT_POI && ic.type !== K.CT_ANOMALY;
+    const dockable = ic && ic.type === K.CT_STARBASE && ic.faction !== K.F_HOSTILE && ic.kind !== SK_RELAY && ic.kind !== SK_MONOLITH;
     const plot = P.apPlot === 1 && route.length ? 1 : P.apPlot === 2 && ic ? 2 : P.apPlot === 4 && opl ? 4 : 0;
-    const mode = P.autopilot === K.AP_ESCORT ? (P.apPlanet >= 0 ? 4 : 3) : P.autopilot; // 1 course, 2 intercept, 3 escort, 4 orbit
+    const mode = P.autopilot === K.AP_ESCORT ? (P.apPlanet >= 0 ? 4 : 3) : P.autopilot === K.AP_DOCK ? 5 : P.autopilot; // 1 course, 2 intercept, 3 escort, 4 orbit, 5 dock
     let status = 'HAND STEERING';
     if (mode === 1) { const d = distTo(P.x, P.y, P.wpx, P.wpy); status = `ON COURSE - ${route.length > 1 ? `LEG 1 OF ${route.length}, ` : ''}${fmtDist(d)}${P.speed > 5 ? ', ETA ' + mmss(route.reduce((a, [qx, qy], i) => a + (i ? distTo(route[i - 1][0], route[i - 1][1], qx, qy) : d), 0) / Math.max(5, P.speed)) : ''}`; }
     else if (mode === 2) status = `INTERCEPTING ${w.shortName(P.apTarget)}`;
     else if (mode === 3) status = `ESCORTING ${w.shortName(P.apTarget)}`;
     else if (mode === 4) status = P.orbitPl === P.apPlanet ? `IN STANDARD ORBIT OF ${w.sys.planets[P.apPlanet].name}` : `TAKING US INTO ORBIT OF ${w.sys.planets[P.apPlanet].name}`;
+    else if (mode === 5) status = `DOCKING APPROACH - ${w.shortName(P.apTarget)}`;
     g.header(x, y, rw, 'AUTOPILOT', P.autopilot ? C.VIOLET : '#6a5aa0');
     g.textFit(x + rw - 14, y + 2, status, 13, C.BLACK, 'right', rw - 150, true);
     y += 22;
     const info = plot === 1 ? `NAV'S COURSE: ${route.length > 1 ? route.length + ' WAYPOINTS' : 'WAYPOINT ' + sectorName(route[0][0], route[0][1])} - ${fmtDist(distTo(P.x, P.y, route[0][0], route[0][1]))} BRG ${pad3(bearingTo(P.x, P.y, route[0][0], route[0][1]))}`
-      : plot === 2 ? `INTERCEPT PLOTTED: ${w.shortName(P.icPlot, ic.known)} ${fmtDist(w.range(ic))}${esc ? ' (OR ESCORT HER)' : ''}`
-        : plot === 4 ? `ORBIT PLOTTED: ${opl.name} - PULL ALONGSIDE AND MOVE WITH IT` : 'NOTHING PLOTTED - NAV PLOTS A COURSE OR AN ORBIT; NAV OR SCIENCE AN INTERCEPT';
+      : plot === 2 ? `PLOTTED: ${w.shortName(P.icPlot, ic.known)} ${fmtDist(w.range(ic))} BRG ${pad3(w.bearing(ic))}`
+        : plot === 4 ? `ORBIT PLOTTED: ${opl.name} - PULL ALONGSIDE AND MOVE WITH IT` : 'NOTHING PLOTTED - NAV PLOTS A COURSE OR ORBIT; NAV, SCIENCE OR TACTICAL AN INTERCEPT';
     g.textFit(x, y, info, 13, plot ? C.PEACH : C.GREY_TXT, 'left', rw);
     y += 18;
-    const flying = (plot === 1 && mode === 1) || (plot === 2 && (mode === 2 || mode === 3) && P.apTarget === P.icPlot) || (plot === 4 && mode === 4 && P.apPlanet === P.orbPlot);
-    const engage = () => {
-      if (plot === 1) app.send(CMD.AUTOPILOT, K.AP_WAYPOINT); else if (plot === 2) app.send(CMD.AUTOPILOT, K.AP_TARGET, P.icPlot);
-      else if (plot === 4) app.send(CMD.AUTOPILOT, K.AP_ESCORT, 100 + P.orbPlot); else app.sound.denied();
-    };
-    const label = ['ENGAGE', 'ENGAGE COURSE', 'ENGAGE INTERCEPT', '', 'ENTER ORBIT'][plot];
-    const twoBtns = plot === 2 && esc, bw2 = twoBtns || (P.autopilot && !flying) ? (rw - 6) / 2 : rw;
-    if (flying) g.button('apgo', x, y, rw, 32, 'DISENGAGE AUTOPILOT', C.VIOLET, C.BLACK, 16, () => app.send(CMD.AUTOPILOT, K.AP_OFF), { bold: true });
-    else {
-      g.button('apgo', x, y, bw2, 32, plot ? label : 'NO PLOT', plot ? (flash(700) && !P.autopilot ? C.ORANGE : '#c88232') : C.GREY, plot ? C.BLACK : C.GREY_TXT, 16, engage, { silent: !plot, bold: true });
-      if (twoBtns) g.button('apesc', x + bw2 + 6, y, bw2, 32, mode === 3 ? 'ESCORTING' : 'ESCORT HER', mode === 3 ? C.VIOLET : '#c88232', C.BLACK, 16, () => app.send(CMD.AUTOPILOT, mode === 3 ? K.AP_OFF : K.AP_ESCORT, P.icPlot), { bold: true });
-      else if (P.autopilot) g.button('apoff', x + bw2 + 6, y, bw2, 32, 'DISENGAGE', C.VIOLET, C.BLACK, 16, () => app.send(CMD.AUTOPILOT, K.AP_OFF), { bold: true });
-    }
+    // every autopilot mode that makes sense for what's plotted: tap one to fly it, tap the lit one to stop
+    const opts = plot === 1 ? [['COURSE', 1, () => app.send(CMD.AUTOPILOT, K.AP_WAYPOINT)]]
+      : plot === 4 ? [['ORBIT', 4, () => app.send(CMD.AUTOPILOT, K.AP_ESCORT, 100 + P.orbPlot)]]
+        : plot === 2 ? [['INTERCEPT', 2, () => app.send(CMD.AUTOPILOT, K.AP_TARGET, P.icPlot)]]
+          .concat(esc ? [['ESCORT', 3, () => app.send(CMD.AUTOPILOT, K.AP_ESCORT, P.icPlot)]] : [])
+          .concat(dockable ? [['DOCK', 5, () => app.send(CMD.AUTOPILOT, K.AP_DOCK, P.icPlot)]] : []) : [];
+    const onThis = (m) => mode === m && (m === 1 || (m === 4 ? P.apPlanet === P.orbPlot : P.apTarget === P.icPlot));
+    const extra = P.autopilot && !opts.some(([, m]) => onThis(m)) ? 1 : 0; // flying something older: offer to stop it
+    const n = Math.max(1, opts.length + extra), bw = (rw - 6 * (n - 1)) / n;
+    if (!opts.length && !extra) g.button('apgo', x, y, rw, 32, 'NO PLOT', C.GREY, C.GREY_TXT, 16, () => app.sound.denied(), { silent: true });
+    opts.forEach(([l, m, go], i) => {
+      const on = onThis(m);
+      g.button('ap' + i, x + i * (bw + 6), y, bw, 32, on ? `${l} - STOP` : l, on ? C.VIOLET : flash(700) && !P.autopilot ? C.ORANGE : '#c88232', C.BLACK, 16,
+        () => { if (on) app.send(CMD.AUTOPILOT, K.AP_OFF); else go(); }, { bold: true });
+    });
+    if (extra) g.button('apoff', x + opts.length * (bw + 6), y, bw, 32, 'DISENGAGE', C.VIOLET, C.BLACK, 16, () => app.send(CMD.AUTOPILOT, K.AP_OFF), { bold: true });
     y += 34;
     if (P.apAvoid) g.textFit(x, y, `STEERING ROUND ${P.apAvoid} - WE'LL COME BACK ONTO THE LINE`, 12, C.YELLOW, 'left', rw);
     y += 17;

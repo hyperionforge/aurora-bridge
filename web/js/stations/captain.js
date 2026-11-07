@@ -31,7 +31,7 @@ export const capStatus = { draw(g, w, app, L) {
   }
   g.text(x, y + 62, `ENERGY ${Math.round(P.energy)}  ${P.energyRate >= 0 ? '+' : ''}${P.energyRate.toFixed(1)}/S`, 12, P.energy > 300 ? C.SKY : C.ORANGE);
   g.bar(x + 160, y + 65, lw - 160, 8, P.energy / 10, P.energy > 300 ? C.SKY : P.energy > 120 ? C.YELLOW : C.RED);
-  const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : 'MANUAL HELM';
+  const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : P.autopilot === K.AP_ESCORT ? (P.apPlanet >= 0 ? 'AUTOPILOT: ORBIT' : 'AUTOPILOT: ESCORT') : P.autopilot === K.AP_DOCK ? 'AUTOPILOT: DOCKING' : 'MANUAL HELM';
   g.textFit(x, y + 77, `HDG ${pad3(P.hdg)}  ${P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, 12, C.SKY, 'left', lw);
   y += 94;
   g.header(x, y, lw, 'SYSTEMS', C.TAN);

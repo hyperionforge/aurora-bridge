@@ -20,14 +20,26 @@ export const tactical = {
     g.circle(cx, cy, pr, '#5a3214', false, 1.5);
     drawRadar(g, w, cx, cy, R, range, true, P.target, false);
     g.text(L.bx, L.by, 'BOW UP - ORANGE = PHASER ARC / RANGE', 12, C.GREY_TXT);
-    g.text(L.bx, L.by + B - 14, 'TAP A CONTACT TO TARGET IT', 12, C.GREY_TXT);
+    if (!(w.slow && w.slow.sq)) g.text(L.bx, L.by + B - 14, 'TAP A CONTACT TO TARGET IT', 12, C.GREY_TXT);
     g.hitCircle(cx, cy, R, { down: (x, y) => {
       const id = radarPick(w, x, y, cx, cy, R, range, true);
       if (id !== K.NO_ID) { app.sound.toggle(); app.send(CMD.TARGET, id); }
     } });
+    const sq = w.slow && w.slow.sq;
+    if (sq) { // the squadron: who's still flying, and the orders tactical can give them
+      g.textFit(L.bx, L.by + 15, 'WING: ' + sq.s.map(([n, h]) => `${n} ${h === -1 ? 'LOST' : h === -2 ? '-' : h + '%'}`).join('  '), 12, C.SKY, 'left', B);
+      const ob = (B - 12) / 3, oy = L.by + B - 30, tgt = P.target !== K.NO_ID && w.findC(P.target) && w.findC(P.target).faction === K.F_HOSTILE;
+      [['ATTACK TGT', 1], ['FORM UP', 2], ['AT WILL', 0]].forEach(([l, o], i) => g.button('sq' + i, L.bx + i * (ob + 6), oy, ob, 28, l, sq.o === o ? C.SKY : o === 1 && !tgt ? C.GREY : '#3c5a8c', sq.o === o ? C.BLACK : C.SKY, 14,
+        () => { if (o === 1 && !tgt) { app.sound.denied(); return; } app.send(CMD.SQUAD, o); }, { silent: o === 1 && !tgt }));
+    }
     const bw = (L.uw - 24) / 4.6;
     ['5K', '10K', '20K'].forEach((l, i) => g.button('tr' + i, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, this.rangeI === i ? C.RED : C.GREY, C.BLACK, 17, () => { this.rangeI = i; }));
-    g.button('clrt', L.ux + 3 * (bw + 6), L.uy, L.uw - 3 * (bw + 6), L.uh, 'CLEAR TARGET', C.RED_DIM, C.PEACH, 17, () => app.send(CMD.TARGET, K.NO_ID));
+    { // clear the target, or plot an intercept on it for helm's autopilot
+      const bx = L.ux + 3 * (bw + 6), rest = L.uw - 3 * (bw + 6), hw = (rest - 6) / 2, ic = P.icPlot === P.target && P.target !== K.NO_ID;
+      g.button('clrt', bx, L.uy, hw, L.uh, 'CLEAR', C.RED_DIM, C.PEACH, 16, () => app.send(CMD.TARGET, K.NO_ID));
+      g.button('tic', bx + hw + 6, L.uy, hw, L.uh, ic ? 'PLOTTED' : 'INTERCEPT', ic ? C.VIOLET : w.findC(P.target) ? C.LILAC : C.GREY, C.BLACK, 15,
+        () => { if (!w.findC(P.target)) { app.sound.denied(); return; } app.send(CMD.PLOT, 1, ic ? K.NO_ID : P.target); }, { silent: !w.findC(P.target) });
+    }
 
     const x = L.rx, rw = L.rw;
     let y = L.y0;
@@ -146,11 +158,12 @@ export const shields = {
     const on = P.shieldsOn;
     g.button('shtog', x, y + 24, rw, 48, on && raise < 0.99 ? `RAISING ${Math.round(raise * 100)}%` : on ? 'SHIELDS UP' : 'SHIELDS DOWN',
       on ? C.SKY : C.GREY, on ? C.BLACK : C.PEACH, 21, () => app.send(CMD.SHIELDS, on ? 0 : 1), { sound: 'toggle' });
-    { // the generator: health, and power coloured so a cut (or a boost) is obvious
-      const hl = `GENERATOR ${Math.round(P.health[K.S_SHIELDS])}% HEALTH`, pw = P.power[K.S_SHIELDS];
-      g.text(x, y + 76, hl, 13, P.health[K.S_SHIELDS] < 50 ? C.RED : C.GREY_TXT);
-      const pc = pw <= 0 ? (flash(350) ? C.RED : C.RED_DIM) : pw < 100 ? C.ORANGE : pw > 100 ? C.GREEN : C.GREY_TXT;
-      g.text(x + g.textW(hl, 13) + 10, y + 75, pw <= 0 ? '0% POWER - OFFLINE' : `${pw}% POWER${pw < 100 ? ' (LOW)' : pw > 100 ? ' (BOOSTED)' : ''}`, 14, pc, 'left', pw !== 100);
+    { // the generator: its damage and its power, coloured so trouble is obvious (red < 40%, orange < 100%, green otherwise)
+      const band = (v) => (v < 40 ? (v <= 0 && flash(350) ? C.RED_DIM : C.RED) : v < 100 ? C.ORANGE : C.GREEN);
+      const hp = Math.round(P.health[K.S_SHIELDS]), pw = P.power[K.S_SHIELDS];
+      const t1 = `GENERATOR ${hp}%${hp <= 0 ? ' - WRECKED' : hp < 100 ? ' DAMAGED' : ' HEALTHY'}`;
+      g.text(x, y + 75, t1, 14, band(hp), 'left', hp < 100);
+      g.text(x + g.textW(t1, 14, hp < 100) + 12, y + 75, pw <= 0 ? 'POWER 0% - OFFLINE' : `POWER ${pw}%${pw < 100 ? ' (LOW)' : pw > 100 ? ' (BOOSTED)' : ''}`, 14, band(pw), 'left', pw !== 100);
     }
     g.text(x, y + 94, 'REINFORCE (MORE HERE, LESS OPPOSITE)', 12, C.GREY_TXT);
     const hw = (rw - 6) / 2;

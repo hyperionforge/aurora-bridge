@@ -20,6 +20,8 @@ const AI_STATIC = 0, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_ALLY = 8;
 import { ARGUS_CHAPTERS, ARGUS_DESC } from './campaign2.js';
 import { SLEEP_CHAPTERS, SLEEP_DESC, SLEEP_BLURB } from './longsleep.js';
 import { THR_CHAPTERS, THR_LABELS, THR_DESC, THR_BLURB } from './threshold.js';
+import { TIDE_CHAPTERS, TIDE_DESC, TIDE_BLURB } from './tide.js';
+import { REC_CHAPTERS, REC_LABELS, REC_DESC, REC_BLURB } from './recurrence.js';
 export const CHAPTERS = ['DEAD AIR', 'THE LANTERN\'S PRICE', 'THE SHROUD', 'BLOOD AND HONOUR', 'THE SILENT CHOIR'];
 export const CHAPTER_DESC = [
   'DEEP HOLLOW, A MINING COLONY IN MERIDIAN REACH, HAS GONE SILENT. ITS LAST TRANSMISSION WAS SINGING.',
@@ -36,6 +38,8 @@ export const CAMPAIGNS = [
     blurb: 'A DISTRESS CALL FROM THE AURORA HERSELF - SENT NINE DAYS FROM NOW. A RIFT IN TIME, A MACHINE THAT DREAMS, AND A WORLD THAT MUST NOT KNOW YOU EXIST.' },
   { id: 'sleep', name: 'THE LONG SLEEP', chapters: SLEEP_CHAPTERS, desc: SLEEP_DESC, blurb: SLEEP_BLURB },
   { id: 'threshold', name: 'THRESHOLD', chapters: THR_CHAPTERS, labels: THR_LABELS, desc: THR_DESC, blurb: THR_BLURB },
+  { id: 'tide', name: 'IRON TIDE', chapters: TIDE_CHAPTERS, desc: TIDE_DESC, blurb: TIDE_BLURB },
+  { id: 'loop', name: 'RECURRENCE', chapters: REC_CHAPTERS, labels: REC_LABELS, desc: REC_DESC, blurb: REC_BLURB },
 ];
 const NUM_WORD = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 // defaults used when a chapter is started without having played the ones before
@@ -200,6 +204,8 @@ export function installCampaign(Sim) {
       if (cid === 'argus') { this.argusStart(ch); return; }
       if (cid === 'sleep') { this.sleepStart(ch); return; }
       if (cid === 'threshold') { this.thrStart(ch); return; }
+      if (cid === 'tide') { this.tdStart(ch); return; }
+      if (cid === 'loop') { this.rcStart(ch); return; }
       ch = clampf(ch | 0, 1, 5);
       const save = this.campSaveOf('chorus');
       this.camp = { id: 'chorus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [], bondOf: (w) => this.chorusBond(w) };
@@ -278,6 +284,8 @@ export function installCampaign(Sim) {
       if (c.id === 'argus') { this.argusTick(dt); return; }
       if (c.id === 'sleep') { this.sleepTick(dt); return; }
       if (c.id === 'threshold') { this.thrTick(dt); return; }
+      if (c.id === 'tide') { this.tdTick(dt); return; }
+      if (c.id === 'loop') { this.rcTick(dt); return; }
       c.t += dt;
       const sys = this.sysDef.id;
       const near = (id, r) => id < MAX_CONTACTS && this.npc[id].active && distTo(P.x, P.y, this.npc[id].x, this.npc[id].y) < r;
@@ -391,7 +399,7 @@ export function installCampaign(Sim) {
       if (this.mode !== K.MODE_CAMPAIGN || !this.camp) return;
       if (this.camp.id === 'argus') { this.argusArrive(to); return; }
       if (this.camp.id === 'sleep') { this.sleepArrive(to); return; }
-      if (this.camp.id === 'threshold') { this.storyArrive(); return; }
+      if (this.camp.id === 'threshold' || this.camp.id === 'tide' || this.camp.id === 'loop') { this.storyArrive(); return; }
       const c = this.camp, sid = this.sysDef.id;
       if (c.step === 'c1_go' && sid === 'meridian') {
         this.greeted.add(0); // Deep Hollow is silent
@@ -457,6 +465,8 @@ export function installCampaign(Sim) {
       if (this.camp && this.camp.id === 'argus') { this.argusOnScan(id); return; }
       if (this.camp && this.camp.id === 'sleep') { this.sleepOnScan(id); return; }
       if (this.camp && this.camp.id === 'threshold') { this.thrOnScan(id); return; }
+      if (this.camp && this.camp.id === 'tide') { this.tdOnScan(id); return; }
+      if (this.camp && this.camp.id === 'loop') { this.rcOnScan(id); return; }
       const n = this.npc[id];
       if (n && n.log && n.scan >= 2 && !n.logRead) { n.logRead = true; this.say(FROM_CREW, 0, n.log); this.msgs[0].who = 'teo'; }
     },
@@ -616,6 +626,7 @@ export function installCampaign(Sim) {
     campRemove(id, sec) { this.after(sec, () => { const n = this.npc[id]; if (n && n.active) { n.active = false; this.boomAt(n.x, n.y, 2); } }); },
     // ally AI: pick the nearest hostile, otherwise keep station on the Aurora
     allyRetarget(n) {
+      if (n.wing) { this.wingRetarget(n); return; }
       let best = NO_ID, bd = 26000;
       for (let i = 0; i < MAX_CONTACTS; i++) {
         if (!this.hostileAlive(i) || this.npc[i].type === CT_STARBASE || this.npc[i].ai === 3) continue;

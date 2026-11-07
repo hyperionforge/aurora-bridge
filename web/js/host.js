@@ -341,9 +341,9 @@ export class Host {
     return {
       t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, selMode: s.selMode, mode: s.mode, sys: s.sysIdx,
       selCamp: s.selCamp | 0, campMaxes: s.campMaxes(), camp: s.camp ? { id: s.camp.id, ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null, lines: s.camp.lines || null, obj2: s.camp.danger || null } : null, stats: s.stats, visitedN: s.visited.size,
-      labShow: s.labShow || 0, campF: s.camp ? s.camp.f : null, fleetCall: !!(s.fleetCall), campLabel: s.camp && s.campLabel ? s.campLabel() : null,
+      labShow: s.labShow || 0, campF: s.camp ? s.camp.f : null, sq: s.wingSnap ? s.wingSnap() : null, fleetCall: !!(s.fleetCall), campLabel: s.camp && s.campLabel ? s.campLabel() : null,
       visited: [...s.visited], revealed: [...s.revealed], jumpWhy: s.P.jumpTo === K.NO_ID ? this.jumpReasons() : {}, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
-      M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
+      M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, cause: M.cause || '', objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
         waves: M.waves, frLost: M.frLost, ver: M.ver, pul: M.pul },
       msgs: s.msgs,
       dlg: s.dlg ? { seq: s.dlg.seq, key: s.dlg.key, who: s.dlg.who, from: s.dlg.from, pending: !!s.dlg.pending, onScreen: !!s.dlg.onScreen, left: s.dlg.deadline ? Math.max(0, Math.round((s.dlg.deadline - s.now) / 1000)) : 0 } : null,

@@ -21,6 +21,7 @@ const PK = { ASTEROID: G.PK_ASTEROID, COMET: G.PK_COMET, WRECK: G.PK_WRECK, DERE
 export const AI_STATIC = 0, AI_DRIFT = 1, AI_TRAVEL = 2, AI_WARPIN = 3, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_PATROL = 7, AI_ALLY = 8;
 const TRAIL = 24, PTRAIL = 120, MAX_TORPS = 10, MAX_BEAMFX = 6, MAX_BOOMS = 10, MSG_KEEP = 25, MAX_ORDERS = 8, MAX_ADVICE = 5;
 const DIFF_DMG = [0.7, 1.0, 1.3];
+const ESCORT_OFF = 450; // escort station off a ship's starboard side - inside a half-open shield bubble
 
 function newPlayer() {
   return {
@@ -59,6 +60,9 @@ import { installSleep } from './longsleep.js';
 import { installPuzzles } from './puzzles.js';
 import { installStory } from './story.js';
 import { installThreshold } from './threshold.js';
+import { installSquadron } from './squadron.js';
+import { installTide } from './tide.js';
+import { installRecurrence } from './recurrence.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -119,7 +123,7 @@ export class Sim {
   }
   newMission() {
     return { type: 0, diff: 1, stage: 0, stageT: 0, fr: NO_ID, ids: [], foes: [], wave: 0, waves: 0, encounter: 0,
-      ambush: false, frLost: false, frSaved: false, ax: 0, ay: 0, bx: 0, by: 0, fail: 0, objective: '', mk: [], ver: 0, pul: null };
+      ambush: false, frLost: false, frSaved: false, ax: 0, ay: 0, bx: 0, by: 0, fail: 0, cause: '', objective: '', mk: [], ver: 0, pul: null };
   }
   frand() { return this.rand(); }
   // ---------------------------------------------------------------- the current star system
@@ -408,8 +412,9 @@ export class Sim {
       this.missionOnDestroyed(id);
     }
   }
-  damagePlayer(fromX, fromY, dmg) {
+  damagePlayer(fromX, fromY, dmg, cause = '') {
     if (this.game !== GS_RUN) return;
+    if (cause) { this.lastHit = cause; this.lastHitAt = this.now; }
     const P = this.P;
     const rel = angDiff(P.hdg, bearingTo(P.x, P.y, fromX, fromY));
     const q = quadFromRel(rel);
@@ -436,6 +441,8 @@ export class Sim {
     if (P.hull <= 0) {
       P.hull = 0;
       this.boomAt(P.x, P.y, 1);
+      this.M.cause = (cause || (this.now - (this.lastHitAt || -1e9) < 5000 ? this.lastHit : '') || 'CATASTROPHIC HULL FAILURE').toUpperCase();
+      this.say(FROM_CREW, 2, `HULL BREACH - ALL DECKS! THE AURORA IS BREAKING UP. CAUSE: ${this.M.cause}.`);
       this.endMission(false, K.FAIL_SHIP);
     }
   }
@@ -521,6 +528,11 @@ export class Sim {
           P.autopilot = K.AP_ESCORT; P.apTarget = NO_ID; P.apPlanet = i; P.escA = Math.atan2(P.y - py, P.x - px);
           this.say(FROM_CREW, 0, `TAKING US INTO ORBIT OF ${this.sysDef.planets[i].name}.`); break;
         }
+        if (a === K.AP_DOCK) { // fly in to a station, slow to docking speed, and dock
+          if (!(b < MAX_CONTACTS && this.canDockAt(b))) { this.denied('THAT ISN\'T A STATION THAT WILL LET US DOCK.'); break; }
+          P.autopilot = K.AP_DOCK; P.apTarget = b; P.apPlanet = -1; P.dockAsk = false;
+          this.say(FROM_CREW, 0, `AUTOPILOT: DOCKING APPROACH TO ${this.shortName(b)}. SHIELDS - DOWN BEFORE WE ARRIVE.`); break;
+        }
         if (a === K.AP_ESCORT) P.apPlanet = -1;
         if (a === K.AP_ESCORT && !(b < MAX_CONTACTS && this.visible(b) && this.npc[b].faction !== F_HOSTILE && this.npc[b].type !== CT_STARBASE && this.npc[b].type !== K.CT_GROUND)) { this.denied('PICK A FRIENDLY OR NEUTRAL SHIP TO ESCORT.'); break; }
         P.autopilot = a;
@@ -568,11 +580,12 @@ export class Sim {
       case CMD.ANALYSE: this.analyseCmd(a, b); break;
       case CMD.JETTISON: this.jettisonCmd(a); break;
       case CMD.DREPLY: this.dialogReply(a, b); break;
+      case CMD.SQUAD: this.wingOrder(a); break;
       case CMD.CAMP: if (this.campAction) this.campAction(a, b); break;
       case CMD.SHRANGE: {
         const t = clampf(a, 0, 100) / 100, was = P.shRange;
         P.shRange = t;
-        if (b === 1 && Math.abs(t - was) > 0.001) this.say(FROM_CREW, 0, t > 0.01 ? `SHIELD BUBBLE ${(O.bubbleR(t) / 1000).toFixed(1)}K ACROSS OUR BEAM - STRENGTH ${Math.round(100 / O.shK(t))}%.` : 'SHIELDS PULLED IN TIGHT - FULL STRENGTH.');
+        if (b === 1 && Math.abs(t - was) > 0.001) this.say(FROM_CREW, 0, t > 0.01 ? `SHIELD BUBBLE ${(O.bubbleR(t) / 1000).toFixed(1)}K RADIUS - STRENGTH ${Math.round(100 / O.shK(t))}%.` : 'SHIELDS PULLED IN TIGHT - FULL STRENGTH.');
         break;
       }
       case CMD.LAB: if (this.labCmd) this.labCmd(a, b, c.c | 0, c.d | 0); break;
@@ -742,7 +755,8 @@ export class Sim {
       if (n.allyT <= 0 || !(n.aiTarget < MAX_CONTACTS && this.hostileAlive(n.aiTarget))) { n.allyT = 3; this.allyRetarget(n); }
       ai = n.aiTarget < MAX_CONTACTS ? AI_ATTACK : -1;
     }
-    let tp = ai === -1 ? [P.x, P.y] : this.targetPos(n.aiTarget);
+    const guard = ai === -1 && n.guardAt !== undefined && n.guardAt !== NO_ID && n.guardAt < MAX_CONTACTS && this.npc[n.guardAt].active && this.npc[n.guardAt].alive ? this.npc[n.guardAt] : null;
+    let tp = ai === -1 ? (guard ? [guard.x, guard.y] : [P.x, P.y]) : this.targetPos(n.aiTarget);
     if (!tp) { n.aiTarget = US; tp = [P.x, P.y]; }
     const [tx, ty] = tp;
     const d = distTo(n.x, n.y, tx, ty), brg = bearingTo(n.x, n.y, tx, ty);
@@ -752,10 +766,10 @@ export class Sim {
     n.aiT += dt;
 
     switch (ai) {
-      case -1: { // keep station on the Aurora
-        const dp = distTo(n.x, n.y, P.x, P.y);
-        n.desHdg = dp > 2500 ? brg : P.hdg;
-        targetSpeed = dp > 4000 ? full : clampf(Math.abs(P.speed), 0, full);
+      case -1: { // keep station on the Aurora (or on whatever the squadron is guarding)
+        const dp = d, sp = guard ? Math.abs(guard.speed || 0) : Math.abs(P.speed);
+        n.desHdg = dp > 2500 ? brg : guard ? (guard.hdg ?? n.hdg) : P.hdg;
+        targetSpeed = dp > 4000 ? full : clampf(sp, 0, full);
         break;
       }
       case AI_STATIC:
@@ -767,7 +781,7 @@ export class Sim {
               n.phCd = 3;
               const hit = this.frand() < 0.7;
               this.beamFx(id, US, hit);
-              if (hit) this.damagePlayer(n.x, n.y, 16 * DIFF_DMG[this.M.diff % 3]);
+              if (hit) this.damagePlayer(n.x, n.y, 16 * DIFF_DMG[this.M.diff % 3], `PHASER FIRE FROM ${this.contactName(id, n.type)}`);
             }
           } else if (n.phCd <= 0 && n.faction === F_FRIEND) {
             let best = NO_ID, bd = 6000;
@@ -889,7 +903,7 @@ export class Sim {
       this.beamFx(id, n.aiTarget, hit);
       if (hit) {
         const dmg = (destroyer ? 18 : 14) * wF;
-        if (toPlayer) this.damagePlayer(n.x, n.y, dmg);
+        if (toPlayer) this.damagePlayer(n.x, n.y, dmg, `PHASER FIRE FROM ${this.contactName(id, n.type, n.scan > 0)}`);
         else this.damageNpc(n.aiTarget, dmg * 0.5, K.SUB_HULL, id);
       } else if (toPlayer) {
         this.emit(K.EV_ENEMY_MISSED);
@@ -936,7 +950,7 @@ export class Sim {
           t.missed = true; // dodged - it flies on past
           this.emit(K.EV_ENEMY_MISSED);
         } else {
-          this.damagePlayer(t.x - Math.sin(r) * 400, t.y + Math.cos(r) * 400, t.dmg);
+          this.damagePlayer(t.x - Math.sin(r) * 400, t.y + Math.cos(r) * 400, t.dmg, t.owner === K.HAZARD ? 'A MISSILE' : t.owner < MAX_CONTACTS ? `A TORPEDO FROM ${this.contactName(t.owner, this.npc[t.owner].type, this.npc[t.owner].scan > 0)}` : 'A TORPEDO');
           this.boomAt(t.x, t.y, 0);
           t.dead = true;
         }
@@ -1138,15 +1152,27 @@ export class Sim {
       if (d < O.ORBIT_OK && P.orbitPl !== P.apPlanet) { P.orbitPl = P.apPlanet; this.emit(K.EV_FOUND); this.say(FROM_CREW, 0, `STANDARD ORBIT OF ${pl.name}. COMMS CAN HAIL THE SURFACE.`); if (this.onOrbit) this.onOrbit(P.apPlanet); }
       else if (d > 3000 && P.orbitPl === P.apPlanet) { P.orbitPl = -1; this.say(FROM_CREW, 1, `WE'VE DRIFTED OUT OF ${pl.name}'S ORBIT.`); }
     } else if (P.autopilot === K.AP_ESCORT) {
-      // escort: hold station 900m off the ship's starboard side (a safe distance - SHIELDS widens the bubble to cover it)
+      // escort: hold station 450m off the ship's starboard side (a safe distance - SHIELDS widens the bubble to cover it)
       const n = P.apTarget < MAX_CONTACTS ? npc[P.apTarget] : null;
       if (n && n.active && n.alive) {
-        const r = (n.hdg + 90) * DEG, sx = n.x + Math.sin(r) * 900, sy = n.y - Math.cos(r) * 900;
+        const r = (n.hdg + 90) * DEG, sx = n.x + Math.sin(r) * ESCORT_OFF, sy = n.y - Math.cos(r) * ESCORT_OFF;
         const d = distTo(P.x, P.y, sx, sy);
         P.desHdg = d > 250 ? this.apSteer(sx, sy) : n.hdg;
         if (P.warping && d < 7000) { this.dropWarp(); this.say(FROM_CREW, 0, 'CLOSING ON OUR CHARGE - DROPPING OUT OF WARP.'); }
         P.escortD = d;
       } else { P.autopilot = K.AP_OFF; this.say(FROM_CREW, 1, 'ESCORT ENDED - WE LOST THE SHIP.'); }
+    } else if (P.autopilot === K.AP_DOCK) {
+      const n = P.apTarget < MAX_CONTACTS ? npc[P.apTarget] : null;
+      if (!n || !n.active || !n.alive || !this.canDockAt(P.apTarget)) { P.autopilot = K.AP_OFF; this.say(FROM_CREW, 1, 'DOCKING APPROACH ABORTED.'); }
+      else {
+        const d = distTo(P.x, P.y, n.x, n.y);
+        P.desHdg = this.apSteer(n.x, n.y);
+        if (P.warping && d < 7000) { this.dropWarp(); this.say(FROM_CREW, 0, 'DOCKING APPROACH - DROPPING OUT OF WARP.'); }
+        if (d < K.DOCK_RANGE - 200 && Math.abs(P.speed) < K.DOCK_MAX_SPEED) {
+          if (P.shieldsOn) { if (!P.dockAsk) { P.dockAsk = true; this.say(FROM_CREW, 1, 'IN DOCKING POSITION - SHIELDS, LOWER THE SHIELDS AND WE\'LL DOCK.'); } }
+          else { const id = P.apTarget; P.autopilot = K.AP_OFF; this.handleCmd({ cmd: K.CMD.DOCK, a: 0, b: 0, c: 0, d: 0 }); if (!P.dock) P.apTarget = id; }
+        }
+      }
     } else if (P.autopilot === K.AP_TARGET) {
       if (P.apTarget < MAX_CONTACTS && npc[P.apTarget].active && npc[P.apTarget].alive) {
         const n = npc[P.apTarget];
@@ -1195,6 +1221,11 @@ export class Sim {
         const lim = clampf((d - 2500) / 2000, 0, 1) * K.IMPULSE_MAX;
         if (targetSpeed > lim) targetSpeed = lim;
       }
+      if (P.autopilot === K.AP_DOCK && P.apTarget < MAX_CONTACTS && npc[P.apTarget].alive) { // ease in, stop inside docking range
+        const d = distTo(P.x, P.y, npc[P.apTarget].x, npc[P.apTarget].y);
+        const lim = d > K.DOCK_RANGE - 300 ? clampf((d - (K.DOCK_RANGE - 300)) / 3000, 0.1, 1) * K.IMPULSE_MAX : 0;
+        targetSpeed = Math.min(lim, this.impulseCap()); // the autopilot flies the approach itself
+      }
       if (P.autopilot === K.AP_ESCORT && P.apPlanet >= 0) targetSpeed = clampf((P.escortV || 0) + ((P.escortD || 0) - 100) * 0.12, 0, this.impulseCap());
       else if (P.autopilot === K.AP_ESCORT && P.apTarget < MAX_CONTACTS && npc[P.apTarget].alive) { // match speed, close the gap
         const n = npc[P.apTarget], d = P.escortD || 0;
@@ -1242,7 +1273,7 @@ export class Sim {
       if (vr < 0) { P.vx -= (rx / d) * vr * 1.3; P.vy -= (ry / d) * vr * 1.3; }
       if (P.warping) this.dropWarp();
       P.skimT -= dt;
-      if (P.skimT <= 0) { P.skimT = 1.2; this.damagePlayer(qx, qy, 3 + Math.abs(vr) * 0.05); this.say(FROM_CREW, 2, `PROXIMITY ALERT - WE'RE SKIMMING ${pl.name}'S ATMOSPHERE! PULL UP!`); }
+      if (P.skimT <= 0) { P.skimT = 1.2; this.damagePlayer(qx, qy, 3 + Math.abs(vr) * 0.05, `BURNING UP IN ${pl.name}'S ATMOSPHERE`); this.say(FROM_CREW, 2, `PROXIMITY ALERT - WE'RE SKIMMING ${pl.name}'S ATMOSPHERE! PULL UP!`); }
     }
     if (P.orbitPl >= 0 && (P.autopilot !== K.AP_ESCORT || P.apPlanet !== P.orbitPl)) { this.say(FROM_CREW, 0, `LEAVING ${this.sysDef.planets[P.orbitPl] ? this.sysDef.planets[P.orbitPl].name : ''} ORBIT.`); P.orbitPl = -1; }
     if (P.autopilot !== K.AP_ESCORT) P.apPlanet = -1;
@@ -1403,6 +1434,7 @@ export class Sim {
         if (this.game === GS_RUN) this.missionTick(dt);
         if (this.game === GS_RUN) this.worldTick(dt);
         if (this.game === GS_RUN && this.camp && this.allyTick) this.allyTick(dt);
+        if (this.game === GS_RUN && this.camp && this.camp.wing) this.wingTick(dt);
       }
     }
     const now = this.now;
@@ -2501,3 +2533,6 @@ installSleep(Sim);
 installPuzzles(Sim);
 installStory(Sim);
 installThreshold(Sim);
+installSquadron(Sim);
+installTide(Sim);
+installRecurrence(Sim);

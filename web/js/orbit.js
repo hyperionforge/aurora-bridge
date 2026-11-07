@@ -32,6 +32,6 @@ export const OOB_TEXT = [
 
 // shield range, set by SHIELDS with a slider (t = 0..1): a wider bubble covers ships alongside us but
 // spreads the shields thinner. shK = shield drained per point of damage stopped (strength = 1 / shK).
-export const SH_MIN_R = 600, SH_MAX_R = 3000;
+export const SH_MIN_R = 200, SH_MAX_R = 1000; // bubble radius: tight 0.2k (full strength) .. wide 1k (40%)
 export const bubbleR = (t) => SH_MIN_R + (SH_MAX_R - SH_MIN_R) * Math.max(0, Math.min(1, t || 0));
 export const shK = (t) => 1 + 1.5 * Math.max(0, Math.min(1, t || 0));

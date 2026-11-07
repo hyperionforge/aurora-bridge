@@ -4,6 +4,7 @@ These are the house rules for every new campaign. THRESHOLD (web/js/threshold.js
 
 ## Structure
 - Use a proven story framework and say which in the file header. THRESHOLD uses the **five-act television structure with a cold open**: a short, self-contained hook (COLD OPEN), then five acts that each end on a turn ("act out") that sends the story somewhere new. Set `labels` on the CAMPAIGNS entry so the lobby and the viewer's title card say COLD OPEN / ACT ONE ... instead of CHAPTER n.
+- Frameworks used so far, so the next campaign can pick a different one: THRESHOLD - five-act TV with a cold open; IRON TIDE - the seven-point structure (hook, plot turn 1, pinch 1, midpoint, pinch 2, plot turn 2, resolution) over five chapters, for a war story; RECURRENCE - kishotenketsu with a teaser (introduction, development, a twist that reframes everything, reconciliation), for a mystery about time. Put the labels in `STORY[id].labels` too, so objectives read "PART TWO: ...".
 - Give it a mystery with clues the crew can actually find, a red herring, a sympathetic antagonist and a human one, and a twist that reframes the earlier acts.
 - Several endings, decided by choices across the whole campaign (allies by bond, `camp.f` flags).
 
@@ -27,6 +28,11 @@ These are the house rules for every new campaign. THRESHOLD (web/js/threshold.js
 - Every NPC remembers: `say` can be a function of `camp.f`, and options can have `if` conditions. Greet the crew differently after they helped or wronged someone; let a rescued character comment at the right moments.
 - Use node-level `who` to change speaker mid-conversation (interruptions, a second voice), `ev` for a sound, `auto: [seconds, next]` for lines that move on by themselves.
 - Keep each line short enough to read aloud on the viewer.
+
+## Fleet ships and wingmen (squadron.js)
+- A campaign can give the Aurora a squadron for the whole story: `wingAdd(key, spec)` or a `camp.wing` roster (`{ key, who, name, short, type, shMax, lostLine }`). Call `wingSpawn()` in the `arrive` hook - they jump with the Aurora and keep their damage. A wingman who dies stays dead (`STORY[id].wingLost` hook); set `r.away` to detach one for a chapter, `r.fate` to say why it's gone.
+- TACTICAL orders the wing (CMD.SQUAD: 1 attack my target, 2 form up, 0 at will) and COMMS can hail a wingman for the full list; `camp.wingGuard` is what DEFEND guards.
+- Use them for choices that cost something: save the wingman or the convoy, cover the crippled ship or let her captain ram the shield generator.
 
 ## Practical
 - Steps are a state machine (`camp.step`), each with an objective that tells the crew which station does what.

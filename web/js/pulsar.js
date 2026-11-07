@@ -309,14 +309,14 @@ export function installPulsar(Sim) {
         if (f.alive) this.sayAs('odili', `BEAM HIT! HULL ${Math.round(f.hull)}%.`, f.hull < 35 ? 2 : 1);
       });
       if (fLit === 2 && !s.said.shadow) { s.said.shadow = true; this.say(FROM_CREW, 3, 'THE BEAM PASSED RIGHT OVER THE MERIDIAN - THE ROCK TOOK IT. SHE\'S SAFE IN THE SHADOW.'); }
-      beam('us', P.x, P.y, () => { this.damagePlayer(pul.x, pul.y, 14); this.emit(K.EV_HAZARD); this.say(FROM_CREW, 2, 'WE\'RE IN THE PULSAR BEAM!'); });
+      beam('us', P.x, P.y, () => { this.damagePlayer(pul.x, pul.y, 14, 'THE PULSAR\'S RADIATION BEAM'); this.emit(K.EV_HAZARD); this.say(FROM_CREW, 2, 'WE\'RE IN THE PULSAR BEAM!'); });
       for (const id of M.foes) { const n = this.npc[id]; if (n && n.alive) beam('n' + id, n.x, n.y, () => this.damageNpc(id, 18, K.SUB_HULL, HAZARD, true)); }
       // don't fly into the neutron star
       const dp = distTo(P.x, P.y, pul.x, pul.y);
       if (dp < PUL_CORE) {
         const a = Math.atan2(P.y - pul.y, P.x - pul.x);
         P.x = pul.x + Math.cos(a) * PUL_CORE; P.y = pul.y + Math.sin(a) * PUL_CORE;
-        if ((s.coreT = (s.coreT || 0) - dt) <= 0) { s.coreT = 1.5; this.damagePlayer(pul.x, pul.y, 8); this.say(FROM_CREW, 2, 'TOO CLOSE TO THE NEUTRON STAR - GRAVITATIONAL SHEAR! PULL AWAY!'); }
+        if ((s.coreT = (s.coreT || 0) - dt) <= 0) { s.coreT = 1.5; this.damagePlayer(pul.x, pul.y, 8, 'THE NEUTRON STAR\'S GRAVITATIONAL SHEAR'); this.say(FROM_CREW, 2, 'TOO CLOSE TO THE NEUTRON STAR - GRAVITATIONAL SHEAR! PULL AWAY!'); }
       }
       // the rocks are solid
       for (const r of pul.rocks) {

@@ -4,7 +4,7 @@
 // view mode the bridge picked during a mission, and the debrief afterwards.
 // ============================================================================
 import * as K from './config.js';
-import { Gfx, loadFonts } from './gfx.js';
+import { Gfx, loadFonts, drawCracks, crackOf } from './gfx.js';
 import { World } from './world.js';
 import { Scene, drawViewer, drawTitleCard } from './viewscreen.js';
 import { sound } from './sound.js';
@@ -43,7 +43,7 @@ export class TvApp {
       g.text(g.W / 2, 270 * u, this.status || 'MAIN VIEWER - WAITING FOR THE BRIDGE...', 20 * u, K.C.PEACH, 'center');
       return;
     }
-    try { drawViewer(g, w, this.scene, { title: (r) => drawTitleCard(g, w, r, this.joinUrl) }); }
+    try { drawViewer(g, w, this.scene, { title: (r) => drawTitleCard(g, w, r, this.joinUrl) }); if (w.game === K.GS_RUN) drawCracks(g, g.W, g.H, crackOf(w.P.hull)); }
     catch (e) { // never leave the TV frozen on one bad frame; show what broke
       if (!this.lastErr || performance.now() - this.lastErr > 5000) { this.lastErr = performance.now(); console.error(e); }
       g.text(8, g.H - 20, 'VIEWER ERROR: ' + String(e && e.message || e).slice(0, 80), 12, K.C.RED);

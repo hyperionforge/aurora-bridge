@@ -689,7 +689,7 @@ export class Scene {
     g.text(x, y, `ENERGY ${Math.round(P.energy)}  ${P.energyRate >= 0 ? '+' : ''}${P.energyRate.toFixed(1)}/S`, fs, P.energy > 300 ? C.SKY : C.ORANGE);
     g.bar(x + 200 * u, y + 4 * u, lw - 200 * u, 9 * u, P.energy / 10, P.energy > 300 ? C.SKY : P.energy > 120 ? C.YELLOW : C.RED);
     y += row;
-    const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : 'MANUAL HELM';
+    const ap = P.autopilot === K.AP_WAYPOINT ? 'AUTOPILOT: WAYPOINT' : P.autopilot === K.AP_TARGET ? 'AUTOPILOT: INTERCEPT' : P.autopilot === K.AP_ESCORT ? (P.apPlanet >= 0 ? 'AUTOPILOT: ORBIT' : 'AUTOPILOT: ESCORT') : P.autopilot === K.AP_DOCK ? 'AUTOPILOT: DOCKING' : 'MANUAL HELM';
     g.textFit(x, y, `HDG ${pad3(P.hdg)}  ${P.warping ? warpTxt(P) : Math.round(P.speed) + ' KM/S'}  ${ap}${P.evasive ? '  EVASIVE' : ''}`, fs, C.SKY, 'left', lw);
     y += row + 4 * u;
     g.header(x, y, lw, 'SYSTEMS', C.TAN, hh);
@@ -785,6 +785,7 @@ export class Scene {
     }
     if (w.mode) { // a voyage: how far you got
       g.text(cx, r.y + 40 * u, won ? 'VOYAGE COMPLETE' : 'THE AURORA IS LOST', 50 * u, won ? C.GREEN : C.RED, 'center', true);
+      if (!won) g.textFit(cx, r.y + 98 * u, M.fail === K.FAIL_SHIP ? `DESTROYED BY ${M.cause || 'CATASTROPHIC HULL FAILURE'}` : K.FAIL_TEXT[M.fail] || '', 20 * u, C.ORANGE, 'center', r.w * 0.9);
       let yy = r.y + 130 * u;
       const line = (txt, col) => { g.text(cx, yy, txt, 19 * u, col, 'center'); yy += 28 * u; };
       if (cp && cp.ch) line(`${campOf(cp.id).name} - REACHED ${campOf(cp.id).labels ? campOf(cp.id).labels[cp.ch - 1] : 'CHAPTER ' + cp.ch}: ${campOf(cp.id).chapters[cp.ch - 1]}`, C.LILAC);
@@ -797,7 +798,7 @@ export class Scene {
     }
     g.text(cx, r.y + 40 * u, won ? 'MISSION COMPLETE' : K.FAIL_TEXT[M.fail] || 'MISSION FAILED', 50 * u, won ? C.GREEN : C.RED, 'center', true);
     g.text(cx, r.y + 104 * u, `${K.MT_NAME[M.type]} - ${K.DIFF_NAME[M.diff]}`, 18 * u, C.PEACH, 'center');
-    if (!won) g.text(cx, r.y + 128 * u, M.fail === K.FAIL_SHIP ? 'ALL HANDS LOST.' : 'MISSION FAILED.', 18 * u, C.PEACH, 'center');
+    if (!won) g.textFit(cx, r.y + 128 * u, M.fail === K.FAIL_SHIP ? `ALL HANDS LOST - DESTROYED BY ${M.cause || 'CATASTROPHIC HULL FAILURE'}.` : 'MISSION FAILED.', 18 * u, M.fail === K.FAIL_SHIP ? C.ORANGE : C.PEACH, 'center', r.w * 0.9);
     let y = r.y + 166 * u;
     const line = (txt, col) => { g.text(cx, y, txt, 19 * u, col, 'center'); y += 28 * u; };
     line(`MISSION TIME   ${mmss(w.missionT)}`, C.SKY);
@@ -879,5 +880,8 @@ export function drawTitleCard(g, w, r, joinUrl) {
     g.textFit(x + bw - 14 * u, y + 6 * u, o ? o.name : 'OPEN', 15 * u, o ? C.BLACK : C.GREY_TXT, 'right', bw * 0.45);
   }
   g.text(cx, r.y + 390 * u, lb.canStart ? 'ALL ROLES ASSIGNED - START THE MISSION FROM ANY PHONE' : lb.why, 15 * u, lb.canStart ? C.GREEN : C.YELLOW, 'center');
-  if (joinUrl) g.text(cx, r.y + 394 * u, 'JOIN FROM A PHONE BROWSER:  ' + joinUrl, 13 * u, C.GREY_TXT, 'center');
+  if (joinUrl) { // top right, clear of the crew list and the start line
+    g.text(r.x + r.w - 14 * u, r.y + 10 * u, 'JOIN FROM A PHONE BROWSER', 12 * u, C.GREY_TXT, 'right');
+    g.text(r.x + r.w - 14 * u, r.y + 26 * u, joinUrl, 18 * u, C.SKY, 'right', true);
+  }
 }

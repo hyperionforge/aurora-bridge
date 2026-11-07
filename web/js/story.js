@@ -41,6 +41,8 @@ Object.assign(DIALOGS, {
 export function installStory(Sim) {
   Object.assign(Sim.prototype, {
     story() { return (this.camp && STORY[this.camp.id]) || null; },
+    // the chapter's label for objectives ("ACT TWO: ", "CHAPTER THREE: "), from the campaign's STORY labels
+    campTag() { const c = this.camp, st = this.story(); return c && st && c.ch ? `${chapterLabel(st.labels ? { labels: st.labels } : null, c.ch)}: ` : ''; },
     // ---- comms: HAIL FLEET COMMAND
     fleetHail() {
       if (this.game !== GS_RUN) return;

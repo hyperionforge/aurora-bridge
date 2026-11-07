@@ -351,6 +351,7 @@ function qopts(set) {
 
 // ---------------------------------------------------------------- the story hooks (story.js)
 STORY.threshold = {
+  labels: THR_LABELS,
   fleet: (s) => 't_fleet',
   lane: (s) => (s.camp.f.fray ? 10 : 1),
   chapter: (s, ch) => s.thrChapter(ch),
@@ -380,7 +381,6 @@ export function installThreshold(Sim) {
       this.P.dock = 0;
       this.arrive(SYS_INDEX[c.next.sys]);
     },
-    campTag() { return this.camp ? `${THR_LABELS[this.camp.ch - 1] || ''}: ` : ''; },
     thrChapter(ch, first = false) {
       const c = this.camp;
       c.ch = ch; c.t0 = this.now;

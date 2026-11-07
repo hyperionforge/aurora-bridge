@@ -6,7 +6,7 @@
 import * as K from './config.js';
 import { CAMPAIGNS } from './campaign.js';
 import { C, CMD } from './config.js';
-import { Gfx, loadFonts, dim, flash, healthColor } from './gfx.js';
+import { Gfx, loadFonts, dim, flash, healthColor, drawCracks, crackOf } from './gfx.js';
 import { World, Link } from './world.js';
 import { sound } from './sound.js';
 import { Scene } from './viewscreen.js';
@@ -168,7 +168,7 @@ class App {
     if (this.status !== 'ok' || !w.lobby) this.drawConnecting();
     else if (this.menu) this.drawMenu();
     else if (w.game === K.GS_TITLE || !this.myStation() || this.picking) this.drawLobby();
-    else if (w.game === K.GS_RUN) this.drawRun();
+    else if (w.game === K.GS_RUN) { this.drawRun(); drawCracks(g, g.W, g.H, crackOf(w.P.hull)); }
     else this.drawEnd();
     if (this.status === 'ok' && w.lobby) this.drawRoleAsk();
   }

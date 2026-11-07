@@ -87,7 +87,7 @@ export function installPuzzles(Sim) {
       if (!h.pz) { this.puzStart(h, 0); if (a === 0) a = 9; } // starting the analysis puts it on the main viewer
       const pz = h.pz;
       if (a === 9) { this.labShow = h.uid; this.view = K.VM_LAB; this.viewRevertAt = 0; this.say(FROM_CREW, 0, `${PZ_NAME[pz.kind] || 'THE LAB'} ON THE MAIN VIEWER - EVERYONE CAN HELP.`); return; }
-      if (pz.done) return;
+      if (pz.done && pz.kind !== 'archive') return; // a finished archive can still be read
       if (!this.sensorsUp() && pz.kind !== 'archive') { this.denied('SENSORS OFFLINE - THE LAB IS BLIND.'); return; }
       this.labShow = this.labShow || h.uid;
       if (pz.kind === 'rings') {
