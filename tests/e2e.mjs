@@ -304,48 +304,70 @@ console.log('campaign step:', await host.evaluate(() => window.auroraHost.sim.ca
 await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.camp.allies = new Set(['ressh', 'silk', 'lin']); s.campEnding('free'); });
 await sleep(1500);
 await tv.screenshot({ path: `${OUT}/tv83_epilogue.png` });
-// ---- THE CARTOGRAPHERS: the field, an orbit + ground site, the lab and the ring
+// ---- THE LONG SLEEP: the lobby, the Covenant, an orbit + the surface, the lab, the last watch
 await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.game = 0; });
 await sleep(500);
 await host.evaluate(() => { window.auroraApp.send(32, 0, 1, 2, 2); });
 await sleep(800);
-await host.screenshot({ path: `${OUT}/p97_lobby_carto.png` });
+await host.screenshot({ path: `${OUT}/p97_lobby_sleep.png` });
 await host.evaluate(() => window.auroraApp.send(1));
 await sleep(3000);
-// chapter 1 in the Shatter, near the Calliope, with a boulder coming
-await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.P.dock = 0; s.camp.step = 'e1_go'; s.arrive(1); });
-await sleep(800);
-await host.evaluate(async () => { const s = window.auroraHost.sim, F = await import('./js/field.js'); const [x, y] = F.pathAt(s.field.f.pts, 0.4); s.P.x = x; s.P.y = y; s.P.hdg = s.P.desHdg = 90; s.P.speed = 30; s.P.shieldsOn = true; s.P.shieldRaise = 1; s.field.driftT = 0; s.endDialog(true); });
-await sleep(2500);
+console.log('third campaign:', await host.evaluate(() => window.auroraHost.sim.camp.id + ' / ' + window.auroraHost.sim.M.objective));
 const ownerOf2 = async (t) => { for (let i = 0; i < n; i++) if (await phones[i].evaluate((t) => window.auroraApp.myStation().tabs.includes(t), t)) return i; return 0; };
 const showTab = async (i, t, pre) => phones[i].evaluate(async ([t, pre]) => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(t); if (pre) await (new Function('return ' + pre))()(); }, [t, pre || '']);
 const hO = await ownerOf2(0), tO = await ownerOf2(4), sO = await ownerOf2(2), nO = await ownerOf2(1), cO = await ownerOf2(3);
-await showTab(hO, 0); await sleep(400); await phones[hO].screenshot({ path: `${OUT}/c1_helm_field.png` });
-await showTab(tO, 4); await sleep(400); await phones[tO].screenshot({ path: `${OUT}/c1_tactical_field.png` });
-await showTab(nO, 1, "async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 1; }"); await sleep(400); await phones[nO].screenshot({ path: `${OUT}/c1_nav_field.png` });
-await phones[0].evaluate(() => window.auroraApp.send(10, 0, 255)); await sleep(600); await tv.screenshot({ path: `${OUT}/c1_tv_forward_field.png` });
-await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(900); await tv.screenshot({ path: `${OUT}/c1_tv_tactical_field.png` });
-// the lab on the red shard
-await host.evaluate(() => { const s = window.auroraHost.sim; s.addArt('rshard', 0); const h = s.P.arts[s.P.arts.length - 1]; h.read = ['CRYSTAL', 0, 0, 0, 'ANCIENT']; s.labShow = h.uid; s.view = 6; });
-await showTab(sO, 2, "async () => { const m = await import('./js/stations/helm.js'); m.science.hold = true; m.science.ringMode = false; m.science.artSel = 99; }");
-await sleep(800); await phones[sO].screenshot({ path: `${OUT}/c2_science_lab.png` });
-await tv.screenshot({ path: `${OUT}/c2_tv_lab.png` });
-// orbit of Rime with the surface sites, a missile in flight
-await host.evaluate(async () => { const s = window.auroraHost.sim, G = await import('./js/galaxy.js'), O = await import('./js/orbit.js');
-  s.field = null; s.arrive(6); const i = s.sysDef.planets.findIndex((p) => p.name === 'RIME'), p = s.sysDef.planets[i]; const [px, py] = G.planetPos(s.sysDef, i, s.now / 1000), d = p.r * 2.5;
-  s.camp.step = 'e2_go'; s.cartoRime(); s.P.x = px + d; s.P.y = py; s.P.hdg = s.P.desHdg = 180; s.P.throttle = 0; s.P.autopilot = 0; s.P.inWell = true; s.P.vx = 0; s.P.vy = O.circSpeed(p, d); s.endDialog(true); });
-await sleep(5000);
-await host.evaluate(() => { const s = window.auroraHost.sim; s.camp.signal = false; s.cartoSignal(); });
-await sleep(9000);
-await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(800);
-await tv.screenshot({ path: `${OUT}/c3_tv_orbit_missile.png` });
-await showTab(hO, 0); await sleep(300); await phones[hO].screenshot({ path: `${OUT}/c3_helm_orbit.png` });
-await showTab(cO, 3); await sleep(300); await phones[cO].screenshot({ path: `${OUT}/c3_comms_surface.png` });
-// the ring
-await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.addArt('codex', 2); s.camp.ring = null; s.cartoRingStart(); s.view = 6; });
-await showTab(sO, 2, "async () => { const m = await import('./js/stations/helm.js'); m.science.hold = true; m.science.ringMode = true; m.science.rsel = 1; }");
-await sleep(800); await phones[sO].screenshot({ path: `${OUT}/c4_science_ring.png` });
-await tv.screenshot({ path: `${OUT}/c4_tv_ring.png` });
+// the Covenant found and scanned, NAV at 4K with the ship to scale
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.P.dock = 0; s.camp.step = 'l1_find'; s.P.x = 97500; s.P.y = 57000; s.P.vx = s.P.vy = 0; s.P.hdg = s.P.desHdg = 90; });
+await sleep(1500);
+await host.evaluate(() => { const s = window.auroraHost.sim, id = s.camp.covId; s.npc[id].scan = 2; s.sleepOnScan(id); s.P.scanId = id; });
+await sleep(800);
+await showTab(nO, 1, "async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 3; }"); await sleep(500); await phones[nO].screenshot({ path: `${OUT}/s1_nav_4k_scale.png` });
+await showTab(sO, 2); await sleep(400); await phones[sO].screenshot({ path: `${OUT}/s1_science_covenant.png` });
+await phones[0].evaluate(() => window.auroraApp.send(10, 0, 255)); await sleep(800); await tv.screenshot({ path: `${OUT}/s1_tv_covenant.png` });
+// MOTHER on comms
+await host.evaluate(() => { const s = window.auroraHost.sim; s.handleCmd({ cmd: 13, a: s.camp.covId }); });
+await sleep(1200);
+await showTab(cO, 3); await sleep(400); await phones[cO].screenshot({ path: `${OUT}/s1_comms_mother.png` });
+await tv.screenshot({ path: `${OUT}/s1_tv_mother.png` });
+// in orbit of Vespera, the colony on comms
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); const i = s.sysDef.planets.findIndex((p) => p.name === 'VESPERA');
+  s.P.orbitPl = i; s.P.apPlanet = i; s.P.autopilot = 3; s.P.escA = 0; const o = s.sysDef.planets[i]; s.P.x += 0; });
+await host.evaluate(async () => { const s = window.auroraHost.sim, O = await import('./js/orbit.js'), i = s.P.apPlanet; const [x, y] = O.orbitPoint(s.sysDef, i, s.now / 1000, 0); s.P.x = x; s.P.y = y; });
+await sleep(2500);
+await showTab(hO, 0); await sleep(400); await phones[hO].screenshot({ path: `${OUT}/s2_helm_orbit.png` });
+await showTab(cO, 3); await sleep(400); await phones[cO].screenshot({ path: `${OUT}/s2_comms_surface.png` });
+// the lab on the stasis sample
+await host.evaluate(() => { const s = window.auroraHost.sim; s.addArt('stasis', 0); const h = s.P.arts[s.P.arts.length - 1]; h.read = ['ORGANIC', '9.2 THZ', 0, 0, 0]; s.labShow = h.uid; s.view = 6; });
+await showTab(sO, 2, "async () => { const m = await import('./js/stations/helm.js'); m.science.hold = true; m.science.artSel = 99; }");
+await sleep(800); await phones[sO].screenshot({ path: `${OUT}/s3_science_lab.png` });
+await tv.screenshot({ path: `${OUT}/s3_tv_lab.png` });
+// the last watch
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.P.orbitPl = -1; s.P.autopilot = 0; s.camp.ch = 5; s.camp.step = 'l5_go'; const c = s.npc[s.camp.covId]; s.P.x = c.x + 1200; s.P.y = c.y; s.P.shieldsOn = true; s.P.shieldRaise = 1; s.P.shRange = 0.4; });
+await sleep(12000);
+await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(900); await tv.screenshot({ path: `${OUT}/s4_tv_last_watch.png` });
+await showTab(tO, 4); await sleep(400); await phones[tO].screenshot({ path: `${OUT}/s4_tactical_watch.png` });
+await host.evaluate(() => { const s = window.auroraHost.sim; s.endDialog(true); s.camp.allies = new Set(['den', 'vadmin']); s.camp.f.mother = 'rest'; s.sleepEnding(); });
+await sleep(1500);
+await tv.screenshot({ path: `${OUT}/s5_tv_epilogue.png` });
+// ---- PULSAR RESCUE
+await phones[0].evaluate(() => window.auroraApp.send(31)); await sleep(800);
+await host.evaluate(() => { window.auroraApp.send(32, 7, 1, 0); }); await sleep(600);
+await host.evaluate(() => window.auroraApp.send(1)); await sleep(2500);
+await host.evaluate(() => { const s = window.auroraHost.sim, f = s.npc[s.M.fr], pul = s.M.pul; s.P.dock = 0;
+  const a = Math.atan2(f.y - pul.y, f.x - pul.x); s.P.x = f.x + Math.cos(a) * 1800; s.P.y = f.y + Math.sin(a) * 1800; s.P.vx = s.P.vy = 0;
+  s.P.hdg = s.P.desHdg = (Math.atan2(pul.x - s.P.x, -(pul.y - s.P.y)) * 180 / Math.PI + 360) % 360; s.P.scanId = s.M.fr;
+  s.M.pul.a0 = a - 0.04 - s.M.pul.w * (s.now - s.M.pul.t0) / 1000; s.M.ver++; });
+await sleep(1500);
+console.log('pulsar:', await host.evaluate(() => window.auroraHost.sim.M.objective));
+await phones[0].evaluate(() => window.auroraApp.send(10, 0, 255)); await sleep(700); await tv.screenshot({ path: `${OUT}/x1_tv_pulsar_forward.png` });
+await phones[0].evaluate(() => window.auroraApp.send(10, 1, 255)); await sleep(900); await tv.screenshot({ path: `${OUT}/x1_tv_pulsar_tactical.png` });
+await showTab(nO, 1, "async () => { const m = await import('./js/stations/helm.js'); m.nav.zoom = 1; }"); await sleep(500); await phones[nO].screenshot({ path: `${OUT}/x1_nav_pulsar.png` });
+await showTab(sO, 2, "async () => { const m = await import('./js/stations/helm.js'); m.science.hold = false; }"); await sleep(400); await phones[sO].screenshot({ path: `${OUT}/x1_science_tractor.png` });
+// out of bounds: the warning strip
+await host.evaluate(() => { const s = window.auroraHost.sim; s.P.x = -2000; s.P.y = 60000; s.P.oobT = 36; });
+await sleep(800);
+await phones[0].evaluate(() => window.auroraApp.send(10, 0, 255)); await sleep(700); await tv.screenshot({ path: `${OUT}/x2_tv_out_of_bounds.png` });
+await showTab(hO, 0); await sleep(400); await phones[hO].screenshot({ path: `${OUT}/x2_helm_out_of_bounds.png` });
 console.log('ERRORS:', errors.length ? '\n' + errors.join('\n') : 'none');
 await browser.close();
 if (server) server.close();

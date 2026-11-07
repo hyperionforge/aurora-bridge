@@ -124,32 +124,37 @@ export function drawPulsarFwd(g, w, r, project) {
   const pul = w.M && w.M.pul, P = w.P;
   if (!pul) return;
   const u = r.u, b = pulAngle(pul, w.now), c = g.ctx;
+  c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'butt';
   for (const off of [0, Math.PI]) {
     const a = b + off;
     let prev = null;
-    for (let i = 1; i <= 40; i++) {
-      const d = (i / 40) * PUL_LEN, wx = pul.x + Math.cos(a) * d, wy = pul.y + Math.sin(a) * d;
+    for (let i = 1; i <= 48; i++) {
+      const d = (i / 48) * PUL_LEN, wx = pul.x + Math.cos(a) * d, wy = pul.y + Math.sin(a) * d;
       const p = project(w, r, wx, wy, 0.02);
       if (p && prev) {
-        const halfW = Math.min(60 * u, Math.max(1.5 * u, (d * Math.sin(pul.hw)) / Math.max(400, p.d) * r.F));
-        const al = Math.max(0, 0.65 - i / 60);
-        c.strokeStyle = `rgba(170,215,255,${al * 0.5})`; c.lineWidth = halfW * 2; c.beginPath(); c.moveTo(prev.sx, prev.sy); c.lineTo(p.sx, p.sy); c.stroke();
-        c.strokeStyle = `rgba(255,255,255,${al})`; c.lineWidth = Math.max(1, halfW * 0.3); c.beginPath(); c.moveTo(prev.sx, prev.sy); c.lineTo(p.sx, p.sy); c.stroke();
+        // a soft blue sheath round a hot white core, fading with distance from the star
+        const halfW = Math.min(14 * u, Math.max(1.2 * u, (d * Math.sin(pul.hw)) / Math.max(400, p.d) * r.F));
+        const al = Math.max(0, 1 - i / 48);
+        c.strokeStyle = `rgba(90,150,255,${al * 0.18})`; c.lineWidth = halfW * 3; c.beginPath(); c.moveTo(prev.sx, prev.sy); c.lineTo(p.sx, p.sy); c.stroke();
+        c.strokeStyle = `rgba(150,200,255,${al * 0.35})`; c.lineWidth = halfW * 1.4; c.beginPath(); c.moveTo(prev.sx, prev.sy); c.lineTo(p.sx, p.sy); c.stroke();
+        c.strokeStyle = `rgba(255,255,255,${al * 0.8})`; c.lineWidth = Math.max(1, halfW * 0.35); c.beginPath(); c.moveTo(prev.sx, prev.sy); c.lineTo(p.sx, p.sy); c.stroke();
       }
       prev = p;
     }
   }
+  c.restore();
   pul.rocks.forEach((rk, i) => {
     const p = project(w, r, rk.x, rk.y, 0.01);
     if (p && p.d > rk.r) drawRock(g, p.sx, p.sy, Math.max(2 * u, (rk.r / p.d) * r.F), i + 1, u);
   });
   const p = project(w, r, pul.x, pul.y, 0.02);
   if (p) {
-    const R = Math.max(3 * u, Math.min(40 * u, (900 / p.d) * r.F));
-    g.circle(p.sx, p.sy, R * 3, 'rgba(150,200,255,0.18)');
-    g.circle(p.sx, p.sy, R * 1.6, 'rgba(200,230,255,0.5)');
+    // a hard point of light that throbs with each turn
+    const R = Math.max(2.5 * u, Math.min(9 * u, (500 / p.d) * r.F)), th = 0.75 + 0.25 * Math.abs(Math.sin((w.now / 1000) * Math.abs(pul.w) * 2));
+    const gr = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, R * 6 * th);
+    gr.addColorStop(0, 'rgba(230,240,255,0.9)'); gr.addColorStop(0.25, 'rgba(140,190,255,0.35)'); gr.addColorStop(1, 'rgba(80,120,255,0)');
+    c.fillStyle = gr; c.beginPath(); c.arc(p.sx, p.sy, R * 6 * th, 0, Math.PI * 2); c.fill();
     g.circle(p.sx, p.sy, R, C.WHITE);
-    g.text(p.sx, p.sy + R * 3 + 6 * u, 'PULSAR', 11 * u, C.GREY_TXT, 'center');
   }
   // we're in the beam: the screen whites out
   const lit = pulLit(pul, w.now, P.x, P.y);

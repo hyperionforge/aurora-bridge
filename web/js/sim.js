@@ -54,6 +54,7 @@ import { installAllies } from './allies.js';
 import { installGround } from './ground.js';
 import { installLab } from './lab.js';
 import { installPulsar } from './pulsar.js';
+import { installSleep } from './longsleep.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -1797,6 +1798,7 @@ export class Sim {
     const P = this.P, n = id < MAX_CONTACTS ? this.npc[id] : null;
     if (!n || !n.active || n.type !== CT_POI || !this.visible(id)) return 'SELECT A POINT OF INTEREST ON SENSORS FIRST.';
     if (n.scan < 1) return 'SCAN IT FIRST TO SEE WHAT IT IS.';
+    if (n.lockMsg) return n.lockMsg;
     if (n.vault) return 'THE WRECK\'S VAULT IS SEALED BY A HARMONIC LOCK. HAIL THE WRECK FROM COMMS.';
     if (P.health[S_SENSORS] <= 0) return 'SENSORS OFFLINE.';
     const d = distTo(P.x, P.y, n.x, n.y);
@@ -2377,3 +2379,4 @@ installAllies(Sim);
 installGround(Sim);
 installLab(Sim);
 installPulsar(Sim);
+installSleep(Sim);

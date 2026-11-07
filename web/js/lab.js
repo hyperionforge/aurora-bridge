@@ -30,6 +30,9 @@ export const LAB_CLASSES = {
   engine: { name: 'GRAVITIC PART', p: ['METALLIC', 'NONE', 'WARM', 'EXTREME', 'OLD'] },
   icon: { name: 'RITUAL CARVING', p: ['STONE', 'NONE', 'COLD', 'NORMAL', 'OLD'] },
   bio: { name: 'LIVING CULTURE', p: ['ORGANIC', 'PULSING', 'WARM', 'LIGHT', 'RECENT'] },
+  sedative: { name: 'KESSARI SEDATIVE', p: ['ORGANIC', '9.2 THZ', 'COLD', 'LIGHT', 'RECENT'] },
+  glycol: { name: 'CLEAN STASIS FLUID', p: ['ORGANIC', 'NONE', 'COLD', 'LIGHT', 'OLD'] },
+  swarm: { name: 'NANITE SWARM', p: ['METALLIC', 'PULSING', 'COLD', 'DENSE', 'RECENT'] },
 };
 // what a rare artefact really is, and the four classes science chooses between
 export const LAB_ART = {
@@ -38,6 +41,7 @@ export const LAB_ART = {
   shard3: { cls: 'song', choices: ['datac', 'chart', 'bio', 'song'] },
   keel: { cls: 'engine', choices: ['cell', 'engine', 'focus', 'icon'] },
   nanite: { cls: 'bio', choices: ['bio', 'song', 'cell', 'datac'] },
+  stasis: { cls: 'sedative', choices: ['glycol', 'bio', 'sedative', 'swarm'] },
 };
 export const isRare = (h) => !!LAB_ART[G.ART[h.a].id];
 
