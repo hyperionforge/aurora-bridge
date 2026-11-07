@@ -146,7 +146,12 @@ export const shields = {
     const on = P.shieldsOn;
     g.button('shtog', x, y + 24, rw, 48, on && raise < 0.99 ? `RAISING ${Math.round(raise * 100)}%` : on ? 'SHIELDS UP' : 'SHIELDS DOWN',
       on ? C.SKY : C.GREY, on ? C.BLACK : C.PEACH, 21, () => app.send(CMD.SHIELDS, on ? 0 : 1), { sound: 'toggle' });
-    g.text(x, y + 78, `GENERATOR ${Math.round(P.health[K.S_SHIELDS])}% HEALTH  ${P.power[K.S_SHIELDS]}% POWER`, 12, P.health[K.S_SHIELDS] < 50 ? C.RED : C.GREY_TXT);
+    { // the generator: health, and power coloured so a cut (or a boost) is obvious
+      const hl = `GENERATOR ${Math.round(P.health[K.S_SHIELDS])}% HEALTH`, pw = P.power[K.S_SHIELDS];
+      g.text(x, y + 76, hl, 13, P.health[K.S_SHIELDS] < 50 ? C.RED : C.GREY_TXT);
+      const pc = pw <= 0 ? (flash(350) ? C.RED : C.RED_DIM) : pw < 100 ? C.ORANGE : pw > 100 ? C.GREEN : C.GREY_TXT;
+      g.text(x + g.textW(hl, 13) + 10, y + 75, pw <= 0 ? '0% POWER - OFFLINE' : `${pw}% POWER${pw < 100 ? ' (LOW)' : pw > 100 ? ' (BOOSTED)' : ''}`, 14, pc, 'left', pw !== 100);
+    }
     g.text(x, y + 94, 'REINFORCE (MORE HERE, LESS OPPOSITE)', 12, C.GREY_TXT);
     const hw = (rw - 6) / 2;
     for (let i = 0; i < 5; i++) {
@@ -190,6 +195,7 @@ export const engineer = {
   drag: -1, local: 0, lastSend: 0,
   // the effect of a system's power setting, as the crew would feel it (pw = the slider being dragged)
   buys(w, s, pw) {
+    if (pw <= 0 && (s === K.S_SENSORS || s === K.S_SHIELDS)) return flash(500) ? 'OFFLINE' : '';
     const P = w.P, e = (pw / 100) * (P.health[s] / 100) * (P.energy <= 0.5 ? 0.3 : 1);
     switch (s) {
       case K.S_IMPULSE: return `${Math.round(K.IMPULSE_TOP * clampf(e, 0, 2) / 2)} KM/S`;

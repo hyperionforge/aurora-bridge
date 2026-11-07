@@ -60,7 +60,7 @@ export function installLab(Sim) {
         if (h.read && h.read[t]) { this.denied('WE ALREADY HAVE THAT READING.'); return; }
         if (P.labUid) { this.denied('THE LAB IS BUSY WITH ANOTHER TEST.'); return; }
         if (P.energy < LAB_COST) { this.denied('NOT ENOUGH ENERGY FOR THE TEST.'); return; }
-        if (P.health[K.S_SENSORS] <= 0) { this.denied('SENSORS OFFLINE - THE LAB IS BLIND.'); return; }
+        if (!this.sensorsUp()) { this.denied('SENSORS OFFLINE - THE LAB IS BLIND.'); return; }
         P.energy -= LAB_COST; P.labUid = h.uid; P.labTest = t; P.labProg = 0;
         this.labShow = this.labShow || h.uid;
       } else if (a === 2) { // classify it
@@ -87,7 +87,7 @@ export function installLab(Sim) {
       const P = this.P;
       if (!P.labUid) return;
       const h = P.arts.find((q) => q.uid === P.labUid);
-      if (!h || P.health[K.S_SENSORS] <= 0) { P.labUid = 0; P.labProg = 0; return; }
+      if (!h || !this.sensorsUp()) { P.labUid = 0; P.labProg = 0; return; }
       P.labProg += (dt / LAB_TIME) * clampf(this.eff(K.S_SENSORS), 0.4, 1.4);
       if (P.labProg >= 1) {
         const t = P.labTest, cls = LAB_CLASSES[this.labClass(h)];

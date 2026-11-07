@@ -9,7 +9,7 @@ import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCam
 import * as O from '../orbit.js';
 import { drawLab, isRare } from '../lab.js';
 import { drawPuzzle, hasPuz, puzKind, PZ_NAME } from '../puzzles.js';
-import { CHARS, subtitle } from '../dialogue.js';
+import { CHARS, subtitle, speakerLine, callerInfo } from '../dialogue.js';
 import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
 import { SYSTEMS, SYS_SIZE, SYS_C, WELL_R, sysAt, lanesOf, planetPos, CIV_NAME, CIV_COL, SK_NAME, SK_RELAY, SK_MONOLITH } from '../galaxy.js';
@@ -26,7 +26,7 @@ export function fromName(w, from) {
 // One screen: the compass ring (drag to steer) with a local scope inside it so helm can see what's
 // around without the main viewer; the engines (sliders + preset speeds) and the autopilot / jump drive.
 const CYAN = '#78f0ff';
-const SCOPE_R = [4000, 10000, 25000, 60000], SCOPE_L = ['4K', '10K', '25K', '60K'];
+const SCOPE_R = [2000, 5000], SCOPE_L = ['4K', '10K']; // radius in metres; the label is the width across
 const IMP_PRE = [['FULL', 100], ['3/4', 75], ['1/2', 50], ['1/4', 25], ['STOP', 0], ['-1/4', -25]];
 const WARP_PRE = [6, 5, 4, 3, 2, 1, 0];
 // will we hit something solid on our present track in the next `secs` seconds? -> {name, t} or null
@@ -99,9 +99,9 @@ export const helm = {
     if (P.jumpTo !== K.NO_ID) g.text(L.bx + 2, L.by + L.BIG - 30, P.jumping > 0 ? 'IN THE JUMP LANE' : `JUMP CHARGING ${Math.round(P.jumpCharge * 100)}%`, 13, flash(400) ? C.WHITE : C.SKY);
     this.drawOrbit(g, w, L);
     const angAt = (x, y) => wrap360(Math.atan2(x - cx, -(y - cy)) / DEG);
-    // the ring steers; the scope inside it is for looking
+    // tap or drag anywhere in the circle - ring or scope - to set the course
     g.hitCircle(cx, cy, R + 14, {
-      down: (x, y) => { if ((x - cx) ** 2 + (y - cy) ** 2 < (Rs - 6) ** 2) return; S.dialDrag = true; S.localHdg = angAt(x, y); app.sound.tap(); },
+      down: (x, y) => { if ((x - cx) ** 2 + (y - cy) ** 2 < 14 * 14) return; S.dialDrag = true; S.localHdg = angAt(x, y); app.sound.tap(); },
       move: (x, y) => {
         if (!S.dialDrag) return;
         if ((x - cx) ** 2 + (y - cy) ** 2 > 20 * 20) S.localHdg = angAt(x, y);
@@ -126,7 +126,7 @@ export const helm = {
     const p2 = (x, y) => [cx + (x - P.x) * k, cy + (y - P.y) * k];
     c.save(); c.beginPath(); c.arc(cx, cy, Rs, 0, Math.PI * 2); c.clip();
     g.circle(cx, cy, Rs, '#03060e');
-    drawSystemLayer(g, w.sys, w.tSec, p2, k, { minR: 2.5, well: false, dots: 0.6, orbits: range > 20000, labels: true, labelSize: 10 });
+    drawSystemLayer(g, w.sys, w.tSec, p2, k, { minR: 2.5, well: false, dots: 0.6, orbits: false, labels: true, labelSize: 10 });
     drawPulsarMap(g, w, p2, k);
     drawEdgeFrame(g, p2, { x: cx - Rs, y: cy - Rs, w: 2 * Rs, h: 2 * Rs });
     g.circle(cx, cy, Rs / 2, '#14203a', false, 1);
@@ -148,15 +148,16 @@ export const helm = {
       else if (n.type === K.CT_POI) drawPoi(g, n.kind ?? 0, sx, sy, 0.1, w.now, (n.civ ?? 0) * 0.7);
       else if (n.type === K.CT_GROUND) g.circle(sx, sy, 2.5, '#a0c8b4');
       else { const h = n.hdg * DEG; g.tri(sx + Math.sin(h) * 6, sy - Math.cos(h) * 6, sx + Math.sin(h + 2.5) * 4, sy - Math.cos(h + 2.5) * 4, sx + Math.sin(h - 2.5) * 4, sy - Math.cos(h - 2.5) * 4, col); }
-      if (range <= 25000 || n.type === K.CT_STARBASE) g.text(sx + 6, sy + 2, w.shortName(n.id, n.known), 10, dim(col, 0.9));
+      g.text(sx + 6, sy + 2, w.shortName(n.id, n.known), 10, dim(col, 0.9));
     }
     for (const tp of w.torp) { const [sx, sy] = p2(tp.x, tp.y); g.circle(sx, sy, 2, tp.owner === K.US ? C.ORANGE : C.GREEN); }
     // our track for the next 20 seconds
     if (!P.warping && Math.hypot(P.vx || 0, P.vy || 0) > 2) g.line(cx, cy, cx + (P.vx || 0) * 20 * k, cy + (P.vy || 0) * 20 * k, CYAN, 1.5);
     c.restore();
-    const ss = Math.max(0.2, Math.min(0.32, (340 * k) / 154));
+    // the ship and its shield bubble drawn to the scope's scale (340m long; the bubble 0.6-3k across)
+    const ss = (340 * k) / 154;
     drawShip(g, ART_CRUISER, C.SKY, cx, cy, ss, P.hdg);
-    drawShipShields(g, w, cx, cy, 154 * ss * 0.62 + 4, P.hdg);
+    drawShipShields(g, w, cx, cy, Math.max(154 * ss * 0.55 + 2, (P.bubR || 600) * k), P.hdg);
   },
   // gravity well readout in the compass corner: what helm needs to get into (and stay in) orbit
   drawOrbit(g, w, L) { // orbit status (the escort autopilot holding us beside a planet)
@@ -234,41 +235,41 @@ export const helm = {
   drawAuto(g, w, app, L) {
     const P = w.P, x = L.rx, rw = L.x1 - L.rx;
     let y = L.y0 + 222;
+    // whatever another station plotted last is the one thing the autopilot can fly
     const route = P.route && P.route.length ? P.route : P.wpValid ? [[P.wpx, P.wpy]] : [];
-    const icId = w.findC(P.icPlot) ? P.icPlot : w.findC(P.target) ? P.target : K.NO_ID, ic = icId !== K.NO_ID ? w.findC(icId) : null;
-    const escId = ic && ic.faction !== K.F_HOSTILE && ic.type !== K.CT_STARBASE && ic.type !== K.CT_GROUND && ic.type !== K.CT_POI && ic.type !== K.CT_ANOMALY ? icId : K.NO_ID;
-    const opl = P.orbPlot >= 0 ? w.sys.planets[P.orbPlot] : null;
+    const ic = w.findC(P.icPlot), opl = P.orbPlot >= 0 ? w.sys.planets[P.orbPlot] : null;
+    const esc = ic && ic.faction !== K.F_HOSTILE && ic.type !== K.CT_STARBASE && ic.type !== K.CT_GROUND && ic.type !== K.CT_POI && ic.type !== K.CT_ANOMALY;
+    const plot = P.apPlot === 1 && route.length ? 1 : P.apPlot === 2 && ic ? 2 : P.apPlot === 4 && opl ? 4 : 0;
     const mode = P.autopilot === K.AP_ESCORT ? (P.apPlanet >= 0 ? 4 : 3) : P.autopilot; // 1 course, 2 intercept, 3 escort, 4 orbit
     let status = 'HAND STEERING';
     if (mode === 1) { const d = distTo(P.x, P.y, P.wpx, P.wpy); status = `ON COURSE - ${route.length > 1 ? `LEG 1 OF ${route.length}, ` : ''}${fmtDist(d)}${P.speed > 5 ? ', ETA ' + mmss(route.reduce((a, [qx, qy], i) => a + (i ? distTo(route[i - 1][0], route[i - 1][1], qx, qy) : d), 0) / Math.max(5, P.speed)) : ''}`; }
     else if (mode === 2) status = `INTERCEPTING ${w.shortName(P.apTarget)}`;
-    else if (mode === 3) status = `ESCORTING ${w.shortName(P.apTarget)} - 900M OFF HER STARBOARD SIDE`;
+    else if (mode === 3) status = `ESCORTING ${w.shortName(P.apTarget)}`;
     else if (mode === 4) status = P.orbitPl === P.apPlanet ? `IN STANDARD ORBIT OF ${w.sys.planets[P.apPlanet].name}` : `TAKING US INTO ORBIT OF ${w.sys.planets[P.apPlanet].name}`;
     g.header(x, y, rw, 'AUTOPILOT', P.autopilot ? C.VIOLET : '#6a5aa0');
     g.textFit(x + rw - 14, y + 2, status, 13, C.BLACK, 'right', rw - 150, true);
     y += 22;
-    // one chip per thing NAV can plot: lit when it's plotted, violet while we're flying it. Tap to engage / stop.
-    const chips = [
-      ['COURSE', 1, route.length > 0, () => app.send(CMD.AUTOPILOT, K.AP_WAYPOINT)],
-      ['INTERCEPT', 2, ic !== null, () => app.send(CMD.AUTOPILOT, K.AP_TARGET, icId)],
-      ['ESCORT', 3, escId !== K.NO_ID, () => app.send(CMD.AUTOPILOT, K.AP_ESCORT, escId)],
-      ['ORBIT', 4, !!opl, () => app.send(CMD.AUTOPILOT, K.AP_ESCORT, 100 + P.orbPlot)],
-    ];
-    const cw = (rw - 18) / 4;
-    chips.forEach(([l, m, ok, go], i) => {
-      const on = mode === m;
-      g.button('ap' + i, x + i * (cw + 6), y, cw, 30, on ? l + ' ■' : l, on ? C.VIOLET : ok ? (flash(700) && !P.autopilot ? C.ORANGE : '#c88232') : C.GREY, on || ok ? C.BLACK : C.GREY_TXT, 14,
-        () => { if (on) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (ok) go(); else app.sound.denied(); }, { silent: !ok && !on, bold: on });
-    });
-    y += 34;
-    // what each chip would do, for whichever is live
-    const info = mode === 1 || (!P.autopilot && route.length) ? `COURSE: ${route.length > 1 ? route.length + ' WAYPOINTS' : 'WAYPOINT ' + sectorName(route[0][0], route[0][1])} - ${fmtDist(distTo(P.x, P.y, route[0][0], route[0][1]))} BRG ${pad3(bearingTo(P.x, P.y, route[0][0], route[0][1]))}`
-      : ic ? `INTERCEPT ${w.shortName(icId, ic.known)} ${fmtDist(w.range(ic))}${escId !== K.NO_ID ? ' - OR ESCORT HER' : ''}` : opl ? `ORBIT ${opl.name} - PULL ALONGSIDE AND MOVE WITH IT`
-        : 'NAV PLOTS A COURSE, AN INTERCEPT OR AN ORBIT - IT LIGHTS UP HERE';
-    g.textFit(x, y, info, 12, route.length || ic || opl ? C.PEACH : C.GREY_TXT, 'left', rw);
-    y += 15;
-    if (P.apAvoid) g.textFit(x, y, `STEERING ROUND ${P.apAvoid} - WE'LL COME BACK ONTO THE LINE`, 12, C.YELLOW, 'left', rw);
+    const info = plot === 1 ? `NAV'S COURSE: ${route.length > 1 ? route.length + ' WAYPOINTS' : 'WAYPOINT ' + sectorName(route[0][0], route[0][1])} - ${fmtDist(distTo(P.x, P.y, route[0][0], route[0][1]))} BRG ${pad3(bearingTo(P.x, P.y, route[0][0], route[0][1]))}`
+      : plot === 2 ? `INTERCEPT PLOTTED: ${w.shortName(P.icPlot, ic.known)} ${fmtDist(w.range(ic))}${esc ? ' (OR ESCORT HER)' : ''}`
+        : plot === 4 ? `ORBIT PLOTTED: ${opl.name} - PULL ALONGSIDE AND MOVE WITH IT` : 'NOTHING PLOTTED - NAV PLOTS A COURSE OR AN ORBIT; NAV OR SCIENCE AN INTERCEPT';
+    g.textFit(x, y, info, 13, plot ? C.PEACH : C.GREY_TXT, 'left', rw);
     y += 18;
+    const flying = (plot === 1 && mode === 1) || (plot === 2 && (mode === 2 || mode === 3) && P.apTarget === P.icPlot) || (plot === 4 && mode === 4 && P.apPlanet === P.orbPlot);
+    const engage = () => {
+      if (plot === 1) app.send(CMD.AUTOPILOT, K.AP_WAYPOINT); else if (plot === 2) app.send(CMD.AUTOPILOT, K.AP_TARGET, P.icPlot);
+      else if (plot === 4) app.send(CMD.AUTOPILOT, K.AP_ESCORT, 100 + P.orbPlot); else app.sound.denied();
+    };
+    const label = ['ENGAGE', 'ENGAGE COURSE', 'ENGAGE INTERCEPT', '', 'ENTER ORBIT'][plot];
+    const twoBtns = plot === 2 && esc, bw2 = twoBtns || (P.autopilot && !flying) ? (rw - 6) / 2 : rw;
+    if (flying) g.button('apgo', x, y, rw, 32, 'DISENGAGE AUTOPILOT', C.VIOLET, C.BLACK, 16, () => app.send(CMD.AUTOPILOT, K.AP_OFF), { bold: true });
+    else {
+      g.button('apgo', x, y, bw2, 32, plot ? label : 'NO PLOT', plot ? (flash(700) && !P.autopilot ? C.ORANGE : '#c88232') : C.GREY, plot ? C.BLACK : C.GREY_TXT, 16, engage, { silent: !plot, bold: true });
+      if (twoBtns) g.button('apesc', x + bw2 + 6, y, bw2, 32, mode === 3 ? 'ESCORTING' : 'ESCORT HER', mode === 3 ? C.VIOLET : '#c88232', C.BLACK, 16, () => app.send(CMD.AUTOPILOT, mode === 3 ? K.AP_OFF : K.AP_ESCORT, P.icPlot), { bold: true });
+      else if (P.autopilot) g.button('apoff', x + bw2 + 6, y, bw2, 32, 'DISENGAGE', C.VIOLET, C.BLACK, 16, () => app.send(CMD.AUTOPILOT, K.AP_OFF), { bold: true });
+    }
+    y += 34;
+    if (P.apAvoid) g.textFit(x, y, `STEERING ROUND ${P.apAvoid} - WE'LL COME BACK ONTO THE LINE`, 12, C.YELLOW, 'left', rw);
+    y += 17;
     // ---- jump drive
     const to = P.jumpTo !== K.NO_ID ? P.jumpTo : P.jumpPlot;
     g.header(x, y, rw, 'JUMP DRIVE', to === K.NO_ID ? '#2c5a64' : CYAN);
@@ -387,7 +388,6 @@ export const nav = {
       // at 4K the ship is drawn to scale (about 340m long) so helm can judge clearances
       const shipS = this.zoom === 3 ? (SHIP_LEN * k) / 154 : local ? 0.18 : 0.12;
       drawShip(g, ART_CRUISER, C.SKY, clampf(px, ox + 6, ox + B - 6), clampf(py, oy + 6, oy + B - 6), shipS, P.hdg);
-      drawShipShields(g, w, clampf(px, ox + 6, ox + B - 6), clampf(py, oy + 6, oy + B - 6), Math.max(12, 154 * shipS * 0.62 + 3), P.hdg);
       if (this.zoom === 3) g.text(ox + 4, oy + 4, 'SHIP DRAWN TO SCALE', 11, C.GREY_TXT);
       g.text(ox + B - 4, oy + B - 15, this.addLeg ? 'TAP TO ADD A LEG TO THE COURSE' : 'TAP MAP = WAYPOINT, TAP A PLANET = ORBIT', 11, this.addLeg ? C.VIOLET : C.GREY_TXT, 'right');
       g.text(ox + 4, oy + B - 15, `${Math.round(span / 1000)}K ACROSS`, 11, C.GREY_TXT);
@@ -561,6 +561,10 @@ export const science = {
       g.text(L.bx + B, L.by + 17, P.lrs > 0 ? `LONG RANGE SCAN x3 - ${Math.ceil(P.lrs)}s` : w.inNebula ? 'NEBULA: 40%' : `${pc}% OF STANDARD (ENGINEERING: SENSOR POWER)`, 10, P.lrs > 0 ? C.YELLOW : C.GREY_TXT, 'right');
     }
     g.text(L.bx, L.by, 'N ^  SENSOR SWEEP', 12, C.GREY_TXT);
+    if (P.power[K.S_SENSORS] <= 0 || P.health[K.S_SENSORS] <= 0) {
+      g.text(cx, cy + 30, P.power[K.S_SENSORS] <= 0 ? 'SENSORS OFFLINE - NO POWER' : 'SENSORS OFFLINE - DAMAGED', 20, flash(500) ? C.RED : C.RED_DIM, 'center', true);
+      g.text(cx, cy + 54, P.power[K.S_SENSORS] <= 0 ? 'ENGINEERING HAS CUT SENSOR POWER TO 0%' : 'DAMAGE CONTROL: SEND A REPAIR TEAM', 13, C.GREY_TXT, 'center');
+    }
     if (w.inNebula) g.text(L.bx, L.by + B - 14, 'IN NEBULA - SENSOR RANGE REDUCED', 12, C.LILAC);
     if (P.xId !== K.NO_ID) g.text(L.bx + B, L.by + B - 14, `${P.xMode === 2 ? 'EXTRACTING' : 'SAMPLING'} ${Math.round(P.xProg * 100)}%`, 12, C.YELLOW, 'right');
     if (w.flux >= 0) { // the campaign's tachyon hunt
@@ -785,6 +789,7 @@ export function drawMsgLog(g, w, x, y, wd, y1, size = 13) {
     up: () => { V.drag = null; },
   });
 }
+const CALL_NAMES = { civ: CIV_NAME, sk: SK_NAME, ct: K.CT_NAME, fac: K.FACTION_NAME };
 export function dialogLine(w) { // the conversation in progress, and its newest line
   const d = w.slow && w.slow.dlg;
   if (!d) return null;
@@ -797,15 +802,35 @@ export const comms = {
     drawMsgLog(g, w, L.bx, L.by, L.BIG, L.y1);
     const x = L.rx, rw = L.rw;
     let y = L.y0;
-    const dl = dialogLine(w);
-    if (dl) {
-      const { d, m } = dl, ch = CHARS[d.who] || CHARS.computer, ph = 92;
-      drawPortrait(g, d.who, x, y, ph * 0.9, ph, performance.now(), true);
+    const pend = w.slow && w.slow.dlg && w.slow.dlg.pending ? w.slow.dlg : null;
+    if (pend) { // an incoming hail: who's calling, from what - and answer it
+      const ci = callerInfo(w, pend, CALL_NAMES), ph = 92;
+      g.header(x, y, rw, 'INCOMING HAIL', flash(450) ? C.ORANGE : C.YELLOW);
+      y += 26;
+      drawPortrait(g, pend.who, x, y, ph * 0.9, ph, performance.now(), false);
+      g.textFit(x + ph, y + 2, ci.place, 20, C.PEACH, 'left', rw - ph, true);
+      g.textFit(x + ph, y + 28, ci.vessel, 13, C.SKY, 'left', rw - ph);
+      g.textFit(x + ph, y + 48, `CALLER: ${ci.ch.name}`, 14, C.WHITE, 'left', rw - ph);
+      g.textFit(x + ph, y + 66, ci.ch.role || '', 12, C.GREY_TXT, 'left', rw - ph);
+      const n = w.n(pend.from);
+      if (n) g.text(x + ph, y + 82, `RANGE ${fmtDist(w.range(n))}  BRG ${pad3(w.bearing(n))}`, 12, C.GREY_TXT);
+      y += ph + 12;
+      if (pend.left) g.text(x, y, `THEY EXPECT AN ANSWER - ${pend.left}s`, 14, flash(400) ? C.RED : C.YELLOW);
+      y += 22;
+      g.button('ansscr', x, y, rw, 50, 'ANSWER - ON SCREEN', flash(600) ? C.ORANGE : C.YELLOW, C.BLACK, 22, () => app.send(CMD.ANSWER, pend.seq, 1), { bold: true });
+      y += 58;
+      g.button('anshere', x, y, rw, 36, 'ANSWER AT THIS CONSOLE', C.LILAC, C.BLACK, 17, () => app.send(CMD.ANSWER, pend.seq, 0));
+      return;
+    }
+    const sl = speakerLine(w);
+    if (sl) {
+      const d = sl.d, m = sl.dm, sp = sl.sp, ch = CHARS[sl.who] || CHARS.computer, ph = 92;
+      drawPortrait(g, sl.who, x, y, ph * 0.9, ph, performance.now(), true);
       g.textFit(x + ph, y + 2, ch.name, 18, C.PEACH, 'left', rw - ph, true);
       g.textFit(x + ph, y + 24, ch.role || '', 12, C.GREY_TXT, 'left', rw - ph);
-      if (m.lang) g.text(x + ph, y + 42, 'AUTO-TRANSLATED', 11, C.LILAC);
+      if (sp.lang) g.text(x + ph, y + 42, 'AUTO-TRANSLATED', 11, C.LILAC);
       if (d.left) g.text(x + rw, y + 42, `ANSWER IN ${d.left}s`, 13, flash(400) ? C.RED : C.YELLOW, 'right');
-      y = g.wrap(x + ph, y + 58, rw - ph, subtitle(m.text), 13, C.WHITE, 1.2, 4);
+      y = g.wrap(x + ph, y + 58, rw - ph, subtitle(sp.text), 13, C.WHITE, 1.2, 4);
       y = Math.max(y, L.y0 + ph) + 8;
       g.header(x, y, rw, 'YOUR REPLY', C.LILAC);
       y += 24;

@@ -233,3 +233,22 @@ export function alienParts(text) {
   return out;
 }
 export const subtitle = (text) => text.replace(/\{[^}]*\}/g, '[...]');
+
+// the conversation in progress as the screens show it: dm = the line carrying the reply options,
+// sp = whoever spoke last in it (an interjection can follow the options line). COMMS and the main
+// viewer both use this, so they always show the same face.
+export function speakerLine(w) {
+  const d = w.slow && w.slow.dlg, msgs = w.msgs;
+  if (!d || d.pending) return null;
+  const dm = msgs.find((q) => q.dseq === d.seq);
+  if (!dm) return null;
+  const sp = msgs.find((q) => q.who && !q.reply && q.id >= dm.id) || dm;
+  return { d, dm, sp, who: sp.who || d.who };
+}
+// who is calling, for the INCOMING HAIL notice: the speaker, the ship/station, what it is
+export function callerInfo(w, d, names) {
+  const ch = CHARS[d.who] || CHARS.computer, n = d.from < 32 ? w.n(d.from) : null;
+  let vessel = d.from === 250 ? 'FLEET COMMAND - SUBSPACE' : '', place = d.from === 250 ? 'FLEET COMMAND' : n ? w.contactName(d.from) : 'UNKNOWN';
+  if (n) vessel = [names.civ[n.civ] || '', n.type === 0 ? names.sk[n.kind ?? 0] : names.ct[n.type], names.fac[n.faction] || ''].filter(Boolean).join(' - ');
+  return { ch, place, vessel };
+}

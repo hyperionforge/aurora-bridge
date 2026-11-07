@@ -13,11 +13,12 @@ import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawSt
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
 import { drawLab } from './lab.js';
 import { drawPuzzle, hasPuz, PZ_NAME } from './puzzles.js';
-import { CHARS } from './dialogue.js';
+import { CHARS, speakerLine, callerInfo } from './dialogue.js';
 import { CAMPAIGNS } from './campaign.js';
 const campOf = (id) => CAMPAIGNS.find((c) => c.id === id) || CAMPAIGNS[0];
 import { drawPortrait, drawGlyphs, translated, msgAge } from './portraits.js';
 import { SYS_SIZE, inNebulaOf, sysAt, SK_NAME, CIV_NAME, CIV_COL } from './galaxy.js';
+const CALL_NAMES = { civ: CIV_NAME, sk: SK_NAME, ct: K.CT_NAME, fac: K.FACTION_NAME };
 
 const NSTARS = 160;
 // the main viewer always shows the forward view; what a station puts on screen opens over it
@@ -114,6 +115,7 @@ export class Scene {
         g.text(x + wd - 8 * u, y + ht - 22 * u, 'RED ALERT', 18 * u, C.RED, 'right');
       }
       const vw = opts.view ?? w.view;
+      this.drawCallNotice(g, w, x, y, wd, u, vw);
       if (P.dock === 1 && vw !== K.VM_COMMS) g.text(x + wd / 2, y + 80 * u, 'DOCKING...', 18 * u, C.GREEN, 'center');
       if (P.dock === 2 && vw !== K.VM_COMMS) g.text(x + wd / 2, y + 80 * u, 'DOCKED - REPAIRING AND RESUPPLYING', 18 * u, C.GREEN, 'center');
       // a new campaign chapter: its title over whatever is on screen
@@ -136,6 +138,30 @@ export class Scene {
     g.unclip();
   }
 
+  // incoming hails and transmissions are announced, not put on screen: COMMS decides that
+  drawCallNotice(g, w, x, y, wd, u, vw) {
+    const d = w.slow && w.slow.dlg;
+    let l1 = '', l2 = '', who = null, ring = false;
+    if (d && d.pending) {
+      const ci = callerInfo(w, d, CALL_NAMES);
+      l1 = `INCOMING HAIL - ${ci.place}`; l2 = `${ci.ch.name}${ci.vessel ? '  -  ' + ci.vessel : ''}   |   COMMS: ANSWER`; who = d.who; ring = true;
+    } else if (vw !== K.VM_COMMS) {
+      const m = w.msgs[0];
+      if (m && !m.reply && (m.from < K.MAX_CONTACTS || m.from === K.FROM_COMMAND) && msgAge(m) < 7000) {
+        const name = m.who && CHARS[m.who] ? CHARS[m.who].name : m.from === K.FROM_COMMAND ? 'FLEET COMMAND' : w.shortName(m.from);
+        l1 = `TRANSMISSION - ${name}`; l2 = (m.text.length > 90 ? m.text.slice(0, 88) + '...' : m.text).replace(/[{}]/g, ''); who = m.who || null;
+      }
+    }
+    if (!l1) return;
+    const bw = Math.min(wd * 0.72, 620 * u), bh = 58 * u, bx = x + (wd - bw) / 2, by = y + 52 * u;
+    g.ctx.globalAlpha = 0.9; g.rrect(bx, by, bw, bh, 12 * u, '#0a0c18'); g.ctx.globalAlpha = 1;
+    g.ctx.strokeStyle = ring ? (flash(450) ? C.ORANGE : C.YELLOW) : C.LILAC; g.ctx.lineWidth = 2 * u;
+    g.ctx.beginPath(); g.ctx.roundRect(bx, by, bw, bh, 12 * u); g.ctx.stroke();
+    let tx = bx + 12 * u;
+    if (who) { drawPortrait(g, who, bx + 6 * u, by + 5 * u, bh * 0.85, bh - 10 * u, performance.now(), false); tx = bx + bh + 4 * u; }
+    g.textFit(tx, by + 7 * u, l1, 20 * u, ring ? (flash(450) ? C.ORANGE : C.YELLOW) : C.PEACH, 'left', bx + bw - tx - 10 * u, true);
+    g.textFit(tx, by + 33 * u, l2, 14 * u, C.GREY_TXT, 'left', bx + bw - tx - 10 * u);
+  }
   drawMode(g, w, r, vm) {
     switch (vm) {
       case K.VM_FORWARD: this.drawFwd(g, w, r); break;
@@ -525,8 +551,9 @@ export class Scene {
   // ---------------------------------------------------------------- incoming transmission
   // the comms station on the big screen: message log, who's calling, who's in range
   // a hail on the main viewer: the speaker's face, the alien original and subtitles
-  drawHail(g, w, r, m) {
-    const u = r.u, d = w.slow && w.slow.dlg, who = m.who, ch = CHARS[who] || CHARS.computer, pad = 16 * u;
+  // m = the line being spoken (and whose face we show); dm = the line carrying the reply options
+  drawHail(g, w, r, m, dm = m) {
+    const u = r.u, d = w.slow && w.slow.dlg, who = m.who || (d && d.who), ch = CHARS[who] || CHARS.computer, pad = 16 * u;
     const tr = translated(m), talking = tr.p < 1 || msgAge(m) < 2500 + m.text.length * 45;
     const ph = r.h * 0.56, pw = Math.min(r.w * 0.42, ph * 1.2);
     const px = r.x + pad, py = r.y + pad;
@@ -539,7 +566,7 @@ export class Scene {
     // right: header, original language, replies
     const rx = px + pw + 24 * u, rw = r.x + r.w - rx - pad;
     y = py;
-    g.header(rx, y, rw, d && d.seq === m.dseq ? 'INCOMING HAIL' : 'TRANSMISSION', flash(700) ? C.ORANGE : C.SKY, 22 * u);
+    g.header(rx, y, rw, d && dm && d.seq === dm.dseq ? 'CHANNEL OPEN' : 'TRANSMISSION', flash(700) ? C.ORANGE : C.SKY, 22 * u);
     y += 36 * u;
     if (m.lang) {
       g.text(rx, y, `LANGUAGE: ${CIV_NAME[m.lang]}   ${tr.p < 1 ? 'TRANSLATING' + '.'.repeat(1 + Math.floor(performance.now() / 300) % 3) : 'TRANSLATED'}`, 14 * u, C.LILAC);
@@ -548,11 +575,11 @@ export class Scene {
       if (tr.p < 1) g.progress(rx, y, rw, 6 * u, tr.p, C.LILAC);
       y += 18 * u;
     }
-    const live = d && d.seq === m.dseq;
-    if (live && m.dopt && m.dopt.length) {
+    const live = d && dm && d.seq === dm.dseq;
+    if (live && dm.dopt && dm.dopt.length) {
       g.text(rx, y, 'REPLIES - COMMS STATION', 14 * u, C.GREY_TXT);
       y += 22 * u;
-      m.dopt.forEach((o, i) => { if (y < r.y + r.h * 0.74) { g.textFit(rx, y, `${i + 1}. ${o}`, 18 * u, C.PEACH, 'left', rw); y += 25 * u; } });
+      dm.dopt.forEach((o, i) => { if (y < r.y + r.h * 0.74) { g.textFit(rx, y, `${i + 1}. ${o}`, 18 * u, C.PEACH, 'left', rw); y += 25 * u; } });
       if (d.left) { g.text(rx, y + 6 * u, `ANSWER IN ${d.left}s`, 18 * u, flash(400) ? C.RED : C.YELLOW); }
     }
     // subtitles across the bottom
@@ -565,9 +592,10 @@ export class Scene {
   drawComms(g, w, r) {
     const u = r.u, msgs = w.msgs, P = w.P;
     {
-      const d = w.slow && w.slow.dlg;
+      const sl = speakerLine(w);
+      if (sl) { this.drawHail(g, w, r, sl.sp, sl.dm); return; }
       const m = msgs.find((q) => q.who && !q.reply);
-      if (m && ((d && d.seq === m.dseq) || (msgs.indexOf(m) <= 1 && msgAge(m) < 9000))) { this.drawHail(g, w, r, m); return; }
+      if (m && msgs.indexOf(m) <= 1 && msgAge(m) < 9000 && !(w.slow && w.slow.dlg)) { this.drawHail(g, w, r, m, null); return; }
     }
     const fromName = (f) => (f < K.MAX_CONTACTS ? w.shortName(f) : f === K.FROM_COMMAND ? 'FLEET COMMAND' : f === K.FROM_COMPUTER ? 'COMPUTER' : 'BRIDGE');
     const pad = 16 * u, lw = r.w * 0.6;

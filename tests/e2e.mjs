@@ -46,6 +46,7 @@ tv.on('pageerror', (e) => errors.push('tv: ' + e.message));
 await tv.goto(`${base}/screen.html`);
 await sleep(1500);
 
+await host.evaluate(() => { window.auroraHost.sim.autoAnswer = true; }); // most hails open at once in this test
 const lobby = await host.evaluate(() => window.auroraApp.w.lobby);
 console.log('players:', lobby.players.length, 'screens:', lobby.screens);
 await host.screenshot({ path: `${OUT}/p01_lobby_empty.png` });
@@ -237,7 +238,12 @@ await phones[dmgO].screenshot({ path: `${OUT}/p73_dmg_cargo.png` });
 // ---- hails: a station greeting, a Kessari surrender demand, and the other faces
 const comO = await ownerOf(3);
 await phones[comO].evaluate(() => { const a = window.auroraApp; a.viewerPage = false; a.tab = a.myStation().tabs.indexOf(3); });
-await host.evaluate(() => { const s = window.auroraHost.sim; s.startDialog('outpost', 0); });
+await host.evaluate(() => { const s = window.auroraHost.sim; s.autoAnswer = false; s.startDialog('outpost', 0); });
+await sleep(1500);
+await tv.screenshot({ path: `${OUT}/tv49_hail_incoming.png` });
+await phones[comO].screenshot({ path: `${OUT}/p79_comms_incoming.png` });
+await phones[comO].evaluate(() => { const a = window.auroraApp; a.send(50, a.w.slow.dlg.seq, 1); }); // ANSWER - ON SCREEN
+await host.evaluate(() => { window.auroraHost.sim.autoAnswer = true; });
 await sleep(3500);
 await tv.screenshot({ path: `${OUT}/tv50_hail_outpost.png` });
 await phones[comO].screenshot({ path: `${OUT}/p80_comms_dialog.png` });

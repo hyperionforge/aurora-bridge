@@ -26,13 +26,15 @@ const cmd = (cmd, a = 0, b = 0, c = 0, d = 0) => s.handleCmd({ cmd, a, b, c, d }
 const ci = CAMPAIGNS.findIndex((c) => c.id === 'threshold');
 cmd(K.CMD.SELECT, 0, 1, K.MODE_CAMPAIGN, ci); cmd(K.CMD.START);
 if (!s.camp || s.camp.id !== 'threshold') { console.log('WRONG CAMPAIGN', s.camp && s.camp.id); process.exit(1); }
-let lastSeq = 0, lastStep = '', seenFleet = 0;
+let lastSeq = 0, lastStep = '', seenFleet = 0, answered = 0;
 const log = (t) => console.log(`[${(s.missionT | 0).toString().padStart(4)} ${s.sysDef.name.padEnd(16)}] ${t}`);
 const fail = (why) => { console.log('FAIL', route, why, '| step', s.camp && s.camp.step, '|', s.M.objective); process.exit(1); };
 const godmode = () => { s.P.hull = 100; s.P.energy = 1000; for (let i = 0; i < 6; i++) s.P.health[i] = 100; };
 const picks = {};
 function tick() {
   const c = s.camp;
+  // an incoming hail: COMMS answers it on screen (and checks the main viewer switched)
+  if (s.dlg && s.dlg.pending) { const seq = s.dlg.seq; cmd(K.CMD.ANSWER, seq, 1); answered++; if (s.view !== K.VM_COMMS) fail('answered on screen but the viewer is not on COMMS'); }
   if (c && c.step !== lastStep) { lastStep = c.step; log('STEP ' + c.step + ' :: ' + s.M.objective.slice(0, 150)); }
   const m0 = s.dlg && s.msgs.find((q) => q.dseq === s.dlg.seq);
   if (s.dlg && m0 && m0.id !== lastSeq && m0.dopt.length) {
@@ -188,7 +190,7 @@ else {
 }
 const e = s.camp.ending;
 if (!e) fail('no ending');
-console.log(`${s.game === K.GS_WIN ? 'GAME WON' : 'GAME OVER'} ENDING ${e.title} | ALLIES ${e.allies.join(', ') || '-'} | REPORTS ${seenFleet}`);
+console.log(`${s.game === K.GS_WIN ? 'GAME WON' : 'GAME OVER'} ENDING ${e.title} | ALLIES ${e.allies.join(', ') || '-'} | REPORTS ${seenFleet} | HAILS ANSWERED ${answered}`);
 console.log(e.text);
 console.log('FLAGS', JSON.stringify(s.camp.f));
 const expect = { home: 'THE LODESTAR COMES HOME', scar: 'SCAR TISSUE', sealed: 'THE QUIET', crown: 'THE CROWN OF ROADS' }[route];

@@ -88,7 +88,7 @@ export function installPuzzles(Sim) {
       const pz = h.pz;
       if (a === 9) { this.labShow = h.uid; this.view = K.VM_LAB; this.viewRevertAt = 0; this.say(FROM_CREW, 0, `${PZ_NAME[pz.kind] || 'THE LAB'} ON THE MAIN VIEWER - EVERYONE CAN HELP.`); return; }
       if (pz.done) return;
-      if (this.P.health[K.S_SENSORS] <= 0 && pz.kind !== 'archive') { this.denied('SENSORS OFFLINE - THE LAB IS BLIND.'); return; }
+      if (!this.sensorsUp() && pz.kind !== 'archive') { this.denied('SENSORS OFFLINE - THE LAB IS BLIND.'); return; }
       this.labShow = this.labShow || h.uid;
       if (pz.kind === 'rings') {
         if (a === 1) pz.sel = clampf(c | 0, 0, 2);

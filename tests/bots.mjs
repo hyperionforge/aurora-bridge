@@ -137,7 +137,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const seeds = process.argv[2] ? process.argv[2].split(',').map(Number) : [1];
   let tot = 0, won = 0;
   for (const seed of seeds) {
-    const sim = new Sim(makeRng(seed));
+    const sim = new Sim(makeRng(seed)); sim.autoAnswer = true; // hails open at once (no COMMS player to answer)
     let ok = 0;
     for (let type = 1; type <= K.MT_DEFEND; type++) // the asteroid field is flown by tests/field.mjs
       for (let diff = 0; diff < 3; diff++) {

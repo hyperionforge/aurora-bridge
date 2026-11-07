@@ -10,7 +10,7 @@ import { SYS_INDEX, sysAt, planetPos } from '../web/js/galaxy.js';
 const pick = JSON.parse(process.argv[2] || '{"a_vey1":"WHAT ARE YOU","a_voss2":"PERSON","a_tarren":"SHIELD","a_final":"ARGUS"}');
 const purge = JSON.parse(process.argv[3] || '["B","C"]');
 const accuse = +(process.argv[4] ?? 3);
-const s = new Sim(makeRng(33));
+const s = new Sim(makeRng(33)); s.autoAnswer = true; // hails open at once (no COMMS player to answer)
 const cmd = (cmd, a = 0, b = 0, c = 0, d = 0) => s.handleCmd({ cmd, a, b, c, d });
 cmd(K.CMD.SELECT, 0, 1, K.MODE_CAMPAIGN, 1); cmd(K.CMD.START);
 if (s.camp.id !== 'argus') { console.log('WRONG CAMPAIGN', s.camp.id); process.exit(1); }

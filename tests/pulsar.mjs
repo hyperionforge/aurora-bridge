@@ -8,7 +8,7 @@ import { Sim } from '../web/js/sim.js';
 import { makeRng, distTo, bearingTo } from '../web/js/util.js';
 import { pulLit, pulShadowed } from '../web/js/pulsar.js';
 const how = process.argv[2] || 'shield', diff = +(process.argv[3] ?? 1);
-const s = new Sim(makeRng(7));
+const s = new Sim(makeRng(7)); s.autoAnswer = true; // hails open at once (no COMMS player to answer)
 const cmd = (cmd, a = 0, b = 0, c = 0, d = 0) => s.handleCmd({ cmd, a, b, c, d });
 cmd(K.CMD.SELECT, K.MT_PULSAR, diff, K.MODE_MISSION); cmd(K.CMD.START);
 const M = s.M, pul = M.pul;

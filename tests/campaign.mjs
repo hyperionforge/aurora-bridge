@@ -8,7 +8,7 @@ import { Sim } from '../web/js/sim.js';
 import { makeRng } from '../web/js/util.js';
 import { SYS_INDEX } from '../web/js/galaxy.js';
 const pick = JSON.parse(process.argv[2] || '{"c_okafor1":"SEAM","c_silk1":"AGREED","c_hunter":"FLEET PROTECTION","c_ressh2":"GO HOME","c_korvath4":"WHY","c_draal2":"GO HOME","c_chorus5":"FREE","array":"CLOSE","mayday":"COMING"}'); // dialog key -> option label substring
-const s = new Sim(makeRng(21));
+const s = new Sim(makeRng(21)); s.autoAnswer = true; // hails open at once (no COMMS player to answer)
 const cmd = (cmd, a = 0, b = 0, c = 0, d = 0) => s.handleCmd({ cmd, a, b, c, d });
 cmd(K.CMD.SELECT, 0, 1, K.MODE_CAMPAIGN); cmd(K.CMD.START);
 let lastSeq = 0, lastStep = '';

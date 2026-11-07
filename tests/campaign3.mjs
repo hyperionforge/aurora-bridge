@@ -15,7 +15,7 @@ const R = {
   wake: { l_mother1: 'WAKE BAY 3', l_wren1: ['YOU HID', 'STAY WITH'], l_okafor: 'THANK', l_vask: 'PRICE', l_mother4: 'WAKE THEM ANYWAY', l_dest: 'VESPERA', l_final: 'STAY WITH' },
   late: { l_mother1: 'WE\'LL BE BACK', l_wren1: ['IT WASN', 'COME ABOARD'], l_okafor: 'THANK', l_vask: 'BATTLE', l_mother4: 'BEAMING', l_dest: 'COUNCIL', l_final: 'ARCHIVE' },
 }[route];
-const s = new Sim(makeRng(51));
+const s = new Sim(makeRng(51)); s.autoAnswer = true; // hails open at once (no COMMS player to answer)
 const cmd = (cmd, a = 0, b = 0, c = 0, d = 0) => s.handleCmd({ cmd, a, b, c, d });
 cmd(K.CMD.SELECT, 0, 1, K.MODE_CAMPAIGN, 2); cmd(K.CMD.START);
 if (!s.camp || s.camp.id !== 'sleep') { console.log('WRONG CAMPAIGN', s.camp && s.camp.id); process.exit(1); }

@@ -31,6 +31,7 @@ tv.on('pageerror', (e) => errors.push('tv: ' + e.message));
 await tv.goto(`${base}/screen.html`);
 await sleep(1500);
 const sim = (fn, arg) => host.evaluate(fn, arg);
+await sim(() => { window.auroraHost.sim.autoAnswer = true; });
 const tab = (p, t) => p.evaluate((t) => { const a = window.auroraApp; a.viewerPage = false; a.menu = false; a.picking = false; a.tab = Math.max(0, a.myTabs().indexOf(t)); }, t);
 const shot = async (p, name, wait = 500) => { await sleep(wait); await p.screenshot({ path: `${OUT}/${name}.png` }); console.log('shot', name); };
 
@@ -64,6 +65,9 @@ await tab(host, 0); await shot(host, 'st10_helm_avoid');
 await tab(host, 1); await shot(host, 'st11_nav_course');
 await tab(crew, 6); await shot(crew, 'st12_engineering');
 await tab(crew, 4); await shot(crew, 'st13_tactical_shields');
+await sim(() => { window.auroraHost.sim.handleCmd({ cmd: 26, a: 4, b: 60 }); });
+await tab(crew, 5); await shot(crew, 'st13b_shields_low_power', 800);
+await sim(() => { window.auroraHost.sim.handleCmd({ cmd: 26, a: 4, b: 100 }); });
 await tab(host, 2); await shot(host, 'st14_science_range');
 
 // ---- comms: Fleet Command waiting for a report, a long log with repeats

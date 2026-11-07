@@ -238,7 +238,8 @@ class Sound {
     if (!this.ctx || !w || !w.have) return;
     const P = w.P, run = w.game === K.GS_RUN;
     const d = w.slow && w.slow.dlg, seq = d ? d.seq : 0;
-    if (run && seq && seq !== this.lastDlg && opts.hail) this.hailIncoming();
+    // an incoming hail keeps calling until COMMS answers it
+    if (run && seq && opts.hail && (seq !== this.lastDlg || (d.pending && performance.now() - (this.lastRing || 0) > 4000))) { this.hailIncoming(); this.lastRing = performance.now(); }
     if (run && opts.screen && w.view === K.VM_COMMS && this.lastView !== undefined && this.lastView !== K.VM_COMMS) setTimeout(() => this.onScreen(), seq !== this.lastDlg ? 700 : 0);
     this.lastDlg = seq; this.lastView = w.view;
     const wc = run && P.warpSet > 0 && !P.warping && P.warpCharge > 0 && P.warpCharge < 1;

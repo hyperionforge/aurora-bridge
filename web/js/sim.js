@@ -35,7 +35,7 @@ function newPlayer() {
     spareUse: 0, noSparesWarned: false,
     labUid: 0, labTest: 0, labProg: 0, shRange: 0, autoBrake: false, allStop: false,
     vx: 0, vy: 0, orbitPl: -1, orbPlot: -1, apPlanet: -1, escA: 0, oobT: 0, skimT: 0,
-    route: [], thrFrac: null, apAvoid: '', apSide: 0, jumpLen: K.JUMP_TRANSIT_S,
+    route: [], thrFrac: null, apAvoid: '', apSide: 0, jumpLen: K.JUMP_TRANSIT_S, apPlot: 0,
   };
 }
 function newNpc() {
@@ -202,7 +202,9 @@ export class Sim {
     const m = { id: this.nextMsgId++, from, col, text, opt };
     this.msgs.unshift(m);
     if (this.msgs.length > MSG_KEEP) this.msgs.length = MSG_KEEP;
-    if (from < MAX_CONTACTS || from === FROM_COMMAND) { // transmissions go on the viewer for a few seconds
+    // transmissions no longer take over the main viewer: it shows a notification, and COMMS puts
+    // a call on screen. A conversation that COMMS put on screen keeps it there.
+    if ((from < MAX_CONTACTS || from === FROM_COMMAND) && this.dlg && this.dlg.onScreen && !this.dlg.pending && from === this.dlg.from) {
       if (this.view !== K.VM_COMMS) this.viewBefore = this.view;
       this.view = K.VM_COMMS;
       this.viewRevertAt = this.now + 9000;
@@ -222,8 +224,12 @@ export class Sim {
     return e;
   }
   inNebula(x, y) { return !!inNebulaOf(this.sysDef, x, y); }
+  // a plot was cleared: helm falls back to whatever else is still plotted (course, orbit, intercept)
+  apFallback() { const P = this.P; return P.wpValid ? 1 : P.orbPlot >= 0 ? 4 : P.icPlot !== NO_ID ? 2 : 0; }
+  sensorsUp() { return this.P.health[S_SENSORS] > 0 && this.P.power[S_SENSORS] > 0; }
   sensorRange() {
     const P = this.P;
+    if (!this.sensorsUp()) return 0; // no power (or wrecked): blind
     let r = K.SENSOR_RANGE * clampf(this.eff(S_SENSORS), 0.3, 1.5) * this.fx('sensor');
     if (this.inNebula(P.x, P.y)) r *= 0.4;
     if (P.lrs > 0) r *= 3;
@@ -526,6 +532,7 @@ export class Sim {
         else if (a) { P.route = [[x, y]]; P.wpValid = true; }
         else { P.route = []; P.wpValid = false; }
         if (P.route.length) [P.wpx, P.wpy] = P.route[0];
+        if (P.wpValid) P.apPlot = 1; else if (P.apPlot === 1) P.apPlot = this.apFallback(); // the newest plot is the one helm flies
         if (!P.wpValid && P.autopilot === K.AP_WAYPOINT) P.autopilot = K.AP_OFF;
         break;
       }
@@ -551,8 +558,9 @@ export class Sim {
       case CMD.PLOT: if (a === 2) {
         const pl = this.sysDef.planets[b];
         P.orbPlot = pl ? b : -1;
+        if (pl) P.apPlot = 4; else if (P.apPlot === 4) P.apPlot = this.apFallback();
         if (pl) this.say(FROM_CREW, 0, `${pl.name} PLOTTED FOR ORBIT. HELM: AUTOPILOT > ORBIT - WE'LL PULL ALONGSIDE AND MOVE WITH THE PLANET.`);
-      } else if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else P.icPlot = b; break;
+      } else if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else { P.icPlot = b; if (b !== NO_ID) P.apPlot = 2; else if (P.apPlot === 2) P.apPlot = this.apFallback(); } break;
       case CMD.SAMPLE: case CMD.EXTRACT:
         this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
       case CMD.REFINE: this.refineCmd(a, b); break;
@@ -572,18 +580,19 @@ export class Sim {
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
-        if (P.health[S_SENSORS] <= 0) { this.denied('SENSORS OFFLINE.'); break; }
+        if (!this.sensorsUp()) { this.denied(P.power[S_SENSORS] <= 0 ? 'SENSORS HAVE NO POWER - ASK ENGINEERING.' : 'SENSORS OFFLINE.'); break; }
         if (this.npc[a].type === CT_BUOY && distTo(P.x, P.y, this.npc[a].x, this.npc[a].y) > 8000) { this.denied('GET WITHIN 8K OF THE BUOY TO DOWNLOAD ITS LOG.'); break; }
         P.scanId = a;
         P.scanProg = 0;
         break;
       case CMD.LRS:
         if (P.energy < K.LRS_COST) { this.denied('NOT ENOUGH ENERGY FOR A LONG RANGE SCAN.'); break; }
-        if (P.health[S_SENSORS] <= 0) { this.denied('SENSORS OFFLINE.'); break; }
+        if (!this.sensorsUp()) { this.denied(P.power[S_SENSORS] <= 0 ? 'SENSORS HAVE NO POWER - ASK ENGINEERING.' : 'SENSORS OFFLINE.'); break; }
         P.energy -= K.LRS_COST;
         P.lrs = K.LRS_TIME_S;
         break;
-      case CMD.HAIL: this.commsHandle(a, 0); break;
+      case CMD.HAIL: this.hailOpen = true; try { this.commsHandle(a, 0); } finally { this.hailOpen = false; } break;
+      case CMD.ANSWER: this.answerHail(a, b === 1); break;
       case CMD.REPLY: this.commsHandle(a, b); break;
       case CMD.TARGET: P.target = a; break;
       case CMD.SUB: P.sub = a % 4; break;
@@ -622,6 +631,7 @@ export class Sim {
       }
       case CMD.SHIELDS:
         if (a && P.dock) { this.denied('CANNOT RAISE SHIELDS WHILE DOCKED.'); break; }
+        if (a && P.power[S_SHIELDS] <= 0) { this.denied('NO POWER TO THE SHIELD GENERATOR - ASK ENGINEERING.'); break; }
         P.shieldsOn = !!a;
         break;
       case CMD.REINFORCE: P.reinforce = a % 5; break;
@@ -1080,7 +1090,7 @@ export class Sim {
   }
   arrive(to) {
     const P = this.P, from = this.sysIdx;
-    P.jumpPlot = NO_ID; P.icPlot = NO_ID; P.orbPlot = -1; P.orbitPl = -1; P.apPlanet = -1; P.oobT = 0;
+    P.jumpPlot = NO_ID; P.icPlot = NO_ID; P.orbPlot = -1; P.orbitPl = -1; P.apPlanet = -1; P.oobT = 0; P.apPlot = 0; P.route = [];
     if (this.jobOnLeave) this.jobOnLeave(to);
     this.loadSystem(to);
     const a = Math.atan2(sysAt(from).gy - sysAt(to).gy, sysAt(from).gx - sysAt(to).gx);
@@ -1321,7 +1331,10 @@ export class Sim {
     }
 
     // ---- shields
-    const raiseTarget = P.shieldsOn && P.health[S_SHIELDS] > 0 && !P.dock;
+    if (P.shieldsOn && P.power[S_SHIELDS] <= 0) { P.shieldsOn = false; this.say(FROM_CREW, 2, 'SHIELDS DOWN - ENGINEERING HAS CUT ALL POWER TO THE SHIELD GENERATOR!'); }
+    if (P.power[S_SENSORS] <= 0 && !P.senDark) { P.senDark = true; this.say(FROM_CREW, 2, 'SENSORS OFFLINE - NO POWER. WE\'RE BLIND, CAPTAIN.'); }
+    else if (P.power[S_SENSORS] > 0 && P.senDark) { P.senDark = false; this.say(FROM_CREW, 0, 'SENSORS BACK ONLINE.'); }
+    const raiseTarget = P.shieldsOn && P.health[S_SHIELDS] > 0 && P.power[S_SHIELDS] > 0 && !P.dock;
     if (!raiseTarget) P.shieldsOn = P.shieldsOn && P.health[S_SHIELDS] > 0 && !P.dock;
     P.shieldRaise = clampf(P.shieldRaise + (raiseTarget ? dt / K.SHIELD_RAISE_S : -dt * 2), 0, 1);
     for (let q = 0; q < 4; q++) {
@@ -1348,7 +1361,7 @@ export class Sim {
     if (P.scanId !== NO_ID) {
       const sn = npc[P.scanId];
       const buoyFar = sn.type === CT_BUOY && distTo(P.x, P.y, sn.x, sn.y) > 8000;
-      if (!this.visible(P.scanId) || P.health[S_SENSORS] <= 0 || buoyFar) {
+      if (!this.visible(P.scanId) || !this.sensorsUp() || buoyFar) {
         P.scanId = NO_ID;
         this.say(FROM_CREW, 1, 'SCAN INTERRUPTED - LOST SENSOR LOCK.');
       } else {
@@ -1413,7 +1426,7 @@ export class Sim {
     this.M.ver++;
   }
   clearMarkers() { this.M.mk = []; this.M.ver++; }
-  setWaypoint(x, y) { const P = this.P; P.wpValid = true; P.wpx = x; P.wpy = y; P.route = [[x, y]]; }
+  setWaypoint(x, y) { const P = this.P; P.wpValid = true; P.wpx = x; P.wpy = y; P.route = [[x, y]]; P.apPlot = 1; }
   clampSec(v) { return clampf(v, 6000, SECTOR - 6000); }
   clearOfPlanets(x, y) {
     const t = this.now / 1000;
@@ -1878,7 +1891,7 @@ export class Sim {
     if (n.scan < 1) return 'SCAN IT FIRST TO SEE WHAT IT IS.';
     if (n.lockMsg) return n.lockMsg;
     if (n.vault) return 'THE WRECK\'S VAULT IS SEALED BY A HARMONIC LOCK. HAIL THE WRECK FROM COMMS.';
-    if (P.health[S_SENSORS] <= 0) return 'SENSORS OFFLINE.';
+    if (!this.sensorsUp()) return 'SENSORS OFFLINE.';
     const d = distTo(P.x, P.y, n.x, n.y);
     if (mode === 1) {
       if (d > G.SAMPLE_R) return `TOO FAR TO SAMPLE - GET WITHIN ${G.SAMPLE_R / 1000}K.`;
@@ -1935,7 +1948,7 @@ export class Sim {
     // ---- artefact analysis
     if (P.anaUid) {
       const h = P.arts.find((q) => q.uid === P.anaUid);
-      if (!h || P.health[S_SENSORS] <= 0) { P.anaUid = 0; P.anaProg = 0; }
+      if (!h || !this.sensorsUp()) { P.anaUid = 0; P.anaProg = 0; }
       else {
         P.anaProg += dt / (P.anaDeep ? G.DEEP_S : G.ANALYSE_S) * clampf(this.eff(S_SENSORS), 0.4, 1.4);
         if (P.anaProg >= 1) this.analyseDone(h, P.anaDeep);
@@ -2083,7 +2096,22 @@ export class Sim {
     const def = DIALOGS[key];
     if (!def) return;
     if (this.dlg) this.endDialog(true);
-    this.dlg = { key, from, who: ctx.who || def.who, ctx, seq: ++this.dlgSeq, node: 'start', vis: [], deadline: def.timeout ? this.now + def.timeout * 1000 : 0 };
+    // a call we placed (or a conversation carrying on from one) opens at once, on screen; anything
+    // else is an INCOMING HAIL: the viewer shows a notification and COMMS answers it (CMD.ANSWER)
+    const ours = this.hailOpen || this.autoAnswer || ctx.answered;
+    this.dlg = { key, from, who: ctx.who || def.who, ctx, seq: ++this.dlgSeq, node: 'start', vis: [], onScreen: !!ours, t0: this.now,
+      pending: !ours, deadline: def.timeout ? this.now + (def.timeout + (ours ? 0 : 20)) * 1000 : 0 };
+    if (ours) this.presentNode('start');
+    else this.emit(K.EV_MESSAGE);
+  }
+  // COMMS answers an incoming hail: on the main viewer, or quietly at the console
+  answerHail(seq, onScreen) {
+    const d = this.dlg;
+    if (!d || d.seq !== seq || !d.pending) return;
+    const def = DIALOGS[d.key];
+    d.pending = false; d.onScreen = !!onScreen;
+    if (def.timeout) d.deadline = this.now + def.timeout * 1000;
+    if (onScreen) { if (this.view !== K.VM_COMMS) this.viewBefore = this.view; this.view = K.VM_COMMS; this.viewRevertAt = this.now + 9000; }
     this.presentNode('start');
   }
   presentNode(k) {
@@ -2113,7 +2141,7 @@ export class Sim {
     this.say(FROM_CREW, 0, `"${o.t}"`);
     this.msgs[0].reply = true;
     let next = o.go || null;
-    if (o.do) { const r = o.do(this, d.ctx); if (r !== undefined) next = r; }
+    if (o.do) { this.hailOpen = true; try { const r = o.do(this, d.ctx); if (r !== undefined) next = r; } finally { this.hailOpen = false; } }
     if (this.dlg !== d) return; // the reply started another conversation
     if (next) this.presentNode(next); else this.endDialog();
   }
@@ -2131,6 +2159,9 @@ export class Sim {
         this.dlg = null;
         if (def.onTimeout) def.onTimeout(this, d.ctx);
       } else if (d.from < MAX_CONTACTS && (!this.npc[d.from].active || !this.npc[d.from].alive)) this.endDialog();
+      else if (d.pending && d.ctx.casual && this.now - d.t0 > 35000) { // a station's hello nobody answered: they give up
+        this.endDialog(true); this.say(FROM_CREW, 0, `MISSED CALL FROM ${this.shortName(d.from)}. COMMS CAN CALL THEM BACK.`);
+      }
     }
     for (let i = this.timers.length - 1; i >= 0; i--) if (this.now >= this.timers[i].at) { const t = this.timers.splice(i, 1)[0]; t.fn(); }
     if (this.mode === K.MODE_MISSION) return;
@@ -2139,7 +2170,7 @@ export class Sim {
       for (let i = 0; i < MAX_CONTACTS; i++) {
         const n = this.npc[i];
         if (!n.active || !n.alive || n.type !== CT_STARBASE || !n.talk || this.greeted.has(i)) continue;
-        if (distTo(P.x, P.y, n.x, n.y) < 14000) { this.greeted.add(i); this.startDialog(n.talk, i); break; }
+        if (distTo(P.x, P.y, n.x, n.y) < 14000) { this.greeted.add(i); this.startDialog(n.talk, i, { casual: true }); break; }
       }
     }
     if (this.duel) this.duelTick();
