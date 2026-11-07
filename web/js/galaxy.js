@@ -90,7 +90,7 @@ export const SYSTEMS = [
     belts: [{ orbit: 30000, width: 6000, n: 500, col: '#8ca0b4' }],
     nebulae: [{ name: 'BLUE VEIL', x: 36000, y: 120000, r: 14000, col: '#283c78' }],
     stations: [],
-    lanes: ['velanar', 'shroud', 'orra', 'atlas'],
+    lanes: ['velanar', 'shroud', 'orra'],
   },
   {
     id: 'orra', name: 'ORRA PRIME', gx: 730, gy: 330, star: { col: '#ff8a5a', glow: '#c83c14', r: 8200, type: 'RED GIANT' },
@@ -109,15 +109,6 @@ export const SYSTEMS = [
     nebulae: [{ name: 'CRYSTAL VEIL', x: 110000, y: 110000, r: 18000, col: '#2c5a5a' }],
     stations: [{ name: 'THE MONOLITH', kind: SK_MONOLITH, civ: CIV_CHORUS, x: 80000, y: 116000 }],
     lanes: ['orra'],
-  },
-  {
-    id: 'atlas', name: 'THE ATLAS', gx: 741, gy: 391, star: { col: '#e8f0ff', glow: '#7aa0ff', r: 3200, type: 'NEUTRON STAR' }, hidden: true,
-    desc: 'ONE LANE BEYOND THE BLUE GIANT. THE CARTOGRAPHERS BUILT SOMETHING HERE.',
-    planets: [P('THE SCAFFOLD', 30000, 700, 0.4, 2200, '#8c8c9a', '#5a5a6e')],
-    belts: [{ orbit: 54000, width: 5000, n: 500, col: '#7a7a8c' }],
-    nebulae: [{ name: 'THE INK', x: 122000, y: 40000, r: 15000, col: '#1e2c5a' }],
-    stations: [{ name: 'THE ATLAS ENGINE', kind: SK_MONOLITH, civ: CIV_NONE, x: 110000, y: 106000 }],
-    lanes: ['cerulean'],
   },
 ];
 export const SYS_INDEX = Object.fromEntries(SYSTEMS.map((s, i) => [s.id, i]));

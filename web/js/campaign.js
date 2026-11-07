@@ -18,7 +18,6 @@ const { NO_ID, US, MAX_CONTACTS, CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTRO
 const AI_STATIC = 0, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_ALLY = 8;
 
 import { ARGUS_CHAPTERS, ARGUS_DESC } from './campaign2.js';
-import { CARTO_CHAPTERS, CARTO_DESC, CARTO_BLURB } from './campaign3.js';
 export const CHAPTERS = ['DEAD AIR', 'THE LANTERN\'S PRICE', 'THE SHROUD', 'BLOOD AND HONOUR', 'THE SILENT CHOIR'];
 export const CHAPTER_DESC = [
   'DEEP HOLLOW, A MINING COLONY IN MERIDIAN REACH, HAS GONE SILENT. ITS LAST TRANSMISSION WAS SINGING.',
@@ -33,7 +32,6 @@ export const CAMPAIGNS = [
     blurb: 'A MINING COLONY GOES SILENT, AND A SONG LEADS ACROSS THE GALAXY TO A SECRET THE ORRANS HAVE KEPT FOR A THOUSAND YEARS.' },
   { id: 'argus', name: 'THE ARGUS PARADOX', chapters: ARGUS_CHAPTERS, desc: ARGUS_DESC,
     blurb: 'A DISTRESS CALL FROM THE AURORA HERSELF - SENT NINE DAYS FROM NOW. A RIFT IN TIME, A MACHINE THAT DREAMS, AND A WORLD THAT MUST NOT KNOW YOU EXIST.' },
-  { id: 'carto', name: 'THE CARTOGRAPHERS', chapters: CARTO_CHAPTERS, desc: CARTO_DESC, blurb: CARTO_BLURB },
 ];
 const NUM_WORD = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 // defaults used when a chapter is started without having played the ones before
@@ -195,7 +193,6 @@ export function installCampaign(Sim) {
     campMaxes() { return CAMPAIGNS.map((cp) => Math.max(1, Math.min(cp.chapters.length, this.campSaveOf(cp.id).maxCh || 1))); },
     startCampaign(ch) {
       if (CAMPAIGNS[this.selCamp | 0] && CAMPAIGNS[this.selCamp | 0].id === 'argus') { this.argusStart(ch); return; }
-      if (CAMPAIGNS[this.selCamp | 0] && CAMPAIGNS[this.selCamp | 0].id === 'carto') { this.cartoStart(ch); return; }
       ch = clampf(ch | 0, 1, 5);
       const save = this.campSaveOf('chorus');
       this.camp = { id: 'chorus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [], bondOf: (w) => this.chorusBond(w) };
@@ -272,7 +269,6 @@ export function installCampaign(Sim) {
       const c = this.camp, P = this.P;
       if (!c || this.game !== GS_RUN) return;
       if (c.id === 'argus') { this.argusTick(dt); return; }
-      if (c.id === 'carto') { this.cartoTick(dt); return; }
       c.t += dt;
       const sys = this.sysDef.id;
       const near = (id, r) => id < MAX_CONTACTS && this.npc[id].active && distTo(P.x, P.y, this.npc[id].x, this.npc[id].y) < r;
@@ -385,7 +381,6 @@ export function installCampaign(Sim) {
     onArrive(to) {
       if (this.mode !== K.MODE_CAMPAIGN || !this.camp) return;
       if (this.camp.id === 'argus') { this.argusArrive(to); return; }
-      if (this.camp.id === 'carto') { this.cartoArrive(to); return; }
       const c = this.camp, sid = this.sysDef.id;
       if (c.step === 'c1_go' && sid === 'meridian') {
         this.greeted.add(0); // Deep Hollow is silent
@@ -449,7 +444,6 @@ export function installCampaign(Sim) {
     // a hidden log is read when a pod is fully scanned or sampled
     campOnScan(id) {
       if (this.camp && this.camp.id === 'argus') { this.argusOnScan(id); return; }
-      if (this.camp && this.camp.id === 'carto') { this.cartoOnScan(id); return; }
       const n = this.npc[id];
       if (n && n.log && n.scan >= 2 && !n.logRead) { n.logRead = true; this.say(FROM_CREW, 0, n.log); this.msgs[0].who = 'teo'; }
     },

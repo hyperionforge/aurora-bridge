@@ -27,13 +27,7 @@ export const tactical = {
     } });
     const bw = (L.uw - 24) / 4.6;
     ['5K', '10K', '20K'].forEach((l, i) => g.button('tr' + i, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, this.rangeI === i ? C.RED : C.GREY, C.BLACK, 17, () => { this.rangeI = i; }));
-    const rocks = w.rocks(), boulder = rocks.some((q) => q.drift);
-    if (rocks.length) { // in an asteroid field: point defence shoots the most dangerous rock ahead
-      const rx = L.ux + 3 * (bw + 6), rw2 = L.ux + L.uw - rx;
-      g.button('clrt', rx, L.uy, rw2 * 0.34, L.uh, 'CLEAR', C.RED_DIM, C.PEACH, 15, () => app.send(CMD.TARGET, K.NO_ID));
-      const rdy = P.phCharge >= 0.99;
-      g.button('pd', rx + rw2 * 0.34 + 6, L.uy, rw2 * 0.66 - 6, L.uh, rdy ? 'POINT DEFENCE' : 'PD CHARGING', boulder && flash(300) ? C.YELLOW : rdy ? C.ORANGE : C.GREY, C.BLACK, 16, () => app.send(CMD.PD), { bold: true });
-    } else g.button('clrt', L.ux + 3 * (bw + 6), L.uy, L.uw - 3 * (bw + 6), L.uh, 'CLEAR TARGET', C.RED_DIM, C.PEACH, 17, () => app.send(CMD.TARGET, K.NO_ID));
+    g.button('clrt', L.ux + 3 * (bw + 6), L.uy, L.uw - 3 * (bw + 6), L.uh, 'CLEAR TARGET', C.RED_DIM, C.PEACH, 17, () => app.send(CMD.TARGET, K.NO_ID));
 
     const x = L.rx, rw = L.rw;
     let y = L.y0;

@@ -6,7 +6,7 @@ import { dim, flash, lerpCol } from '../gfx.js';
 import { drawShip, drawStarbase, drawAnomaly, drawContact, factionColor, artFor, accentFor, ART_CRUISER } from '../ships.js';
 import { fmtDist } from '../util.js';
 import { bodies, drawStation, drawPoi } from '../sysdraw.js';
-import { drawRocks } from '../field.js';
+import { drawPulsarMap } from '../pulsar.js';
 
 // world -> radar screen. headingUp rotates the picture so the bow points up
 export function w2r(w, wx, wy, range, cx, cy, R, headingUp) {
@@ -41,7 +41,7 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     const [sx, sy] = w2r(w, nb.x, nb.y, range, cx, cy, R, headingUp);
     g.circle(sx, sy, nb.r * R / range, nb.col, false, 1.5);
   }
-  { const rk = w.rocks(); if (rk.length) drawRocks(g, rk, (x, y) => w2r(w, x, y, range, cx, cy, R, headingUp), R / range, { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R }, { minR: 1, mark: true }); }
+  drawPulsarMap(g, w, (x, y) => w2r(w, x, y, range, cx, cy, R, headingUp), R / range);
   if (w.P.wpValid) {
     const [sx, sy] = w2r(w, w.P.wpx, w.P.wpy, range, cx, cy, R, headingUp);
     g.strokeRect(sx - 4, sy - 4, 9, 9, C.VIOLET, 1.5);
@@ -53,8 +53,7 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     if ((sx - cx) ** 2 + (sy - cy) ** 2 > R * R) continue;
     const col = factionColor(c.faction);
     const h = c.hdg - (headingUp ? w.P.hdg : 0);
-    if (c.rk !== undefined) { /* a loose boulder: drawn with the rocks */ }
-    else if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, 0.13, w.now, c.civ);
+    if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, 0.13, w.now, c.civ);
     else if (c.type === K.CT_ANOMALY) drawAnomaly(g, sx, sy, 0.15, w.now);
     else if (c.type === K.CT_POI) drawPoi(g, c.kind ?? 0, sx, sy, 0.16, w.now, (c.civ ?? 0) * 0.7);
     else if (c.type === K.CT_BUOY || c.type === K.CT_GROUND) drawContact(g, c.type, sx, sy, 0.13, h, w.now);  // buoys and surface sites have their own marks, never the ship's

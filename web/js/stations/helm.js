@@ -4,10 +4,10 @@ import { C, CMD } from '../config.js';
 import { DEG, wrap360, distTo, bearingTo, fmtDist, pad3, sectorName, clampf, angDiff, mmss, warpTxt } from '../util.js';
 import { dim, flash, healthColor } from '../gfx.js';
 import { drawShip, drawMarker, drawContact, factionColor, ART_CRUISER } from '../ships.js';
-import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCampLines, drawOortFrame, drawOortWarn, drawBubble } from '../sysdraw.js';
+import { drawPulsarMap } from '../pulsar.js';
+import { drawSystemLayer, drawGalaxy, drawStation, drawPoi, galaxyKnown, drawCampLines, drawEdgeFrame, drawOobBanner, drawBubble } from '../sysdraw.js';
 import * as O from '../orbit.js';
-import { drawRocks, BOULDER_COL } from '../field.js';
-import { drawLab, drawRing, isRare } from '../lab.js';
+import { drawLab, isRare } from '../lab.js';
 import { CHARS, subtitle } from '../dialogue.js';
 import { drawPortrait } from '../portraits.js';
 import { ART, POI_TIP, POI_NAME, RES_SHORT, hazWord, SAMPLE_R, EXTRACT_R, ANALYSE_COST, DEEP_COST } from '../cargo.js';
@@ -46,17 +46,6 @@ export const helm = {
       const b = P.jumpVec * DEG, jx = cx + Math.sin(b) * (R - 42), jy = cy - Math.cos(b) * (R - 42), k = flash(300) ? 9 : 7;
       g.tri(jx, jy - k, jx + k, jy, jx, jy + k, '#78f0ff'); g.tri(jx, jy - k, jx - k, jy, jx, jy + k, '#78f0ff');
     }
-    { // rocks within 4k on the compass (bow-relative is not used: north up, like the ring)
-      const rk = w.rocks();
-      if (rk.length) {
-        const kk = (R - 34) / 4000;
-        g.clip(cx - R + 34, cy - R + 34, 2 * (R - 34), 2 * (R - 34));
-        const nearR = rk.filter((q) => Math.abs(q.x - P.x) < 4500 && Math.abs(q.y - P.y) < 4500 && Math.hypot(q.x - P.x, q.y - P.y) < 4000);
-        drawRocks(g, nearR, (x, y) => [cx + (x - P.x) * kk, cy + (y - P.y) * kk], kk, { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R }, { minR: 1.5, mark: true });
-        g.unclip();
-        if (nearR.length) g.text(cx, cy + R - 50, 'ROCKS WITHIN 4K', 11, C.TAN, 'center');
-      }
-    }
     const dr = des * DEG;
     g.tri(cx + Math.sin(dr) * (R + 1), cy - Math.cos(dr) * (R + 1), cx + Math.sin(dr - 0.07) * (R - 22), cy - Math.cos(dr - 0.07) * (R - 22),
       cx + Math.sin(dr + 0.07) * (R - 22), cy - Math.cos(dr + 0.07) * (R - 22), P.autopilot ? C.VIOLET : C.WHITE);
@@ -81,7 +70,7 @@ export const helm = {
       g.text(L.bx + L.BIG - 2, L.by + 40, `TRACK ${pad3(Math.round(trk))}`, 13, '#78f0ff', 'right');
       if (drift > 8 && !P.autoBrake) g.text(L.bx + L.BIG - 2, L.by + 56, `DRIFTING ${Math.round(drift)}° OFF THE BOW`, 11, flash(500) ? C.YELLOW : '#78f0ff', 'right');
     }
-    if (!P.orb) g.text(L.bx + L.BIG / 2, L.by + L.BIG - 14, 'DRAG THE RING TO SET COURSE', 12, C.GREY_TXT, 'center');
+    g.text(L.bx + L.BIG / 2, L.by + L.BIG - 14, 'DRAG THE RING TO SET COURSE', 12, C.GREY_TXT, 'center');
     const angAt = (x, y) => wrap360(Math.atan2(x - cx, -(y - cy)) / DEG);
     g.hitCircle(cx, cy, R + 14, {
       down: (x, y) => { if ((x - cx) ** 2 + (y - cy) ** 2 < 60 * 60) return; S.dialDrag = true; S.localHdg = angAt(x, y); app.sound.tap(); },
@@ -101,20 +90,20 @@ export const helm = {
     const hot = P.jumpPlot !== K.NO_ID || P.jumpTo !== K.NO_ID;
     g.button('hpage', L.ux + 4 * (nw + 6), L.uy, nw * 2 + 6, L.uh, this.page ? 'ENGINES' : 'AUTOPILOT / JUMP', this.page ? C.ORANGE : hot && flash(500) ? '#78f0ff' : C.SKY, C.BLACK, 15,
       () => { this.page = this.page ? 0 : 1; }, { sound: 'toggle' });
-    drawOortWarn(g, { x: L.bx, y: L.by + 40, w: L.BIG, h: L.BIG * 0.5 }, P.oort);
+    drawOobBanner(g, { x: L.bx, y: L.by + L.BIG - 36, w: L.BIG, h: 36 }, P.oobT);
     if (this.page === 1) { this.drawOrbit(g, w, L); this.drawAuto(g, w, app, L); return; }
     // ---- right column: impulse and warp sliders (their tops are set by engineering's power), stop, evasive, dock
     const x = L.rx, y0 = L.y0, sw = 72, sh = 246, gap = 10;
     const bx = x + 2 * sw + 2 * gap, bw = L.x1 - bx;
     const impCap = Math.max(0, P.impCap ?? K.IMPULSE_MAX), warpCap = Math.max(0, P.warpCap ?? K.WARP_MAX);
     // impulse: the slider is in km/s; we send the throttle as a share of what the engines can give
-    const spd = S.thrDrag ? S.localThr : Math.max(0, P.throttle) / 100 * impCap;
+    const spd = S.thrDrag ? S.localThr : Math.max(0, P.throttle) / 100 * K.IMPULSE_TOP; // the set speed; power only moves the ceiling
     g.text(x + sw / 2, y0, 'IMPULSE', 13, C.PEACH, 'center');
     g.capSlider('thr', x, y0 + 20, sw, sh, spd, K.IMPULSE_TOP, impCap, C.ORANGE, 2, (v, final, start, over) => {
       if (start) { S.thrDrag = true; app.sound.tap(); }
       if (Math.floor(v / 20) !== Math.floor(S.localThr / 20)) app.sound.sliderTick();
       S.localThr = v; S.overImp = over ? performance.now() : S.overImp;
-      const thr = impCap > 1 ? Math.round(clampf(v / impCap * 100, 0, 100)) : 0;
+      const thr = Math.round(clampf(v / K.IMPULSE_TOP * 100, 0, 100) * 10) / 10;
       if (final) { S.thrDrag = false; app.send(CMD.THROTTLE, 0, 0, thr); }
       else if (performance.now() - S.lastSend > 150) { S.lastSend = performance.now(); app.send(CMD.THROTTLE, 0, 0, thr); }
     }, S.thrDrag);
@@ -152,7 +141,6 @@ export const helm = {
     g.progress(bx, by, bw, 8, P.warpCharge, C.SKY); by += 14;
     let ws = P.warping ? 'AT ' + warpTxt(P) : P.warpSet ? 'WARP CHARGING...' : 'WARP DRIVE READY';
     if (P.health[K.S_WARP] <= 0) ws = 'WARP DRIVE OFFLINE';
-    else if (P.orb && P.orb.alt < w.sys.planets[P.orb.pl].r * 3.5 && !P.warping) ws = 'TOO DEEP IN A GRAVITY WELL FOR WARP';
     g.textFit(bx, by, ws, 12, P.health[K.S_WARP] <= 0 ? C.RED : C.GREY_TXT, 'left', bw); by += 16;
     const now = performance.now();
     if (now - (S.overWarp || 0) < 2500 || now - (S.overImp || 0) < 2500) g.wrap(bx, by, bw, 'THE GREY ZONE NEEDS MORE POWER - ASK ENGINEERING.', 12, flash(300) ? C.YELLOW : C.ORANGE, 1.2, 2);
@@ -163,17 +151,12 @@ export const helm = {
     if (w.flux >= 0) g.text(L.bx + L.BIG - 2, L.by + 40, `TACHYON FLUX ${w.flux}%`, 15, w.flux >= 85 ? C.GREEN : C.YELLOW, 'right');
   },
   // gravity well readout in the compass corner: what helm needs to get into (and stay in) orbit
-  drawOrbit(g, w, L) {
-    const P = w.P, o = P.orb;
-    if (!o) return;
-    const pl = w.sys.planets[o.pl]; if (!pl) return;
-    const x = L.bx + 2, y = L.by + 96; // top-left corner, clear of the compass labels
-    const stc = [C.GREY_TXT, C.GREEN, C.RED, C.YELLOW][o.st];
-    g.text(x, y, `${pl.name} GRAVITY WELL`, 13, '#78f0ff');
-    g.text(x, y + 16, `ALT ${fmtDist(o.alt)}   ORBIT SPEED HERE ${o.vc}`, 12, C.PEACH);
-    g.text(x, y + 32, O.ORB_NAME[o.st] + (o.st === O.ORB_STABLE && !o.coast ? ' - CUT ENGINES TO HOLD IT' : ''), 12, o.st === O.ORB_DESCENT && flash(300) ? C.WHITE : stc);
-    if (o.st !== O.ORB_ESCAPE) g.text(x, y + 48, `LOW ${fmtDist(Math.max(0, o.peri))}  HIGH ${o.apo < 0 ? '--' : fmtDist(o.apo)}`, 11, C.GREY_TXT);
-    else g.text(x, y + 48, Math.round(P.speed) > o.vc * 1.3 ? 'TOO FAST TO BE CAUGHT - SLOW DOWN' : 'FLY ACROSS THE PULL AT ORBIT SPEED', 11, C.GREY_TXT);
+  drawOrbit(g, w, L) { // orbit status (the escort autopilot holding us beside a planet)
+    const P = w.P, pl = P.apPlanet >= 0 ? w.sys.planets[P.apPlanet] : null;
+    if (!pl) return;
+    const x = L.bx + 2, y = L.by + 96, inOrbit = P.orbitPl === P.apPlanet;
+    g.text(x, y, inOrbit ? `IN ORBIT OF ${pl.name}` : `TAKING US INTO ORBIT OF ${pl.name}`, 13, inOrbit ? C.GREEN : '#78f0ff');
+    if (!inOrbit) g.text(x, y + 16, 'THE AUTOPILOT WILL PULL ALONGSIDE', 11, C.GREY_TXT);
   },
   // the second page: autopilot and the jump drive
   drawAuto(g, w, app, L) {
@@ -195,9 +178,16 @@ export const helm = {
     y += 34;
     // escort: hold station beside a friendly or neutral ship (the plotted intercept, or the tactical target)
     const esc = icId !== K.NO_ID && w.findC(icId) && w.findC(icId).faction !== K.F_HOSTILE ? icId : K.NO_ID, escOn = P.autopilot === K.AP_ESCORT;
-    g.text(x, y, escOn ? `ESCORTING ${w.shortName(P.apTarget)} - HOLDING 900M OFF HER STARBOARD SIDE` : esc !== K.NO_ID ? `ESCORT ${w.shortName(esc)} - MATCH HER COURSE AND SPEED` : 'ESCORT: NAV PLOTS A FRIENDLY SHIP', 12, escOn ? C.VIOLET : esc !== K.NO_ID ? C.PEACH : C.GREY_TXT);
-    g.button('apesc', x + rw - 150, y - 4, 150, 30, escOn ? 'ESCORTING' : 'ESCORT', escOn ? C.VIOLET : esc !== K.NO_ID ? C.ORANGE : C.GREY, C.BLACK, 15,
-      () => { if (escOn) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (esc !== K.NO_ID) app.send(CMD.AUTOPILOT, K.AP_ESCORT, esc); else app.sound.denied(); });
+    const shipEsc = escOn && P.apPlanet < 0, plEsc = escOn && P.apPlanet >= 0;
+    g.text(x, y, shipEsc ? `ESCORTING ${w.shortName(P.apTarget)} - HOLDING 900M OFF HER STARBOARD SIDE` : esc !== K.NO_ID ? `ESCORT ${w.shortName(esc)} - MATCH HER COURSE AND SPEED` : 'ESCORT: NAV PLOTS A FRIENDLY SHIP', 12, shipEsc ? C.VIOLET : esc !== K.NO_ID ? C.PEACH : C.GREY_TXT);
+    g.button('apesc', x + rw - 150, y - 4, 150, 30, shipEsc ? 'ESCORTING' : 'ESCORT', shipEsc ? C.VIOLET : esc !== K.NO_ID ? C.ORANGE : C.GREY, C.BLACK, 15,
+      () => { if (shipEsc) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (esc !== K.NO_ID) app.send(CMD.AUTOPILOT, K.AP_ESCORT, esc); else app.sound.denied(); });
+    y += 34;
+    // orbit: the same autopilot holds us alongside a planet and moves with it
+    const opl = P.orbPlot >= 0 ? w.sys.planets[P.orbPlot] : null;
+    g.text(x, y, plEsc ? (P.orbitPl === P.apPlanet ? `IN ORBIT OF ${w.sys.planets[P.apPlanet].name}` : `ENTERING ORBIT OF ${w.sys.planets[P.apPlanet].name}`) : opl ? `ORBIT ${opl.name} - PULL ALONGSIDE AND MOVE WITH IT` : 'ORBIT: NAV PLOTS A PLANET', 12, plEsc ? C.GREEN : opl ? C.PEACH : C.GREY_TXT);
+    g.button('aporb', x + rw - 150, y - 4, 150, 30, plEsc ? (P.orbitPl === P.apPlanet ? 'IN ORBIT' : 'ENTERING...') : 'ORBIT', plEsc ? C.GREEN : opl ? C.ORANGE : C.GREY, C.BLACK, 15,
+      () => { if (plEsc) app.send(CMD.AUTOPILOT, K.AP_OFF); else if (opl) app.send(CMD.AUTOPILOT, K.AP_ESCORT, 100 + P.orbPlot); else app.sound.denied(); });
     y += 34;
     g.button('apoff', x, y, rw, 30, P.autopilot ? 'AUTOPILOT OFF - HAND STEERING' : 'HAND STEERING', P.autopilot ? C.LILAC : C.GREY, C.BLACK, 15, () => app.send(CMD.AUTOPILOT, K.AP_OFF));
     y += 44;
@@ -259,8 +249,9 @@ export function nearestStation(w, dockable = true) {
   }
   return best ? { n: best, d: bd } : null;
 }
+const SHIP_LEN = 340; // metres, nose to tail
 export const nav = {
-  zoom: 0, gsel: -1, zf: 1, zDrag: false, // zf: map zoom 0 (8k across, centred on us) .. 1 (the whole system)
+  zoom: 0, gsel: -1, // zoom: 0 whole system, 1 20k across, 3 4k across (ship drawn to scale), 2 galaxy chart
   draw(g, w, app, L) {
     const P = w.P, B = L.BIG, ox = L.bx, oy = L.by;
     if (this.gsel < 0 || this.gsel >= SYSTEMS.length) this.gsel = lanesOf(w.sysIdx)[0] ?? 0;
@@ -272,8 +263,8 @@ export const nav = {
       drawGalaxy(g, w, ox + 6, oy + 18, B - 12, B - 30, { sel: this.gsel, onPick: (i) => { this.gsel = i; app.sound.toggle(); } });
       g.text(ox + 4, oy + 2, 'GALAXY CHART - JUMP LANES', 11, C.GREY_TXT);
     } else {
-      const M = 9000; // the system view shows a strip of the Oort cloud round the grid
-      const FULL = SYS_SIZE + 2 * M, span = Math.exp(Math.log(8000) + (Math.log(FULL) - Math.log(8000)) * clampf(this.zf, 0, 1));
+      const M = 9000; // the system view shows a strip outside the grid
+      const FULL = SYS_SIZE + 2 * M, span = this.zoom === 3 ? 4000 : this.zoom === 1 ? 20000 : FULL;
       const local = span < 60000; // close in: bigger symbols, finer grid
       k = B / span;
       x0 = clampf(P.x - span / 2, -M, FULL - M - span); y0 = clampf(P.y - span / 2, -M, FULL - M - span);
@@ -282,19 +273,19 @@ export const nav = {
       const [gx0, gy0] = p2(0, 0), [gx1, gy1] = p2(SYS_SIZE, SYS_SIZE);
       for (let gx = Math.max(0, Math.floor(x0 / gs) * gs); gx < Math.min(SYS_SIZE + 1, x0 + B / k); gx += gs) g.rect(p2(gx, 0)[0], Math.max(oy, gy0), 1, Math.min(oy + B, gy1) - Math.max(oy, gy0), '#121832');
       for (let gy = Math.max(0, Math.floor(y0 / gs) * gs); gy < Math.min(SYS_SIZE + 1, y0 + B / k); gy += gs) g.rect(Math.max(ox, gx0), p2(0, gy)[1], Math.min(ox + B, gx1) - Math.max(ox, gx0), 1, '#121832');
-      drawOortFrame(g, p2, { x: ox, y: oy, w: B, h: B }, w.tSec);
+      drawEdgeFrame(g, p2, { x: ox, y: oy, w: B, h: B });
       if (span >= FULL * 0.98) for (let i = 0; i < 10; i++) {
         const cw = (gx1 - gx0) / 10;
         g.text(gx0 + i * cw + cw / 2, oy + 2, String.fromCharCode(65 + i), 10, C.GRID, 'center');
         g.text(ox + 2, gy0 + i * cw + cw / 2 - 6, String(i + 1), 10, C.GRID);
       }
       drawSystemLayer(g, w.sys, w.tSec, p2, k, { minR: local ? 3 : 2.5, well: true, dots: local ? 1 : 0.7 });
+      drawPulsarMap(g, w, p2, k);
       if (P.orbPlot >= 0 && w.sys.planets[P.orbPlot]) {
         const [ppx, ppy] = p2(...planetPos(w.sys, P.orbPlot, w.tSec));
-        g.ctx.save(); g.ctx.setLineDash([3, 3]); g.circle(ppx, ppy, w.sys.planets[P.orbPlot].r * 2.5 * k, '#78f0ff', false, 1); g.ctx.restore();
+        g.ctx.save(); g.ctx.setLineDash([3, 3]); g.circle(ppx, ppy, w.sys.planets[P.orbPlot].r * 2.4 * k, '#78f0ff', false, 1); g.ctx.restore();
       }
       drawCampLines(g, w, p2);
-      { const rk = w.rocks(); if (rk.length) drawRocks(g, rk, p2, k, { x: ox, y: oy, w: B, h: B }, { minR: local ? 1 : 0.6, mark: true }); }
       for (const m of w.M.mk) { const [sx, sy] = p2(m.x, m.y); drawMarker(g, sx, sy, m.kind, m.r * k, 11); }
       const pt = (w.slow && w.slow.ptrail) || [];
       for (let i = 0; i < pt.length; i += 2) { const [sx, sy] = p2(pt[i], pt[i + 1]); g.rect(sx, sy, 1.5, 1.5, C.SKY); }
@@ -309,14 +300,16 @@ export const nav = {
         if (!c.alive) continue;
         const [sx, sy] = p2(c.x, c.y);
         const col = factionColor(c.faction);
-        if (c.rk !== undefined) { /* drawn with the rocks */ }
-        else if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, local ? 0.3 : 0.13, w.now, c.civ);
+        if (c.type === K.CT_STARBASE) drawStation(g, c.kind ?? 0, sx, sy, local ? 0.3 : 0.13, w.now, c.civ);
         else if (c.type === K.CT_POI) drawPoi(g, c.kind ?? 0, sx, sy, local ? 0.22 : 0.1, w.now, (c.civ ?? 0) * 0.7);
         else if (c.type === K.CT_BUOY || c.type === K.CT_GROUND) drawContact(g, c.type, sx, sy, local ? 0.12 : 0.08, c.hdg, w.now);
         else g.circle(sx, sy, 3.5, col);
         g.text(sx + 8, sy + 3, w.shortName(c.id, c.known), 11, col);
       }
-      drawShip(g, ART_CRUISER, C.SKY, clampf(px, ox + 6, ox + B - 6), clampf(py, oy + 6, oy + B - 6), local ? 0.18 : 0.12, P.hdg);
+      // at 4K the ship is drawn to scale (about 340m long) so helm can judge clearances
+      const shipS = this.zoom === 3 ? (SHIP_LEN * k) / 154 : local ? 0.18 : 0.12;
+      drawShip(g, ART_CRUISER, C.SKY, clampf(px, ox + 6, ox + B - 6), clampf(py, oy + 6, oy + B - 6), shipS, P.hdg);
+      if (this.zoom === 3) g.text(ox + 4, oy + 4, 'SHIP DRAWN TO SCALE', 11, C.GREY_TXT);
       g.text(ox + B - 4, oy + B - 15, 'TAP MAP = WAYPOINT, TAP A PLANET = ORBIT', 11, C.GREY_TXT, 'right');
       g.text(ox + 4, oy + B - 15, `${Math.round(span / 1000)}K ACROSS`, 11, C.GREY_TXT);
       g.hit(ox, oy, B, B, { down: (x, y) => {
@@ -328,25 +321,16 @@ export const nav = {
         }
         app.send(CMD.WAYPOINT, 1, 0, Math.round(x0 + (x - ox) / k), Math.round(y0 + (y - oy) / k));
       } });
-      drawOortWarn(g, { x: ox, y: oy, w: B, h: B }, P.oort);
+      drawOobBanner(g, { x: ox, y: oy, w: B, h: B }, P.oobT);
     }
     g.unclip();
     g.strokeRect(ox, oy, B, B, C.GRID);
     // under
-    // under: the zoom slider (in close .. whole system), the galaxy chart, clear waypoint
-    const bw = (L.uw - 18) / 4, zx = L.ux, zw = bw * 2 + 6, gal = this.zoom === 2;
-    g.rrect(zx, L.uy, zw, L.uh, L.uh / 2, gal ? '#1a1a2a' : '#262640');
-    g.text(zx + 12, L.uy + L.uh / 2 - 7, 'ZOOM', 13, gal ? C.GREY_TXT : C.VIOLET);
-    const tx0 = zx + 62, tx1 = zx + zw - 18, ty = L.uy + L.uh / 2;
-    g.rect(tx0, ty - 2, tx1 - tx0, 4, C.GREY);
-    const kx = tx0 + (tx1 - tx0) * clampf(this.zf, 0, 1);
-    g.rect(tx0, ty - 2, kx - tx0, 4, C.VIOLET);
-    g.circle(kx, ty, this.zDrag ? 13 : 11, this.zDrag ? C.WHITE : C.VIOLET);
-    g.text(tx0 - 2, ty + 8, 'IN', 9, C.GREY_TXT, 'center'); g.text(tx1, ty + 8, 'SYSTEM', 9, C.GREY_TXT, 'center');
-    const setZ = (x) => { this.zf = clampf((x - tx0) / (tx1 - tx0), 0, 1); if (this.zoom === 2) this.zoom = 0; };
-    g.hit(zx, L.uy, zw, L.uh, { down: (x) => { this.zDrag = true; app.sound.tap(); setZ(x); }, move: (x) => setZ(x), up: (x) => { this.zDrag = false; setZ(x); } });
-    g.button('z2', L.ux + 2 * (bw + 6), L.uy, bw, L.uh, gal ? 'BACK TO MAP' : 'GALAXY', gal ? C.VIOLET : C.GREY, C.BLACK, 17, () => { this.zoom = gal ? 0 : 2; });
-    g.button('cwp', L.ux + 3 * (bw + 6), L.uy, bw, L.uh, 'CLEAR WP', C.RED_DIM, C.PEACH, 17, () => app.send(CMD.WAYPOINT, 0));
+    // under: the zoom windows, the galaxy chart, clear waypoint
+    const bw = (L.uw - 24) / 5;
+    [['4K', 3], ['20K', 1], ['SYSTEM', 0], ['GALAXY', 2]].forEach(([l, z], i) =>
+      g.button('z' + z, L.ux + i * (bw + 6), L.uy, bw, L.uh, l, this.zoom === z ? C.VIOLET : C.GREY, C.BLACK, 17, () => { this.zoom = z; }, { sound: 'toggle' }));
+    g.button('cwp', L.ux + 4 * (bw + 6), L.uy, bw, L.uh, 'CLEAR WP', C.RED_DIM, C.PEACH, 16, () => app.send(CMD.WAYPOINT, 0));
     if (this.zoom === 2) { this.jumpPanel(g, w, app, L); return; }
     // right column
     const x = L.rx, rw = L.rw;
@@ -384,7 +368,7 @@ export const nav = {
     y += 38;
     const pls = w.sys.planets;
     if (pls.length) {
-      g.text(x, y, 'ORBIT INSERTION (THEN HELM SLOWS DOWN AND CUTS ENGINES)', 11, C.GREY_TXT);
+      g.text(x, y, 'PLOT AN ORBIT (HELM: AUTOPILOT / JUMP > ORBIT)', 11, C.GREY_TXT);
       y += 14;
       const pw = (rw - 6 * (pls.length - 1)) / pls.length;
       pls.forEach((pl, i) => g.button('orb' + i, x + i * (pw + 6), y, pw, 30, (P.orbPlot === i ? '> ' : '') + pl.name, P.orbPlot === i ? '#78f0ff' : '#3c6e78', C.BLACK, 12,
@@ -547,42 +531,16 @@ export const science = {
     const P = w.P, x = L.rx, rw = L.rw, by = L.y1 - 38;
     g.text(x, by - 18, `SENSORS ${Math.round(P.health[K.S_SENSORS])}% HEALTH, ${P.power[K.S_SENSORS]}% POWER`, 12, P.health[K.S_SENSORS] < 50 ? C.RED : C.GREY_TXT);
     const hw = (rw - 6) / 2;
-    g.button('sview', x, by, hw, 36, 'ON VIEWER', C.ORANGE, C.BLACK, 17, () => app.send(CMD.VIEW, K.VM_TARGET, c.id));
+    if (P.towOk === c.id) { // a ship we can take in tow (pulsar rescue)
+      g.text(x + rw, by - 18, P.tow ? 'IN TOW' : P.shieldRaise > 0.05 ? 'TRACTOR: SHIELDS DOWN' : 'TRACTOR < 2.5K', 12, P.tow ? C.YELLOW : C.GREY_TXT, 'right');
+      g.button('stow', x, by, hw, 36, P.tow ? 'RELEASE TOW' : 'TRACTOR BEAM', P.tow ? C.YELLOW : C.ORANGE, C.BLACK, 17, () => app.send(CMD.EXTRACT, P.tow ? K.NO_ID : c.id));
+    } else g.button('sview', x, by, hw, 36, 'ON VIEWER', C.ORANGE, C.BLACK, 17, () => app.send(CMD.VIEW, K.VM_TARGET, c.id));
     const ic = P.icPlot === c.id;
     g.button('sint', x + hw + 6, by, hw, 36, ic ? 'PLOTTED FOR HELM' : 'PLOT INTERCEPT', ic ? C.VIOLET : C.LILAC, C.BLACK, 16,
       () => app.send(CMD.PLOT, 1, ic ? K.NO_ID : c.id));
   },
-  // assembling the relic ring: tap two shards to swap them, FLIP the selected one, then ALIGN
-  drawRingPage(g, w, app, L, ring) {
-    const box = { x: L.x0 + 8, y: L.y0, w: L.x1 - L.x0 - 16, h: L.uy - L.y0 - 84 };
-    g.header(box.x, box.y, box.w - 140, 'RELIC RING - FIT THE SHARDS EDGE TO EDGE', C.ORANGE);
-    g.button('ringx', box.x + box.w - 132, box.y - 2, 132, 24, '< BACK TO HOLD', C.LILAC, C.BLACK, 13, () => { this.ringMode = false; }, { sound: 'toggle' });
-    if (this.rsel >= ring.order.length) this.rsel = -1;
-    drawRing(g, w, ring, { x: box.x, y: box.y + 30, w: box.w, h: box.h - 30 }, 1, app, this.rsel ?? -1, (sl) => {
-      app.sound.toggle();
-      if (this.rsel === undefined || this.rsel < 0) this.rsel = sl;
-      else if (this.rsel === sl) this.rsel = -1;
-      else { app.send(CMD.LAB, 5, this.rsel, sl); this.rsel = -1; }
-    });
-    const by = L.uy - 52, bw = (box.w - 18) / 4, sel = this.rsel ?? -1;
-    g.text(box.x, by - 18, sel >= 0 ? 'TAP ANOTHER SHARD TO SWAP, OR FLIP THIS ONE' : 'TAP A SHARD TO PICK IT UP', 12, C.GREY_TXT);
-    g.button('rflip', box.x, by, bw, 40, 'FLIP SHARD', sel >= 0 && !ring.solved ? C.LILAC : C.GREY, C.BLACK, 16, () => { if (sel >= 0) { app.send(CMD.LAB, 7, sel); } else app.sound.denied(); });
-    g.button('rlock', box.x + bw + 6, by, bw * 2 + 6, 40, ring.solved ? 'RING ALIGNED' : 'ALIGN THE RING', ring.solved ? C.GREEN : C.ORANGE, C.BLACK, 18, () => app.send(CMD.LAB, 6), { bold: true });
-    const shown = w.view === K.VM_LAB;
-    g.button('rview', box.x + 3 * (bw + 6), by, bw, 40, shown ? 'ON VIEWER' : 'TO VIEWER', shown ? C.ORANGE : C.SKY, C.BLACK, 16, () => app.send(CMD.LAB, 4, 0));
-  },
   drawPoiPanel(g, w, app, L, c, y) {
     const P = w.P, x = L.rx, rw = L.rw, d = w.range(c);
-    if (c.rk !== undefined) { // a loose boulder: what it's made of, which phaser frequency cracks it, and the tractor beam
-      const comp = ['ICE', 'IRON', 'CRYSTAL'][c.rk], col = BOULDER_COL[c.rk];
-      g.rect(x, y, 14, 14, col);
-      g.text(x + 20, y, `${['BLUE', 'RUST-RED', 'VIOLET'][c.rk]} BOULDER - ${c.speed} KM/S`, 14, col); y += 20;
-      if (c.scan >= 2) { g.text(x, y, `${comp}: PHASER FREQUENCY ${K.FREQ_CHAR[c.freq]} BREAKS IT`, 15, C.YELLOW, 'left', true); y += 20; g.text(x, y, `TRACTOR IT IN FOR ${['ICE', 'ORE', 'CRYSTAL'][c.rk]}`, 13, C.SKY); y += 18; }
-      else { g.text(x, y, 'SCAN IT TO FIND ITS PHASER FREQUENCY', 13, C.YELLOW); y += 18; }
-      const tr = (w.rocks().find((q) => q.nid === c.id) || {}).tr;
-      g.button('ext', x, L.y1 - 38, rw, 36, tr ? 'TRACTOR LOCKED - TAP TO RELEASE' : d <= 3500 ? 'TRACTOR BEAM' : `TRACTOR BEAM (GET WITHIN 3.5K)`, tr ? C.YELLOW : d <= 3500 ? C.ORANGE : C.GREY, C.BLACK, 17, () => app.send(CMD.EXTRACT, c.id));
-      return;
-    }
     y = g.wrap(x, y - 4, rw, POI_TIP[c.kind ?? 0], 12, C.GREY_TXT, 1.2, 2) + 2;
     if (c.res) {
       const got = c.res.map((v, i) => (v ? `${v} ${RES_SHORT[i]}` : '')).filter(Boolean);
@@ -613,11 +571,8 @@ export const science = {
   // ---- the artefact hold
   drawHold(g, w, app, L) {
     const P = w.P, arts = P.arts || [], B = L.BIG;
-    const cp = w.slow && w.slow.camp, ring = cp && cp.ring;
-    if (ring && this.ringMode) { this.drawRingPage(g, w, app, L, ring); return; }
     let x = L.bx, y = L.by;
-    g.header(x, y, ring ? B - 132 : B, 'ARTEFACT HOLD', C.LILAC);
-    if (ring) g.button('ringm', x + B - 126, y - 2, 126, 24, ring.solved ? 'THE RING' : 'ASSEMBLE RING', ring.solved ? C.GREEN : flash(700) ? C.YELLOW : C.ORANGE, C.BLACK, 13, () => { this.ringMode = true; }, { sound: 'toggle' });
+    g.header(x, y, B, 'ARTEFACT HOLD', C.LILAC);
     y += 28;
     if (!arts.length) g.wrap(x, y, B, 'NOTHING HERE YET. TRACTOR IN WRECKS, DERELICTS, RUINS AND CAPSULES TO FIND ARTEFACTS. A FULL SCAN SHOWS WHETHER SOMETHING IS INSIDE.', 13, C.GREY_TXT);
     if (this.artSel >= arts.length) this.artSel = Math.max(0, arts.length - 1);
@@ -734,7 +689,7 @@ export const comms = {
     const P = w.P, orbPl = P.orbitPl;
     for (const c of list) {
       const sel = this.sel === c.id, gr = c.type === K.CT_GROUND;
-      const ok = !gr || (orbPl >= 0 && P.orb && P.orb.pl === orbPl);
+      const ok = !gr || orbPl >= 0;
       const lab = gr ? `SURFACE: ${c.short || w.shortName(c.id, true)}${ok ? '' : ' (NEED ORBIT)'}` : `${w.shortName(c.id, c.known)}  ${fmtDist(w.range(c))}`;
       g.button('hail' + c.id, x, y, rw, 28, lab, sel ? (gr ? '#a0c8b4' : factionColor(c.faction)) : gr ? '#2c4a40' : C.GREY, sel ? C.BLACK : gr ? '#a0c8b4' : C.GREY_TXT, gr ? 14 : 16,
         () => { this.sel = c.id; }, { sound: 'toggle' });

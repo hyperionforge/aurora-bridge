@@ -3,7 +3,7 @@
 // the galaxy chart with its jump lanes, and the different station designs.
 // Used by the viewscreen, NAV, HELM and the sensor radars.
 // ============================================================================
-import { WELL_MULT, OORT_WARN } from './orbit.js';
+import { ORBIT_K, OOB_WARN, OOB_DEAD, OOB_TEXT } from './orbit.js';
 import { C } from './config.js';
 import { SYSTEMS, SYS_C, SYS_SIZE, WELL_R, sysAt, lanesOf, planetPos, starPos, beltDots, CIV_COL, SK_STARBASE, SK_OUTPOST, SK_HUB, SK_HAVEN,
   SK_CITADEL, SK_ARRAY, SK_RELAY, SK_MONOLITH } from './galaxy.js';
@@ -71,7 +71,7 @@ export function drawSystemLayer(g, sys, t, p2, k, opts = {}) {
     c.save(); c.setLineDash([4 * u, 6 * u]);
     g.circle(cx, cy, WELL_R * k, '#5a3c1e', false, u);
     c.setLineDash([2 * u, 5 * u]);
-    for (const b of bodies(sys, t)) if (!b.star && b.r * WELL_MULT * k > 6 * u) { const [sx, sy] = p2(b.x, b.y); g.circle(sx, sy, b.r * WELL_MULT * k, '#1e4a50', false, u); }
+    for (const b of bodies(sys, t)) if (!b.star && b.r * ORBIT_K * k > 6 * u) { const [sx, sy] = p2(b.x, b.y); g.circle(sx, sy, b.r * ORBIT_K * k, '#1e4a50', false, u); }
     c.restore();
   }
   for (const b of sys.belts) {
@@ -385,35 +385,28 @@ export function drawCampLines(g, w, p2, u = 1) {
   c.restore();
 }
 
-// ---------------------------------------------------------------- the Oort cloud beyond the grid
-// shades everything outside the system's square (p2 maps world -> screen)
-export function drawOortFrame(g, p2, box, t) {
+// ---------------------------------------------------------------- the edge of the system
+// darkens everything outside the system's square and draws its boundary (p2 maps world -> screen)
+export function drawEdgeFrame(g, p2, box) {
   const [x0, y0] = p2(0, 0), [x1, y1] = p2(SYS_SIZE, SYS_SIZE), c = g.ctx;
   c.save();
   c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.rect(x0, y0, x1 - x0, y1 - y0);
   c.clip('evenodd');
-  c.fillStyle = 'rgba(70,90,120,0.16)'; c.fillRect(box.x, box.y, box.w, box.h);
-  // drifting ice specks
-  c.fillStyle = 'rgba(190,220,255,0.35)';
-  for (let i = 0; i < 160; i++) {
-    const h = Math.imul(i + 7, 2654435761) >>> 0;
-    const sx = box.x + ((h % 1000) / 1000) * box.w, sy = box.y + (((h >>> 10) % 1000) / 1000 * box.h + t * 2 * (1 + (i % 3))) % box.h;
-    c.fillRect(sx, sy, 1.5, 1.5);
-  }
+  c.fillStyle = 'rgba(0,0,0,0.55)'; c.fillRect(box.x, box.y, box.w, box.h);
   c.restore();
-  g.strokeRect(x0, y0, x1 - x0, y1 - y0, '#3c5a78', 1);
+  c.save(); c.setLineDash([6, 4]); g.strokeRect(x0, y0, x1 - x0, y1 - y0, '#8c3c3c', 1.5); c.restore();
 }
-// a warning banner across a view when we're near or inside the Oort cloud (depth from orbit.oortDepth)
-export function drawOortWarn(g, r, depth, u = 1) {
-  if (depth < -OORT_WARN) return;
-  const inside = depth > 0, on = Math.floor(performance.now() / 450) % 2 === 0;
-  const bh = (inside ? 64 : 30) * u, by = r.y + r.h * 0.5 - bh / 2;
-  g.rect(r.x, by, r.w, bh, inside ? (on ? 'rgba(120,0,0,0.78)' : 'rgba(60,0,0,0.7)') : 'rgba(60,50,0,0.6)');
-  g.rect(r.x, by, r.w, 2 * u, inside ? C.RED : C.YELLOW); g.rect(r.x, by + bh - 2 * u, r.w, 2 * u, inside ? C.RED : C.YELLOW);
-  if (inside) {
-    g.textFit(r.x + r.w / 2, by + 8 * u, 'WARNING: ENTERING THE OORT CLOUD - HAZARD!', 22 * u, on ? C.WHITE : C.PEACH, 'center', r.w - 16 * u, true);
-    g.textFit(r.x + r.w / 2, by + 38 * u, `ICE IMPACTS ON THE HULL - ${Math.round(depth / 1000)}K PAST THE EDGE. TURN BACK OR ENGAGE THE JUMP DRIVE.`, 12 * u, C.YELLOW, 'center', r.w - 16 * u);
-  } else g.textFit(r.x + r.w / 2, by + 7 * u, `APPROACHING THE OORT CLOUD - EDGE OF THE SYSTEM IN ${Math.max(0, Math.round(-depth / 1000))}K`, 14 * u, C.YELLOW, 'center', r.w - 16 * u, true);
+// outside the system: a slim strip along the top of a view with the reason and the countdown,
+// leaving the view itself clear so helm can steer back. oobT = seconds outside.
+export function drawOobBanner(g, r, oobT, u = 1) {
+  if (!(oobT > 0)) return;
+  const late = oobT >= OOB_WARN, left = Math.max(0, Math.ceil((late ? OOB_DEAD : OOB_WARN) - oobT));
+  const on = Math.floor(performance.now() / 450) % 2 === 0, h = 34 * u;
+  g.rect(r.x, r.y, r.w, h, late ? (on ? 'rgba(130,0,0,0.85)' : 'rgba(70,0,0,0.8)') : 'rgba(70,55,0,0.75)');
+  g.rect(r.x, r.y + h - 2 * u, r.w, 2 * u, late ? C.RED : C.YELLOW);
+  g.text(r.x + 10 * u, r.y + 6 * u, `${left}s`, 20 * u, late ? C.WHITE : C.YELLOW, 'left', true);
+  g.textFit(r.x + 60 * u, r.y + 4 * u, late ? 'CORE BREACH IMMINENT' : 'OUTSIDE THE SYSTEM - RETURN', 13 * u, late ? C.WHITE : C.YELLOW, 'left', r.w - 70 * u, true);
+  g.textFit(r.x + 60 * u, r.y + 19 * u, OOB_TEXT[late ? 1 : 0], 10 * u, late ? C.PEACH : C.YELLOW, 'left', r.w - 70 * u);
 }
 
 // ---------------------------------------------------------------- the shield bubble

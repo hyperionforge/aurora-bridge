@@ -239,7 +239,7 @@ export class Host {
         id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
         hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
         sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
-        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}), ...(n.rock ? { rk: n.rock.c } : {}), ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
+        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}),  ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
       });
     }
     return {
@@ -258,12 +258,12 @@ export class Host {
         anaUid: P.anaUid, anaProg: r2(P.anaProg), anaDeep: P.anaDeep, fxPh: this.sim.fx('ph'),
         dockId: P.dockId, jumpTo: P.jumpTo, jumpPlot: P.jumpPlot, icPlot: P.icPlot, jumpVec: P.jumpPlot !== K.NO_ID ? s.jumpVector(P.jumpPlot) : -1, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
         labUid: P.labUid, labTest: P.labTest, labProg: r2(P.labProg),
-        orb: P.orb, orbitPl: P.orbitPl, orbPlot: P.orbPlot, oort: Math.round(P.oort), bubR: Math.round(s.bubR()), shRange: Math.round(P.shRange * 100) / 100, vx: r1(P.vx), vy: r1(P.vy), autoBrake: P.autoBrake, allStop: P.allStop,
+        orbitPl: P.orbitPl, orbPlot: P.orbPlot, apPlanet: P.apPlanet, oobT: Math.round(P.oobT * 10) / 10, bubR: Math.round(s.bubR()), shRange: Math.round(P.shRange * 100) / 100, vx: r1(P.vx), vy: r1(P.vy), autoBrake: P.autoBrake, allStop: P.allStop,
+        towOk: s.towOk(), tow: !!(s.pulS && s.pulS.tow && s.M.type === K.MT_PULSAR),
       },
       npc,
       torp: s.torp.map((t) => ({ id: t.id, owner: t.owner, type: t.type, x: Math.round(t.x), y: Math.round(t.y), hdg: r1(t.hdg) })),
       beams: s.beams.map((b) => (b.tx !== undefined ? { from: b.from, to: b.to, hit: b.hit, t0: b.t0, tx: Math.round(b.tx), ty: Math.round(b.ty) } : { from: b.from, to: b.to, hit: b.hit, t0: b.t0 })),
-      drift: s.boulders ? s.boulders() : [],
       booms: s.booms.map((b) => ({ x: Math.round(b.x), y: Math.round(b.y), size: b.size, t0: b.t0 })),
     };
   }
@@ -294,11 +294,11 @@ export class Host {
     });
     return {
       t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, selMode: s.selMode, mode: s.mode, sys: s.sysIdx,
-      selCamp: s.selCamp | 0, campMaxes: s.campMaxes(), camp: s.camp ? { id: s.camp.id, ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null, lines: s.camp.lines || null, ring: s.camp.ring || null, obj2: s.camp.danger || null } : null, stats: s.stats, visitedN: s.visited.size,
-      field: s.fieldSnap ? s.fieldSnap() : null, labShow: s.labShow || 0,
+      selCamp: s.selCamp | 0, campMaxes: s.campMaxes(), camp: s.camp ? { id: s.camp.id, ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null, lines: s.camp.lines || null, obj2: s.camp.danger || null } : null, stats: s.stats, visitedN: s.visited.size,
+      labShow: s.labShow || 0,
       visited: [...s.visited], revealed: [...s.revealed], jumpWhy: s.P.jumpTo === K.NO_ID ? this.jumpReasons() : {}, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
       M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
-        waves: M.waves, frLost: M.frLost, ver: M.ver },
+        waves: M.waves, frLost: M.frLost, ver: M.ver, pul: M.pul },
       msgs: s.msgs,
       dlg: s.dlg ? { seq: s.dlg.seq, key: s.dlg.key, who: s.dlg.who, from: s.dlg.from, left: s.dlg.deadline ? Math.max(0, Math.round((s.dlg.deadline - s.now) / 1000)) : 0 } : null,
       rep: s.rep, job: s.job ? { type: s.job.type, objective: s.job.objective, giver: s.job.giverName, reward: s.rewardText(s.job.reward) } : null,

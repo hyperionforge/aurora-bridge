@@ -8,7 +8,6 @@
 import * as K from './config.js';
 import { lerp, lerpAng, shortName, contactName, distTo, bearingTo } from './util.js';
 import { sysAt } from './galaxy.js';
-import { buildField } from './field.js';
 
 const DELAY = 110;
 const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet: 0, warpCap: 4, impCap: 160, warpCharge: 0, warping: false, evasive: false, autopilot: 0,
@@ -17,7 +16,7 @@ const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet:
   power: [100, 100, 100, 100, 100, 100], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0], team: [K.NO_ID, K.NO_ID], phCharge: 0,
   autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0], target: K.NO_ID, sub: 0, scanId: K.NO_ID, scanProg: 0, lrs: 0,
   cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: K.NO_ID, icPlot: K.NO_ID, jumpVec: -1,
-  orb: null, orbitPl: -1, orbPlot: -1, oort: 0, bubR: 600, shRange: 0, vx: 0, vy: 0, autoBrake: false, allStop: false };
+  orbitPl: -1, orbPlot: -1, apPlanet: -1, oobT: 0, bubR: 600, shRange: 0, vx: 0, vy: 0, autoBrake: false, allStop: false };
 
 export class World {
   constructor() {
@@ -49,21 +48,6 @@ export class World {
   get mode() { return this.f1 ? this.f1.mode : 0; }
   get tSec() { return this.now / 1000; }  // game clock for orbits
   get flux() { return this.f1 && this.f1.flux !== undefined ? this.f1.flux : -1; }
-  // the asteroids around us: the field's rocks (rebuilt from its spec) minus destroyed ones, plus drifting boulders
-  rocks() {
-    const fs = this.slow && this.slow.field;
-    const drift = (this.f1 && this.f1.drift) || [];
-    const dr = () => drift.map(([id, x, y, r, c, tr]) => ({ id: 900000 + id, nid: id, x, y, r, c, tr, drift: true }));
-    if (!fs) { this._rk = null; return drift.length ? dr() : []; }
-    const key = fs.spec.seed + ':' + fs.gone.length;
-    if (!this._rk || this._rk.key !== key) {
-      const gone = new Set(fs.gone);
-      this._rk = { key, list: buildField(fs.spec).rocks.filter((q) => !gone.has(q.id)) };
-    }
-    if (!drift.length) return this._rk.list;
-    return this._rk.list.concat(dr());
-  }
-  get fieldSpec() { return this.slow && this.slow.field ? this.slow.field.spec : null; }
 
   onMessage(m) {
     this.lastRx = performance.now();

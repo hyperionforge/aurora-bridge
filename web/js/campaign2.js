@@ -21,6 +21,7 @@ import * as G from './cargo.js';
 import { DIALOGS, CHARS } from './dialogue.js';
 import { SYS_INDEX, SYS_C, CIV_FLEET, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN, CIV_NONE, sysAt, planetPos } from './galaxy.js';
 import { distTo, bearingTo, clampf } from './util.js';
+import { orbitPoint } from './orbit.js';
 const flash4 = (ms) => Math.floor(ms / 400) % 2 === 0;
 
 const { NO_ID, US, MAX_CONTACTS, CT_STARBASE, CT_FREIGHTER, CT_RAIDER, CT_DESTROYER, CT_ANOMALY, CT_BUOY, CT_POI, F_FRIEND, F_NEUTRAL, F_HOSTILE,
@@ -148,7 +149,7 @@ Object.assign(DIALOGS, {
       opts: [
         { t: 'LET THE ORRANS EVACUATE THEM', do: (s) => { s.argusTarren('orran'); return null; } },
         { t: 'NO ONE INTERFERES. THE PRIME DIRECTIVE HOLDS.', do: (s) => { s.argusTarren('law'); return null; } },
-        { t: 'WE SHIELD THEM OURSELVES - UNSEEN (THE VEGA PROJECTS A SCREEN, WE PROTECT HER)', do: (s) => { s.argusTarren('shield'); return null; } },
+        { t: 'WE SHIELD THEM OURSELVES - PUT THE AURORA BETWEEN TARREN AND THE RIFT AND TAKE THE HIT', do: (s) => { s.argusTarren('shield'); return null; } },
       ] },
   } },
   // ------------------------------------------------ chapter 4
@@ -181,6 +182,7 @@ Object.assign(DIALOGS, {
 });
 
 // ---------------------------------------------------------------- the mixin
+const SHIELD_POS_R = 1200; // within this of the shield position counts as in position
 export function installArgus(Sim) {
   Object.assign(Sim.prototype, {
     argusStart(ch) {
@@ -216,7 +218,7 @@ export function installArgus(Sim) {
         a2_wait: 'STAND BY FOR FLEET COMMAND',
         a3_go: 'THE RIFT IS GROWING - ITS NEXT SURGE WILL HIT THE PLANET TARREN. GO TO THE RIFT IN HALCYON',
         a3_anchor: 'PIN THE RIFT BEFORE IT SURGES: SCIENCE WATCHES THE TACHYON FLUX METER, HELM FLIES WHERE IT RISES; AT 85%+ SCIENCE DEPLOYS A STABILISER. THREE ANCHORS',
-        a3_shield: 'PROTECT THE VEGA WHILE SHE SHIELDS TARREN: NAV PLOTS HER, HELM ESCORTS HER (AUTOPILOT / JUMP > ESCORT), SHIELDS UP AND WIDEN THE SHIELD RANGE TO COVER HER. RIFT DEBRIS IS INBOUND',
+        a3_shield: 'TAKE THE SURGE FOR TARREN: HELM FLIES TO THE SHIELD POSITION (THE WAYPOINT - OR AUTOPILOT / JUMP > ORBIT TARREN), SHIELDS UP AND SHIELD RANGE AT 90%+. THE SHIP WILL BE BADLY HURT - BUT NOT DESTROYED',
         a4_go: 'THE LANCE CORE - THE WEAPON THAT TORE THE RIFT - IS HIDDEN IN A CONVOY. JUMP TO VEL\'ANAR AND FIND THE CONVOY AT THE LANTERN',
         a4_find: 'ONE CONVOY SHIP CARRIES THE CORE. COMMS: HAIL EACH FOR ITS MANIFEST. SCIENCE: FULL-SCAN EACH. THE CORE LEAKS CHRONITONS - FIND THE SHIP WHOSE SCAN DOESN\'T MATCH ITS STORY, THEN ACCUSE IT',
         a4_chase: 'THE MERCY IS RUNNING WITH THE CORE - DISABLE HER (HULL UNDER 40%) BEFORE SHE REACHES WARP',
@@ -353,18 +355,27 @@ export function installArgus(Sim) {
           this.argusChapterEnd(3);
         });
       } else {
-        // the Fleet science ship VEGA can throw a deflector over Tarren from low orbit - but the surge debris will tear her apart
-        const sys = sysAt(SYS_INDEX.halcyon), ti = sys.planets.findIndex((p) => p.name === 'TARREN'), pl = sys.planets[ti];
+        // the Aurora herself takes the surge: hold the rift-facing orbit of Tarren with the bubble opened wide
+        const sys = sysAt(SYS_INDEX.halcyon), ti = sys.planets.findIndex((p) => p.name === 'TARREN');
         const [tx, ty] = planetPos(sys, ti, this.now / 1000);
-        c.vegaA = Math.atan2(RIFT[1] - ty, RIFT[0] - tx); c.vegaR = pl.r * 2.2; c.tarrenI = ti;
-        const vx = tx + Math.cos(c.vegaA) * c.vegaR, vy = ty + Math.sin(c.vegaA) * c.vegaR;
-        const id = this.spawnAt(K.CT_FREIGHTER, F_FRIEND, vx, vy, 0);
-        if (id !== NO_ID) { Object.assign(this.npc[id], { ai: AI_STATIC, scan: 2, civ: CIV_FLEET, name: 'FLEET SCIENCE SHIP VEGA', short: 'VEGA', hull: 100, shields: 0, shMax: 0, armor: 1 }); c.vegaId = id; }
-        c.surgeT = c.stab >= 3 ? 60 : 80; c.debrisT = 8; c.covered = 0;
-        this.M.mk.push({ x: vx, y: vy, kind: MK_POINT, r: 0 }); this.M.ver++;
-        this.argusSay('voss', 'THE VEGA IS IN TARREN ORBIT. HER DEFLECTOR CAN SCREEN THE WHOLE PLANET - BUT SHE HAS NO SHIELDS LEFT FOR HERSELF. AURORA: HELM, NAV PLOTS HER AND YOU ESCORT HER. SHIELDS, WIDEN YOUR SHIELD RANGE UNTIL SHE IS INSIDE THE BUBBLE - IT THINS YOUR SHIELDS, SO REINFORCE TOWARDS THE RIFT AND HAVE ENGINEERING FEED THE SHIELDS.', 2, FROM_COMMAND);
+        c.tarrenI = ti; c.shA = Math.atan2(RIFT[1] - ty, RIFT[0] - tx);
+        c.surgeT = c.stab >= 3 ? 150 : 125; c.inPos = 0; c.mkT = 0;
+        const [sx, sy] = this.argusShieldPos();
+        this.setWaypoint(sx, sy);
+        this.M.mk.push({ x: Math.round(sx), y: Math.round(sy), kind: MK_POINT, r: 0 }); c.shMk = this.M.mk.length - 1; this.M.ver++;
+        this.argusSay('voss', 'THEN IT HAS TO BE YOU, AURORA. THE SHIELD POSITION IS ON YOUR NAV MAP AND SET AS YOUR WAYPOINT - TARREN\'S ORBIT, ON THE SIDE FACING THE RIFT. WARP THERE - THEN HELM: AUTOPILOT / JUMP > ORBIT TARREN PUTS YOU THERE AND HOLDS YOU THERE. SHIELDS: RAISE THEM AND OPEN THE SHIELD RANGE TO 90% OR MORE SO THE BUBBLE COVERS THE PLANET\'S FACE. YOUR OBJECTIVE WILL SHOW ALL THREE CHECKS - GET THEM ALL GREEN BEFORE THE SURGE. IT WILL HURT, CAPTAIN. YOUR SHIP WILL HOLD. TARREN WON\'T WITHOUT YOU.', 2, FROM_COMMAND);
         this.argusStep('a3_shield');
       }
+    },
+    // the shield position: Tarren's standard orbit, on the side facing the rift (it moves with the planet)
+    argusShieldPos() {
+      const c = this.camp, sys = sysAt(SYS_INDEX.halcyon);
+      return orbitPoint(sys, c.tarrenI, this.now / 1000, c.shA);
+    },
+    argusChecks() {
+      const c = this.camp, P = this.P, [sx, sy] = this.argusShieldPos();
+      const d = distTo(P.x, P.y, sx, sy);
+      return { d, pos: this.sysDef.id === 'halcyon' && d < SHIELD_POS_R, up: this.shieldsUp(), wide: P.shRange >= 0.895 };
     },
     argusChapterEnd(ch) { this.after(5, () => { if (this.camp && this.camp.ch === ch) this.argusChapter(ch + 1); }); },
     // ---- chapter 4
@@ -516,31 +527,43 @@ export function installArgus(Sim) {
           break;
         }
         case 'a3_shield': {
-          const v = c.vegaId !== undefined ? this.npc[c.vegaId] : null;
-          const sys = sysAt(SYS_INDEX.halcyon), [tx, ty] = planetPos(sys, c.tarrenI, this.now / 1000);
-          if (v && v.alive) { // the VEGA holds station over Tarren, facing the rift
-            v.x = tx + Math.cos(c.vegaA) * c.vegaR; v.y = ty + Math.sin(c.vegaA) * c.vegaR; v.hdg = bearingTo(v.x, v.y, RIFT[0], RIFT[1]); v.speed = 0;
+          // keep the marker (and our waypoint, unless NAV has set another) on the moving shield position
+          const [sx, sy] = this.argusShieldPos();
+          if ((c.mkT -= dt) <= 0) {
+            c.mkT = 1;
+            const m = this.M.mk[c.shMk];
+            if (m) { m.x = Math.round(sx); m.y = Math.round(sy); this.M.ver++; }
+            if (P.wpValid && distTo(P.wpx, P.wpy, sx, sy) < 3000) this.setWaypoint(sx, sy);
           }
-          if (!v || !v.alive) {
-            c.f.tarren = 'law'; c.step = 'a3_done';
-            this.say(FROM_CREW, 2, 'THE VEGA IS GONE - AND HER DEFLECTOR WITH HER. THE SURGE TOOK TARREN\'S NORTHERN COAST.');
-            this.repAdd(CIV_FLEET, -5); this.argusChapterEnd(3); break;
-          }
-          c.surgeT -= dt; c.debrisT -= dt;
-          const cov = sid === 'halcyon' && this.sheltered(v);
-          if (cov) c.covered += dt;
-          if (c.debrisT <= 0 && sid === 'halcyon') { // a chunk of rift debris, flung at the VEGA
-            c.debrisT = (c.stab >= 3 ? 3.4 : 2.4) + this.frand() * 1.2;
-            const a = Math.atan2(RIFT[1] - v.y, RIFT[0] - v.x) + (this.frand() - 0.5) * 1.1, d = 9000;
-            const sx = v.x + Math.cos(a) * d, sy = v.y + Math.sin(a) * d;
-            this.launchTorp(K.HAZARD, K.T_PHOTON, sx, sy, bearingTo(sx, sy, v.x, v.y), c.vegaId, 14 + this.frand() * 8, K.SUB_HULL);
-          }
-          const tag = cov ? 'COVERED' : (flash4(this.now) ? 'EXPOSED!' : 'NOT COVERED') + ' (HELM: ESCORT HER - SHIELDS: WIDEN THE RANGE)';
-          this.setObjective(`CH3: COVER THE VEGA WITH OUR SHIELD BUBBLE - ${tag}  VEGA HULL ${Math.max(0, Math.round(v.hull))}%  SURGE ENDS IN ${Math.max(0, Math.ceil(c.surgeT))}s`);
+          // orbiting Tarren puts us on the rift side
+          if (P.autopilot === K.AP_ESCORT && P.apPlanet === c.tarrenI) P.escA = c.shA;
+          c.surgeT -= dt;
+          const k = this.argusChecks(), all = k.pos && k.up && k.wide;
+          c.inPos = all ? c.inPos + dt : 0;
+          const ck = (ok, t) => `[${ok ? 'OK' : '--'}] ${t}`;
+          this.setObjective(`CH3: SURGE IN ${Math.max(0, Math.ceil(c.surgeT))}s - ${all ? 'IN POSITION, BRACE!' : 'NOT READY'}   ` +
+            `${ck(k.pos, `AT SHIELD POSITION (${k.d < 99000 ? (k.d / 1000).toFixed(1) + 'K' : 'FAR'} / 1.2K)`)}   ${ck(k.up, 'SHIELDS UP')}   ${ck(k.wide, `SHIELD RANGE 90%+ (${Math.round(P.shRange * 100)}%)`)}`);
+          if (all && !c.readySaid) { c.readySaid = true; this.say(FROM_CREW, 3, 'ALL THREE CHECKS GREEN - WE ARE BETWEEN TARREN AND THE RIFT WITH THE BUBBLE WIDE OPEN. HOLD HERE AND BRACE.'); }
+          if (!all && c.readySaid && c.surgeT > 3) { c.readySaid = false; this.say(FROM_CREW, 1, 'WE\'VE SLIPPED OUT OF THE SHIELD POSITION - CHECK THE OBJECTIVE.'); }
+          if (!c.warn10 && c.surgeT <= 10) { c.warn10 = true; this.emit(K.EV_ALERT); this.say(FROM_CREW, 2, all ? 'SURGE IN TEN SECONDS. ALL HANDS BRACE FOR IMPACT.' : 'SURGE IN TEN SECONDS - WE ARE NOT IN POSITION!'); }
           if (c.surgeT <= 0) {
-            c.f.tarren = 'shield'; c.step = 'a3_done';
-            this.repAdd(CIV_FLEET, 8);
-            this.argusSay('voss', 'THE SURGE IS PAST - AND TARREN IS WHOLE. ON THE GROUND THEY SAW A NEW STAR BURN FOR A MINUTE, THEN GO OUT. THEY\'LL NEVER KNOW. WELL DONE, BOTH OF YOU.', 3, FROM_COMMAND);
+            c.step = 'a3_done';
+            if (all) {
+              // we take the wave - badly hurt, never destroyed
+              const hit = c.stab >= 3 ? 45 : 60;
+              P.hull = Math.max(15, P.hull - hit);
+              for (let q = 0; q < 4; q++) P.shield[q] = 0;
+              [K.S_SHIELDS, K.S_SENSORS, K.S_WARP, K.S_IMPULSE].forEach((sy2, i) => { if (i < (c.stab >= 3 ? 3 : 4)) P.health[sy2] = Math.max(10, P.health[sy2] - 45 - this.frand() * 20); });
+              this.emit(K.EV_WE_HIT_HULL); this.emit(K.EV_SYS_DAMAGED);
+              c.f.tarren = 'shield';
+              this.repAdd(CIV_FLEET, 8);
+              this.say(FROM_CREW, 2, `THE SURGE HIT US SQUARE ON. HULL ${Math.round(P.hull)}% - SHIELDS GONE, DAMAGE ON SEVERAL DECKS. BUT WE HELD. ENGINEERING: START REPAIRS.`);
+              this.after(4, () => this.argusSay('voss', 'TARREN IS WHOLE, AURORA. ON THE GROUND THEY SAW A NEW STAR BURN BRIGHT FOR A MINUTE, THEN FADE. THEY WILL NEVER KNOW IT WAS YOU. PATCH YOURSELVES UP.', 3, FROM_COMMAND));
+            } else {
+              c.f.tarren = 'law';
+              this.repAdd(CIV_FLEET, -3);
+              this.say(FROM_CREW, 2, `WE WEREN'T IN POSITION. THE SURGE WENT PAST US AND STRUCK TARREN'S NORTHERN COAST. ${c.stab >= 3 ? 'HUNDREDS' : 'THOUSANDS'} OF LIFE SIGNS GONE.`);
+            }
             this.argusChapterEnd(3);
           }
           break;

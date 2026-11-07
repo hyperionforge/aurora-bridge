@@ -8,6 +8,7 @@
 import * as K from './config.js';
 import * as G from './cargo.js';
 import { DIALOGS, CHARS, tradeOpt } from './dialogue.js';
+import { GROUND_SEEN_K } from './orbit.js';
 import { planetPos, CIV_COLONY, CIV_VELORI, CIV_KESSARI, CIV_ORRAN } from './galaxy.js';
 const { NO_ID, F_FRIEND, F_NEUTRAL, CT_GROUND, FROM_CREW } = K;
 
@@ -92,11 +93,15 @@ export function installGround(Sim) {
       n.x = px + Math.cos(n.ga) * pl.r * 0.85; n.y = py + Math.sin(n.ga) * pl.r * 0.85; n.speed = 0;
     },
     // a ground site can be seen while we're in its planet's gravity well
-    groundVisible(n) { return !!(this.P.orb && this.P.orb.pl === n.pl); },
+    groundVisible(n) { // seen when we're close to its planet
+      const pl = this.sysDef.planets[n.pl]; if (!pl) return false;
+      const [px, py] = planetPos(this.sysDef, n.pl, this.now / 1000);
+      return this.P.orbitPl === n.pl || Math.hypot(this.P.x - px, this.P.y - py) < pl.r * GROUND_SEEN_K;
+    },
     groundHail(n) { // true = handled (refused)
       const pl = this.sysDef.planets[n.pl];
       if (n.prewarp) { this.say(FROM_CREW, 1, `${pl.name} IS A PRE-WARP WORLD, CAPTAIN. WE DON'T CALL THEM. WE'RE NOT EVEN HERE.`); return true; }
-      if (this.P.orbitPl !== n.pl) { this.denied(`WE NEED A STANDARD ORBIT OF ${pl.name} TO HOLD A CHANNEL TO THE SURFACE.`); return true; }
+      if (this.P.orbitPl !== n.pl) { this.denied(`WE NEED A STANDARD ORBIT OF ${pl.name} FOR A CHANNEL TO THE SURFACE - NAV: PLOT IT, HELM: AUTOPILOT > ORBIT.`); return true; }
       return false;
     },
   });

@@ -85,13 +85,16 @@ for (let k = 0; k < 3; k++) {
 if (s.camp.stab !== 3) fail('stabilisers ' + s.camp.stab);
 run(8, godmode);
 if (s.camp.step === 'a3_shield') {
-  // fly alongside the VEGA with shields up so the bubble covers her (shields topped up: we test the mechanic, not the balance)
+  // the Aurora takes the surge herself: start on the far side of Tarren so the orbit autopilot has to go round
   s.P.shieldsOn = true; s.P.shieldRaise = 1;
-  { const v = s.npc[s.camp.vegaId]; atXY(v.x + 4000, v.y); }
-  cmd(K.CMD.PLOT, 1, s.camp.vegaId); cmd(K.CMD.AUTOPILOT, K.AP_ESCORT, s.camp.vegaId); cmd(K.CMD.SHRANGE, 30, 1); cmd(K.CMD.REINFORCE, K.RF_FORE);
-  run(90, () => { godmode(); s.P.shieldsOn = true; for (let q = 0; q < 4; q++) s.P.shield[q] = Math.max(s.P.shield[q], 60); });
-  log(`  escort: ${Math.round(distTo(s.P.x, s.P.y, s.npc[s.camp.vegaId].x, s.npc[s.camp.vegaId].y))}m from the VEGA, autopilot ${s.P.autopilot}`);
-  log(`  vega hull ${s.npc[s.camp.vegaId] && Math.round(s.npc[s.camp.vegaId].hull)} covered ${Math.round(s.camp.covered)}s tarren=${s.camp.f.tarren}`);
+  atXY(42000, 42000); // from the rift, at warp
+  cmd(K.CMD.AUTOPILOT, K.AP_ESCORT, 100 + s.camp.tarrenI); cmd(K.CMD.SHRANGE, 95, 1); cmd(K.CMD.WARP, 30, 1);
+  let readyAt = -1;
+  for (let q = 0; q < 16; q++) { run(10, () => { s.P.shieldsOn = true; if (readyAt < 0 && s.camp.inPos > 0) readyAt = Math.round(s.camp.surgeT); }); if (process.env.DBG) { const k = s.argusChecks(); log(`    d ${Math.round(k.d)} ap ${s.P.autopilot}/${s.P.apPlanet} spd ${Math.round(s.P.speed)} v ${Math.round(Math.hypot(s.P.vx, s.P.vy))} orb ${s.P.orbitPl} hdg ${Math.round(s.P.hdg)}/${Math.round(s.P.desHdg)}`); } }
+  log(`  ready with ${readyAt}s to spare; hull ${Math.round(s.P.hull)} shields ${s.P.shield.map(Math.round)} tarren=${s.camp.f.tarren}`);
+  log(`  objective: ${s.M.objective}`);
+  if (s.camp.f.tarren !== 'shield') fail('tarren not shielded');
+  if (s.P.hull < 15 || s.game !== K.GS_RUN) fail('ship destroyed by the surge');
 }
 run(8, godmode);
 if (s.camp.ch !== 4) fail('ch4 not reached');

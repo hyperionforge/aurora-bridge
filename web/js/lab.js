@@ -1,12 +1,9 @@
 // ============================================================================
-// lab.js - the science lab for rare artefacts, and the relic ring puzzle.
+// lab.js - the science lab for rare artefacts.
 //   LAB: a rare artefact isn't identified by waiting - SCIENCE runs tests
 //   (spectrometry, resonance, thermal, gravimetry, dating; energy and time each)
 //   and then classifies it against the reference table. A wrong call costs a
 //   cool-down. The panel can be put on the main viewer so the crew can help.
-//   RING: relic shards fit edge to edge in a closed ring (tiles can be swapped
-//   and flipped); the runes along the middle spell a message - readable only
-//   with the codex. Used by THE CARTOGRAPHERS campaign.
 // ============================================================================
 import * as K from './config.js';
 import { C } from './config.js';
@@ -41,46 +38,8 @@ export const LAB_ART = {
   shard3: { cls: 'song', choices: ['datac', 'chart', 'bio', 'song'] },
   keel: { cls: 'engine', choices: ['cell', 'engine', 'focus', 'icon'] },
   nanite: { cls: 'bio', choices: ['bio', 'song', 'cell', 'datac'] },
-  rshard: { cls: 'chart', choices: ['datac', 'chart', 'song', 'forge'] },
-  bshard: { cls: 'chart', choices: ['chart', 'icon', 'datac', 'forge'] },
-  gshard: { cls: 'chart', choices: ['forge', 'datac', 'chart', 'song'] },
-  oshard: { cls: 'chart', choices: ['song', 'forge', 'chart', 'datac'] },
-  bcopy: { cls: 'chart', choices: ['chart', 'icon', 'datac', 'forge'] },
-  gfake: { cls: 'forge', choices: ['chart', 'forge', 'datac', 'song'] },
-  gsample1: { cls: 'chart', choices: ['chart', 'forge', 'datac', 'song'] },
-  gsample2: { cls: 'forge', choices: ['chart', 'forge', 'datac', 'song'] },
 };
 export const isRare = (h) => !!LAB_ART[G.ART[h.a].id];
-
-// ---------------------------------------------------------------- runes (the Cartographer script)
-// strokes in a unit square: ['l', x0,y0,x1,y1] line, ['c', x,y,r] circle, ['a', x,y,r,deg0,deg1] arc
-const RUNES = [
-  [['c', 0.5, 0.5, 0.33]],
-  [['l', 0.5, 0.1, 0.5, 0.9]],
-  [['l', 0.2, 0.25, 0.8, 0.25], ['l', 0.8, 0.25, 0.2, 0.8], ['l', 0.2, 0.8, 0.8, 0.8]],
-  [['a', 0.5, 0.5, 0.33, 180, 360], ['l', 0.5, 0.17, 0.5, 0.9]],
-  [['l', 0.15, 0.85, 0.5, 0.15], ['l', 0.5, 0.15, 0.85, 0.85], ['l', 0.3, 0.55, 0.7, 0.55]],
-  [['c', 0.5, 0.3, 0.15], ['c', 0.5, 0.72, 0.15]],
-  [['l', 0.15, 0.5, 0.85, 0.5], ['a', 0.5, 0.5, 0.33, 0, 180]],
-  [['l', 0.2, 0.2, 0.8, 0.2], ['l', 0.8, 0.2, 0.35, 0.85]],
-  [['c', 0.5, 0.5, 0.33], ['c', 0.5, 0.5, 0.1]],
-  [['l', 0.5, 0.12, 0.88, 0.5], ['l', 0.88, 0.5, 0.5, 0.88], ['l', 0.5, 0.88, 0.12, 0.5], ['l', 0.12, 0.5, 0.5, 0.12]],
-  [['a', 0.5, 0.5, 0.36, 200, 340], ['a', 0.5, 0.5, 0.36, 20, 160], ['c', 0.5, 0.5, 0.08], ['l', 0.5, 0.05, 0.5, 0.18], ['l', 0.5, 0.82, 0.5, 0.95]],
-];
-export const RUNE_MEANING = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'THE BLUE GIANT'];
-export function drawRune(g, x, y, s, idx, col, mirror = false) {
-  const c = g.ctx, R = RUNES[idx % RUNES.length];
-  c.save(); c.strokeStyle = col; c.lineWidth = Math.max(1.5, s / 12); c.lineCap = 'round';
-  const X = (v) => x + (mirror ? 1 - v : v) * s, Y = (v) => y + v * s;
-  for (const st of R) {
-    c.beginPath();
-    if (st[0] === 'l') { c.moveTo(X(st[1]), Y(st[2])); c.lineTo(X(st[3]), Y(st[4])); }
-    else if (st[0] === 'c') c.arc(X(st[1]), Y(st[2]), st[3] * s, 0, Math.PI * 2);
-    else { const a0 = (st[4] * Math.PI) / 180, a1 = (st[5] * Math.PI) / 180; if (mirror) c.arc(X(st[1]), Y(st[2]), st[3] * s, Math.PI - a1, Math.PI - a0); else c.arc(X(st[1]), Y(st[2]), st[3] * s, a0, a1); }
-    c.stroke();
-  }
-  c.restore();
-}
 
 // ---------------------------------------------------------------- host side
 export function installLab(Sim) {
@@ -88,7 +47,6 @@ export function installLab(Sim) {
     labClass(h) { return (this.labCls && this.labCls[h.uid]) || LAB_ART[G.ART[h.a].id].cls; },
     labCmd(a, b, c, d) {
       const P = this.P;
-      if (a === 5 || a === 6 || a === 7) { if (this.ringCmd) this.ringCmd(a, b, c); else this.denied('NOTHING TO ASSEMBLE.'); return; }
       const h = P.arts.find((q) => q.uid === b);
       if (a === 4) { if (h) this.labShow = b; this.view = K.VM_LAB; this.viewRevertAt = 0; this.say(FROM_CREW, 0, 'SCIENCE LAB ON THE MAIN VIEWER.'); return; }
       if (!h || !isRare(h)) { this.denied('THAT ISN\'T A LAB SPECIMEN.'); return; }
@@ -179,31 +137,4 @@ export function drawLab(g, w, h, box, u = 1, app = null) {
   y += L.choices.length * (rh + 3 * u) + 2 * u;
   if (locked) g.text(x, y, `RECALIBRATING - ${Math.ceil((h.lockAt - w.now) / 1000)}s`, 12 * u, C.YELLOW);
   else g.text(x, y, app ? 'TAP A ROW TO CLASSIFY (AT LEAST TWO TESTS FIRST)' : 'SCIENCE: TAP A ROW TO CLASSIFY', 11 * u, C.GREY_TXT);
-}
-
-// the relic ring (campaign): ring = { tiles:[{name,L,R,M,col}], order:[i...], flip:[b...], solved, msg }
-export function drawRing(g, w, ring, box, u = 1, app = null, sel = -1, onSel = null) {
-  const codex = (w.P.arts || []).some((h) => G.ART[h.a].id === 'codex');
-  const n = ring.order.length, gap = 10 * u, tw = (box.w - (n - 1) * gap) / n, th = Math.min(box.h - 60 * u, tw * 0.9);
-  const y = box.y + 18 * u;
-  g.text(box.x, box.y, ring.solved ? 'THE RING IS WHOLE' : 'EDGES MUST MATCH - AND THE LAST SHARD\'S RIGHT EDGE MEETS THE FIRST ONE\'S LEFT', 11 * u, ring.solved ? C.GREEN : C.GREY_TXT);
-  for (let s = 0; s < n; s++) {
-    const t = ring.tiles[ring.order[s]], f = ring.flip[s], x = box.x + s * (tw + gap);
-    const L = f ? t.R : t.L, R = f ? t.L : t.R;
-    const ok = ring.solved, isSel = sel === s;
-    g.rrect(x, y, tw, th, 10 * u, isSel ? '#3c3c60' : '#181c2c');
-    g.strokeRect(x, y, tw, th, isSel ? C.WHITE : t.col, (isSel ? 2.5 : 1.5) * u);
-    const es = Math.min(tw * 0.22, th * 0.3);
-    // edges: does this left edge match the previous shard's right edge?
-    const prev = ring.tiles[ring.order[(s + n - 1) % n]], pf = ring.flip[(s + n - 1) % n], pR = pf ? prev.L : prev.R;
-    const next = ring.tiles[ring.order[(s + 1) % n]], nf = ring.flip[(s + 1) % n], nL = nf ? next.R : next.L;
-    drawRune(g, x + 4 * u, y + th / 2 - es / 2, es, L, L === pR ? C.GREEN : C.ORANGE);
-    drawRune(g, x + tw - es - 4 * u, y + th / 2 - es / 2, es, R, R === nL ? C.GREEN : C.ORANGE);
-    const ms = Math.min(tw * 0.38, th * 0.45);
-    drawRune(g, x + tw / 2 - ms / 2, y + th * 0.18, ms, t.M, ok ? C.WHITE : C.SKY, f);
-    g.textFit(x + tw / 2, y + th - 32 * u, t.name + (f ? ' (FLIPPED)' : ''), 11 * u, t.col, 'center', tw - 6 * u);
-    g.textFit(x + tw / 2, y + th - 17 * u, codex ? RUNE_MEANING[t.M] : 'UNREADABLE - NO CODEX', 11 * u, codex ? C.YELLOW : C.GREY_TXT, 'center', tw - 6 * u, codex);
-    if (app && onSel && !ring.solved) g.hit(x, y, tw, th, { down: () => onSel(s) });
-  }
-  if (ring.msg) g.wrap(box.x, y + th + 6 * u, box.w, ring.msg, 13 * u, ring.solved ? C.GREEN : C.YELLOW, 1.2, 2);
 }
