@@ -15,6 +15,15 @@ const M = s.M, pul = M.pul;
 const log = (t) => console.log(`[${(s.missionT | 0).toString().padStart(4)}] ${t}`);
 const fail = (why) => { console.log('FAIL', how, why); process.exit(1); };
 if (M.type !== K.MT_PULSAR || !pul) fail('mission did not start');
+// the lead-in: Voss's briefing, cut off by the Meridian's mayday
+for (let i = 0; i < 400 && s.pulS.held; i++) {
+  s.tick(0.05); s.events.length = 0;
+  const m0 = s.dlg && s.msgs.find((q) => q.dseq === s.dlg.seq);
+  if (s.dlg && m0 && m0.dopt.length && m0.id !== s._seen) { s._seen = m0.id; console.log(`  brief/${s.dlg.node} (${s.dlg.who}): ${m0.text.slice(0, 60)}...`); s.handleCmd({ cmd: K.CMD.DREPLY, a: s.dlg.seq, b: 0 }); }
+}
+if (s.pulS.held) fail('the mayday never came');
+console.log('  mayday heard - ' + s.M.objective);
+for (let i = 0; i < 200 && s.dlg; i++) { s.tick(0.05); s.events.length = 0; const m0 = s.dlg && s.msgs.find((q) => q.dseq === s.dlg.seq); if (m0 && m0.dopt.length) s.handleCmd({ cmd: K.CMD.DREPLY, a: s.dlg.seq, b: 0 }); }
 const atXY = (x, y) => { s.P.dock = 0; s.P.x = x; s.P.y = y; s.P.speed = 0; s.P.throttle = 0; s.P.vx = s.P.vy = 0; };
 const f = s.npc[M.fr];
 let lastSeq = 0, asked = false, hits = 0, lastHull = 100;

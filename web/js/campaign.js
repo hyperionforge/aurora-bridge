@@ -19,6 +19,7 @@ const AI_STATIC = 0, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_ALLY = 8;
 
 import { ARGUS_CHAPTERS, ARGUS_DESC } from './campaign2.js';
 import { SLEEP_CHAPTERS, SLEEP_DESC, SLEEP_BLURB } from './longsleep.js';
+import { THR_CHAPTERS, THR_LABELS, THR_DESC, THR_BLURB } from './threshold.js';
 export const CHAPTERS = ['DEAD AIR', 'THE LANTERN\'S PRICE', 'THE SHROUD', 'BLOOD AND HONOUR', 'THE SILENT CHOIR'];
 export const CHAPTER_DESC = [
   'DEEP HOLLOW, A MINING COLONY IN MERIDIAN REACH, HAS GONE SILENT. ITS LAST TRANSMISSION WAS SINGING.',
@@ -34,6 +35,7 @@ export const CAMPAIGNS = [
   { id: 'argus', name: 'THE ARGUS PARADOX', chapters: ARGUS_CHAPTERS, desc: ARGUS_DESC,
     blurb: 'A DISTRESS CALL FROM THE AURORA HERSELF - SENT NINE DAYS FROM NOW. A RIFT IN TIME, A MACHINE THAT DREAMS, AND A WORLD THAT MUST NOT KNOW YOU EXIST.' },
   { id: 'sleep', name: 'THE LONG SLEEP', chapters: SLEEP_CHAPTERS, desc: SLEEP_DESC, blurb: SLEEP_BLURB },
+  { id: 'threshold', name: 'THRESHOLD', chapters: THR_CHAPTERS, labels: THR_LABELS, desc: THR_DESC, blurb: THR_BLURB },
 ];
 const NUM_WORD = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 // defaults used when a chapter is started without having played the ones before
@@ -197,6 +199,7 @@ export function installCampaign(Sim) {
       const cid = CAMPAIGNS[this.selCamp | 0] && CAMPAIGNS[this.selCamp | 0].id;
       if (cid === 'argus') { this.argusStart(ch); return; }
       if (cid === 'sleep') { this.sleepStart(ch); return; }
+      if (cid === 'threshold') { this.thrStart(ch); return; }
       ch = clampf(ch | 0, 1, 5);
       const save = this.campSaveOf('chorus');
       this.camp = { id: 'chorus', ch: 0, step: '', t: 0, f: { ...DEFAULT_F, ...(ch > 1 ? save.f || {} : {}) }, lockFails: 0, lock: [], bondOf: (w) => this.chorusBond(w) };
@@ -274,6 +277,7 @@ export function installCampaign(Sim) {
       if (!c || this.game !== GS_RUN) return;
       if (c.id === 'argus') { this.argusTick(dt); return; }
       if (c.id === 'sleep') { this.sleepTick(dt); return; }
+      if (c.id === 'threshold') { this.thrTick(dt); return; }
       c.t += dt;
       const sys = this.sysDef.id;
       const near = (id, r) => id < MAX_CONTACTS && this.npc[id].active && distTo(P.x, P.y, this.npc[id].x, this.npc[id].y) < r;
@@ -387,6 +391,7 @@ export function installCampaign(Sim) {
       if (this.mode !== K.MODE_CAMPAIGN || !this.camp) return;
       if (this.camp.id === 'argus') { this.argusArrive(to); return; }
       if (this.camp.id === 'sleep') { this.sleepArrive(to); return; }
+      if (this.camp.id === 'threshold') { this.storyArrive(); return; }
       const c = this.camp, sid = this.sysDef.id;
       if (c.step === 'c1_go' && sid === 'meridian') {
         this.greeted.add(0); // Deep Hollow is silent
@@ -451,6 +456,7 @@ export function installCampaign(Sim) {
     campOnScan(id) {
       if (this.camp && this.camp.id === 'argus') { this.argusOnScan(id); return; }
       if (this.camp && this.camp.id === 'sleep') { this.sleepOnScan(id); return; }
+      if (this.camp && this.camp.id === 'threshold') { this.thrOnScan(id); return; }
       const n = this.npc[id];
       if (n && n.log && n.scan >= 2 && !n.logRead) { n.logRead = true; this.say(FROM_CREW, 0, n.log); this.msgs[0].who = 'teo'; }
     },

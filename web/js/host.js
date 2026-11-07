@@ -41,6 +41,8 @@ export class Host {
     this.joinSeq = 0;
     this.gameName = opts.name || 'AURORA';
     this.out = opts.send || null; // test hook: send(line)
+    this.reqs = [];             // role requests: {id, tab, from, to, at, state: 'ask' | 'yes' | 'no' | 'gone'}
+    this.reqSeq = 0;
     this.recomputeLayout();
   }
 
@@ -110,6 +112,7 @@ export class Host {
       this.lastSlow = sim.now;
       this.all(this.buildSlow());
     }
+    if (this.reqs.length) this.reqTick();
     if (this.lobbyDirty) { this.lobbyDirty = false; this.all(this.buildLobby()); this.publishInfo(); }
   }
 
@@ -133,6 +136,44 @@ export class Host {
     if (owner) owner.roles = owner.roles.filter((t) => t !== tab);   // left behind by someone who dropped out
     p.roles = [...p.roles, tab].sort((x, y) => x - y);
     this.lobbyDirty = true;
+  }
+  // ---- asking a crewmate for a role they hold: they get to say yes or no
+  requestRole(p, tab) {
+    if (!(tab >= 0 && tab < K.TAB_NAME.length) || p.kind !== 'player') return;
+    const owner = this.ownerOfTab(tab);
+    if (!owner || !owner.cid || owner === p) { this.toggleRole(p, tab); return; }   // free (or mine): just take / give it
+    const mine = this.reqs.find((r) => r.tab === tab && r.from === p.pid && r.state === 'ask');
+    if (mine) { mine.state = 'gone'; mine.at = Date.now(); this.lobbyDirty = true; return; } // asked again = never mind
+    this.reqs = this.reqs.filter((r) => !(r.tab === tab && r.from === p.pid));
+    this.reqs.push({ id: ++this.reqSeq, tab, from: p.pid, to: owner.pid, at: Date.now(), state: 'ask' });
+    this.lobbyDirty = true;
+  }
+  answerRole(p, id, ok) {
+    const r = this.reqs.find((q) => q.id === id && q.state === 'ask');
+    if (!r || r.to !== p.pid) return;
+    const asker = this.players.get(r.from);
+    if (ok && p.roles.includes(r.tab) && asker && asker.cid) {
+      p.roles = p.roles.filter((t) => t !== r.tab);
+      asker.roles = [...asker.roles.filter((t) => t !== r.tab), r.tab].sort((x, y) => x - y);
+      r.state = 'yes';
+      // anyone else waiting on that role now has to ask the new holder
+      for (const q of this.reqs) if (q !== r && q.tab === r.tab && q.state === 'ask') q.to = asker.pid;
+    } else r.state = 'no';
+    r.at = Date.now();
+    this.lobbyDirty = true;
+  }
+  reqTick() {
+    const now = Date.now(), n = this.reqs.length;
+    for (const r of this.reqs) {
+      if (r.state !== 'ask') continue;
+      const owner = this.ownerOfTab(r.tab), asker = this.players.get(r.from);
+      if (!asker || !asker.cid) { r.state = 'gone'; r.at = now; }
+      else if (!owner || !owner.cid) { if (!owner || !owner.cid) this.toggleRole(asker, r.tab); r.state = 'yes'; r.at = now; } // the holder left: it's free
+      else if (owner.pid !== r.to) r.to = owner.pid;
+      else if (now - r.at > 30000) { r.state = 'no'; r.at = now; r.timeout = true; }
+    }
+    this.reqs = this.reqs.filter((r) => r.state === 'ask' || now - r.at < 6000);
+    if (this.reqs.length !== n || this.reqs.some((r) => r.state !== 'ask' && now - r.at < 40)) this.lobbyDirty = true;
   }
   autoAssign() {
     const act = this.activePlayers();
@@ -159,6 +200,8 @@ export class Host {
       roles: K.TAB_NAME.map((_, t) => { const o = this.ownerOfTab(t); return o ? o.pid : null; }),
       players: this.allPlayers().map((p) => ({ pid: p.pid, name: p.name, roles: p.roles, online: !!p.cid, col: this.colourOf(p) })),
       screens: [...this.players.values()].filter((p) => p.kind === 'screen' && p.cid).length,
+      reqs: this.reqs.map((r) => ({ id: r.id, tab: r.tab, from: r.from, to: r.to, state: r.state, timeout: !!r.timeout,
+        fromName: (this.players.get(r.from) || {}).name || '?', toName: (this.players.get(r.to) || {}).name || '?', left: Math.max(0, 30 - Math.round((Date.now() - r.at) / 1000)) })),
       canStart: cs.ok,
       why: cs.why,
       game: this.sim.game,
@@ -214,6 +257,8 @@ export class Host {
     if (!p) return;
     switch (m.t) {
       case 'role': this.toggleRole(p, m.tab | 0); return;
+      case 'reqrole': this.requestRole(p, m.tab | 0); return;
+      case 'reqans': this.answerRole(p, m.id | 0, !!m.ok); return;
       case 'auto': if (sim.game !== K.GS_RUN) this.autoAssign(); return;
       case 'unclaim': p.roles = []; this.lobbyDirty = true; return;
       case 'cmd': {
@@ -239,7 +284,7 @@ export class Host {
         id, type: n.type, faction: n.faction, x: Math.round(n.x), y: Math.round(n.y), hdg: r1(n.hdg), speed: Math.round(n.speed),
         hull: r1(n.hull), shields: r1(n.shields), shMax: n.shMax, freq: n.freq, eng: Math.round(n.eng), wpn: Math.round(n.wpn),
         sgen: Math.round(n.sgen), scan: n.scan, ai: n.ai, aiTarget: n.aiTarget, alive: n.alive, vis: s.visible(id), deadAt: n.deadAt,
-        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}),  ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
+        ...(n.name ? { name: n.name, short: n.short, kind: n.kind, civ: n.civ } : {}), ...(n.type === K.CT_GROUND ? { pl: n.pl } : {}), ...(n.note && n.scan >= 2 ? { note: n.note } : {}),  ...(n.poi >= 0 ? { poi: n.poi, smp: n.sampled, ...(n.scan >= 2 ? { res: n.res, art: n.art >= 0 && (n.sampled > 0 || n.scan >= 2), haz: n.haz } : {}) } : {}),
       });
     }
     return {
@@ -259,6 +304,7 @@ export class Host {
         dockId: P.dockId, jumpTo: P.jumpTo, jumpPlot: P.jumpPlot, icPlot: P.icPlot, jumpVec: P.jumpPlot !== K.NO_ID ? s.jumpVector(P.jumpPlot) : -1, jumpCharge: Math.round(P.jumpCharge * 100) / 100, jumping: r1(P.jumping),
         labUid: P.labUid, labTest: P.labTest, labProg: r2(P.labProg),
         orbitPl: P.orbitPl, orbPlot: P.orbPlot, apPlanet: P.apPlanet, oobT: Math.round(P.oobT * 10) / 10, bubR: Math.round(s.bubR()), shRange: Math.round(P.shRange * 100) / 100, vx: r1(P.vx), vy: r1(P.vy), autoBrake: P.autoBrake, allStop: P.allStop,
+        route: P.route.map(([x, y]) => [Math.round(x), Math.round(y)]), thrFrac: P.thrFrac, apAvoid: P.apAvoid, jumpLen: r1(P.jumpLen || K.JUMP_TRANSIT_S),
         towOk: s.towOk(), tow: !!(s.pulS && s.pulS.tow && s.M.type === K.MT_PULSAR),
       },
       npc,
@@ -295,7 +341,7 @@ export class Host {
     return {
       t: 's', now: s.now, selType: s.selType, selDiff: s.selDiff, selMode: s.selMode, mode: s.mode, sys: s.sysIdx,
       selCamp: s.selCamp | 0, campMaxes: s.campMaxes(), camp: s.camp ? { id: s.camp.id, ch: s.camp.ch, t0: s.camp.t0, ending: s.camp.ending || null, lines: s.camp.lines || null, obj2: s.camp.danger || null } : null, stats: s.stats, visitedN: s.visited.size,
-      labShow: s.labShow || 0,
+      labShow: s.labShow || 0, campF: s.camp ? s.camp.f : null, fleetCall: !!(s.fleetCall), campLabel: s.camp && s.campLabel ? s.campLabel() : null,
       visited: [...s.visited], revealed: [...s.revealed], jumpWhy: s.P.jumpTo === K.NO_ID ? this.jumpReasons() : {}, captain: s.captainMode, nameSeed: s.nameSeed, endAt: s.endAt,
       M: { type: M.type, diff: M.diff, stage: M.stage, fail: M.fail, objective: M.objective, mk: M.mk, fr: M.fr, wave: M.wave,
         waves: M.waves, frLost: M.frLost, ver: M.ver, pul: M.pul },

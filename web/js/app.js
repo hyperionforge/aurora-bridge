@@ -170,6 +170,23 @@ class App {
     else if (w.game === K.GS_TITLE || !this.myStation() || this.picking) this.drawLobby();
     else if (w.game === K.GS_RUN) this.drawRun();
     else this.drawEnd();
+    if (this.status === 'ok' && w.lobby) this.drawRoleAsk();
+  }
+  // a crewmate asks for one of my roles: give it or keep it (drawn over everything)
+  drawRoleAsk() {
+    const g = this.g, lb = this.w.lobby, r = (lb.reqs || []).find((q) => q.state === 'ask' && q.to === this.pid);
+    if (!r) return;
+    if (this.askSeen !== r.id) { this.askSeen = r.id; sound.order(); this.buzz([60, 40, 60]); }
+    const bw = Math.min(560, g.W - 80), bh = 150, x = (g.W - bw) / 2, y = (g.H - bh) / 2;
+    g.ctx.globalAlpha = 0.7; g.rect(0, 0, g.W, g.H, '#000'); g.ctx.globalAlpha = 1;
+    g.hit(0, 0, g.W, g.H, { down: () => {} }); // modal
+    g.rrect(x, y, bw, bh, 18, C.PANEL);
+    g.ctx.strokeStyle = K.TAB_COL[r.tab] || C.ORANGE; g.ctx.lineWidth = 3; g.ctx.beginPath(); g.ctx.roundRect(x + 1.5, y + 1.5, bw - 3, bh - 3, 18); g.ctx.stroke();
+    g.text(x + bw / 2, y + 12, 'ROLE REQUEST', 14, C.GREY_TXT, 'center');
+    g.textFit(x + bw / 2, y + 32, `${r.fromName} ASKS FOR YOUR ${K.TAB_NAME[r.tab]} STATION`, 24, C.PEACH, 'center', bw - 30, true);
+    const hw = (bw - 48) / 2;
+    g.button('ragive', x + 16, y + bh - 62, hw, 46, `GIVE ${K.TAB_NAME[r.tab]}`, C.GREEN, C.BLACK, 20, () => this.link.send({ t: 'reqans', id: r.id, ok: 1 }), { bold: true });
+    g.button('rakeep', x + 32 + hw, y + bh - 62, hw, 46, 'KEEP IT', C.RED, C.BLACK, 20, () => this.link.send({ t: 'reqans', id: r.id, ok: 0 }), { bold: true });
   }
 
   drawRotate() {
@@ -269,7 +286,7 @@ class App {
       y += 36;
       const cm = Math.max(1, ((s && s.campMaxes) || [])[sc] || 1), ch = st % cm;
       if (inTitle) g.button('cp', lx, y, arrow, 32, '<', C.LILAC, C.BLACK, 20, () => sel((ch + cm - 1) % cm, sd, sm), { sound: 'toggle' });
-      g.textFit(lx + lw / 2, y + 5, `CH ${ch + 1}: ${cpn.chapters[ch]}`, 17, C.SKY, 'center', lw - 2 * arrow - 8);
+      g.textFit(lx + lw / 2, y + 5, `${cpn.labels ? cpn.labels[ch] : 'CH ' + (ch + 1)}: ${cpn.chapters[ch]}`, 17, C.SKY, 'center', lw - 2 * arrow - 8);
       if (inTitle) g.button('cn', lx + lw - arrow, y, arrow, 32, '>', C.LILAC, C.BLACK, 20, () => sel((ch + 1) % cm, sd, sm), { sound: 'toggle' });
       y += 36;
     }
@@ -291,7 +308,7 @@ class App {
       y += 24;
       g.button('auto', lx, y, lw, 34, 'AUTO-ASSIGN ROLES', C.LILAC, C.BLACK, 18, () => this.link.send({ t: 'auto' }), { sound: 'toggle' });
       y += 40;
-      g.wrap(lx, y, lw, 'OR TAP THE ROLE CARDS YOU WANT. TAP ONE OF YOURS TO GIVE IT BACK.', 12, C.GREY_TXT, 1.2, 2);
+      g.wrap(lx, y, lw, 'OR TAP THE ROLE CARDS YOU WANT. TAP ONE OF YOURS TO GIVE IT BACK, OR A CREWMATE\'S TO ASK THEM FOR IT.', 12, C.GREY_TXT, 1.2, 3);
       const by = H - 52;
       g.button('start', lx, by, lw, 46, ['START MISSION', 'LAUNCH VOYAGE', 'BEGIN CAMPAIGN'][sm], lb.canStart ? C.ORANGE : C.GREY, lb.canStart ? C.BLACK : C.GREY_TXT, 24, () => {
         if (lb.canStart) this.send(CMD.START); else sound.denied();
@@ -300,7 +317,7 @@ class App {
     }
     if (!inTitle) { // re-picking roles mid-game: nothing happens until you confirm
       const mine = this.myStation(), by = H - 52;
-      g.wrap(lx, by - 64, lw, mine ? 'TAP ALL THE ROLES YOU WANT, THEN CONFIRM.' : 'TAP THE ROLES YOU WANT TO TAKE.', 13, C.PEACH, 1.2, 2);
+      g.wrap(lx, by - 78, lw, mine ? 'TAP FREE ROLES TO TAKE THEM, YOURS TO GIVE THEM BACK - OR A CREWMATE\'S TO ASK THEM FOR IT. THEN CONFIRM.' : 'TAP THE ROLES YOU WANT TO TAKE (OR ASK A CREWMATE FOR ONE OF THEIRS).', 13, C.PEACH, 1.2, 4);
       g.button('pickdone', lx, by, lw, 46, mine ? 'CONFIRM - BACK TO THE BRIDGE' : 'PICK AT LEAST ONE ROLE', mine ? C.ORANGE : C.GREY, mine ? C.BLACK : C.GREY_TXT, 22, () => {
         if (mine) { this.picking = false; sound.toggle(); } else sound.denied();
       }, { silent: !mine, bold: true });
@@ -308,7 +325,13 @@ class App {
     // right panel: the 8 role cards
     const rx = lx + lw + 14, rw = W - 6 - rx;
     y = TOP_H + 10;
-    g.header(rx, y, rw, 'ROLES - TAP TO TAKE ONE, TAP AGAIN TO GIVE IT BACK', C.ORANGE);
+    // what happened to my requests
+    const done = (lb.reqs || []).find((q) => q.from === this.pid && q.state !== 'ask');
+    if (done) {
+      const txt = done.state === 'yes' ? `${done.toName} GAVE YOU ${K.TAB_NAME[done.tab]}` : done.state === 'no' ? (done.timeout ? `${done.toName} DIDN'T ANSWER - ${K.TAB_NAME[done.tab]} STAYS WITH THEM` : `${done.toName} WANTS TO KEEP ${K.TAB_NAME[done.tab]}`) : 'REQUEST CANCELLED';
+      g.rrect(rx, y, rw, 18, 9, done.state === 'yes' ? C.GREEN : C.YELLOW);
+      g.textFit(rx + rw / 2, y + 1, txt, 15, C.BLACK, 'center', rw - 20, true);
+    } else g.header(rx, y, rw, 'ROLES - TAP A FREE ONE TO TAKE IT, YOURS TO GIVE IT BACK, A CREWMATE\'S TO ASK FOR IT', C.ORANGE);
     y += 24;
     const joinH = this.joinUrls.length ? 44 : 0;
     const cols = 4, rows = 2, gap = 6;
@@ -332,7 +355,9 @@ class App {
         g.text(cx + 86, cy + 7, 'CAPTAIN', 30, mine ? C.BLACK : col, 'left', true);
         g.textFit(cx + 86, cy + 42, 'COMMANDS THE BRIDGE: ' + K.TAB_DESC[t], 12, mine ? C.BLACK : C.PEACH, 'left', cwid - 300);
         g.textFit(cx + cwid - 14, cy + 18, owner ? owner.name + (owner.online ? '' : ' (GONE)') : 'OPEN - NEEDED', 22, mine ? C.BLACK : owner ? owner.col : flash(500) ? C.YELLOW : C.GREEN, 'right', 200, true);
-        g.hit(cx, cy, cwid, chh, { down: () => { if (!mine && !free) { sound.denied(); return; } sound.toggle(); this.link.send({ t: 'role', tab: t }); } });
+        const askedC = (lb.reqs || []).find((q) => q.tab === t && q.from === this.pid && q.state === 'ask');
+        if (askedC) g.textFit(cx + cwid - 14, cy + 44, `ASKED ${owner ? owner.name : ''}...`, 13, flash(500) ? C.YELLOW : C.TAN, 'right', 200, true);
+        g.hit(cx, cy, cwid, chh, { down: () => { sound.toggle(); this.link.send({ t: !mine && !free ? 'reqrole' : 'role', tab: t }); } });
         continue;
       }
       g.rrect(cx, cy, cw, ch, 12, mine ? col : C.PANEL);
@@ -347,9 +372,11 @@ class App {
         g.rrect(cx + 8, hy, cw - 16, 20, 10, mine ? C.BLACK : owner.online ? owner.col : C.GREY);
         g.textFit(cx + cw / 2, hy + 2, owner.name + (owner.online ? '' : ' (GONE)'), 14, mine ? col : C.BLACK, 'center', cw - 24, true);
       } else g.text(cx + cw / 2, hy + 2, 'OPEN', 14, C.GREEN, 'center', true);
+      const asked = (lb.reqs || []).find((q) => q.tab === t && q.from === this.pid && q.state === 'ask');
+      if (asked) { g.rrect(cx + 8, hy - 24, cw - 16, 20, 10, flash(500) ? C.YELLOW : C.TAN); g.textFit(cx + cw / 2, hy - 22, `ASKED ${owner ? owner.name : ''}...`, 13, C.BLACK, 'center', cw - 24, true); }
       g.hit(cx, cy, cw, ch, { down: () => {
-        if (!mine && !free) { sound.denied(); return; }
         sound.toggle();
+        if (!mine && !free) { this.link.send({ t: 'reqrole', tab: t }); return; } // ask the holder for it
         this.link.send({ t: 'role', tab: t });
       } });
     }
@@ -505,11 +532,8 @@ class App {
       y += 54;
     }
     if (this.w.game === K.GS_RUN) {
-      const sure = this.swapAsk && performance.now() - this.swapAsk < 4000;
-      g.button('mswap', bx, y, bw, 44, sure ? 'TAP AGAIN TO GIVE THEM BACK' : 'CHANGE MY ROLES', sure ? C.YELLOW : C.TAN, C.BLACK, 18, () => {
-        if (!sure) { this.swapAsk = performance.now(); return; }
-        this.swapAsk = 0; this.picking = true; this.link.send({ t: 'unclaim' }); this.menu = false;
-      });
+      // back to the role cards, keeping what I have: give roles back, take free ones, or ask a crewmate for theirs
+      g.button('mswap', bx, y, bw, 44, 'CHANGE MY ROLES', C.TAN, C.BLACK, 18, () => { this.picking = true; this.menu = false; });
       y += 54;
     }
     g.button('mleave', bx, y, bw, 44, this.isHost ? 'END GAME AND LEAVE' : 'LEAVE GAME', C.RED, C.BLACK, 20, () => {

@@ -96,12 +96,20 @@ export function installGround(Sim) {
     groundVisible(n) { // seen when we're close to its planet
       const pl = this.sysDef.planets[n.pl]; if (!pl) return false;
       const [px, py] = planetPos(this.sysDef, n.pl, this.now / 1000);
-      return this.P.orbitPl === n.pl || Math.hypot(this.P.x - px, this.P.y - py) < pl.r * GROUND_SEEN_K;
+      // close to the planet, or anywhere our sensors reach it (a surface colony answers its comms from afar)
+      return this.P.orbitPl === n.pl || Math.hypot(this.P.x - px, this.P.y - py) < Math.max(pl.r * GROUND_SEEN_K, this.sensorRange() * 0.75);
     },
-    groundHail(n) { // true = handled (refused)
+    groundHail(n) { // true = handled (refused). Talking needs no orbit - trading and collecting do.
       const pl = this.sysDef.planets[n.pl];
       if (n.prewarp) { this.say(FROM_CREW, 1, `${pl.name} IS A PRE-WARP WORLD, CAPTAIN. WE DON'T CALL THEM. WE'RE NOT EVEN HERE.`); return true; }
-      if (this.P.orbitPl !== n.pl) { this.denied(`WE NEED A STANDARD ORBIT OF ${pl.name} FOR A CHANNEL TO THE SURFACE - NAV: PLOT IT, HELM: AUTOPILOT > ORBIT.`); return true; }
+      return false;
+    },
+    // can cargo be beamed to / from whoever we're talking to? A surface site needs us in a standard orbit.
+    xferOk(quiet = false) {
+      const d = this.dlg, n = d && d.from < K.MAX_CONTACTS ? this.npc[d.from] : null;
+      if (!n || n.type !== CT_GROUND || this.P.orbitPl === n.pl) return true;
+      const pl = this.sysDef.planets[n.pl];
+      if (!quiet) this.say(FROM_CREW, 1, `TRANSPORTERS CAN'T REACH THE SURFACE FROM HERE - WE NEED A STANDARD ORBIT OF ${pl ? pl.name : 'THE PLANET'} TO BEAM ANYTHING UP OR DOWN. NAV: PLOT THE ORBIT, HELM: AUTOPILOT > ORBIT.`);
       return false;
     },
   });

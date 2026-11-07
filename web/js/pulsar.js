@@ -174,6 +174,23 @@ const send = (res, n, pct, what) => ({
   do: (s) => s.pulsarSend(res, n, n * pct, what),
 });
 Object.assign(DIALOGS, {
+  // the lead-in: Voss briefs a routine escort - and the Meridian's mayday cuts across her
+  p_brief: { who: 'voss', nodes: {
+    start: { say: 'AURORA, VOSS. A SMALL JOB BEFORE YOUR PATROL. THE FREIGHTER MERIDIAN IS RUNNING CRITICAL MEDICAL SUPPLIES TO VESPERA - A RED-FEVER OUTBREAK IN THE SOUTHERN SETTLEMENTS. NINE HUNDRED SICK, AND RISING. I WANT YOU TO MEET HER AND SEE HER IN.',
+      opts: [{ t: 'WHAT IS SHE CARRYING?', go: 'cargo' }, { t: 'WHERE IS SHE NOW?', go: 'route' }, { t: 'ON OUR WAY, ADMIRAL', go: 'route2' }] },
+    cargo: { say: 'FOUR TONNES OF ANTIVIRAL SERUM, AND THE SYNTHESISERS TO MAKE MORE. VESPERA\'S OWN STOCKS RAN OUT YESTERDAY. WITHOUT THAT SHIP THE FEVER RUNS ITS COURSE - AND IT IS NOT A KIND ONE.',
+      opts: [{ t: 'WHERE IS SHE NOW?', go: 'route' }, { t: 'UNDERSTOOD', go: 'route2' }] },
+    route: { say: 'CUTTING PAST THE PSR J-7 PULSAR TO SAVE SIX HOURS. THE BEAMS ARE PREDICTABLE IF YOU KEEP YOUR DISTANCE, AND CAPTAIN ODILI HAS RUN THAT ROUTE A DOZEN TI-', auto: [4, 'mayday'] },
+    route2: { say: 'GOOD. SHE\'S CUTTING PAST THE PSR J-7 PULSAR TO SAVE SIX HOURS - CAPTAIN ODILI HAS RUN THAT ROUTE A DOZEN TI-', auto: [4, 'mayday'] },
+    mayday: { who: 'odili', col: 2, ev: K.EV_ALERT, on: (s) => s.pulsarGo(),
+      say: '-AYDAY, MAYDAY, MAYDAY! THIS IS THE FREIGHTER MERIDIAN! COOLANT FIRE - WE\'VE LOST ENGINES AND THE JUMP DRIVE - WE\'RE DRIFTING INTO THE PULSAR\'S SWEEP! ANYONE WHO CAN HEAR THIS-', auto: [6, 'orders'] },
+    orders: { who: 'voss', col: 2,
+      say: '...AURORA, YOU HEARD HER. YOU ARE THE ONLY SHIP WITHIN TWO HOURS OF THAT PULSAR. GET OUT THERE AND KEEP THAT SHIP - AND THAT SERUM - IN ONE PIECE UNTIL HER JUMP DRIVE IS BACK. AND MIND THOSE BEAMS YOURSELVES.',
+      opts: [{ t: 'UNDERSTOOD. WE\'RE ON OUR WAY', go: 'out' }, { t: 'HOW LONG CAN SHE LAST?', go: 'last' }] },
+    last: { who: 'voss', say: 'A FREIGHTER\'S HULL IN A PULSAR BEAM? A DOZEN SWEEPS, MAYBE FEWER. THE BIG ASTEROIDS AROUND IT CAST SHADOWS THE BEAM CAN\'T CROSS - THAT MAY BE YOUR BEST FRIEND. AND YOUR SHIELD BUBBLE, IF YOU CAN GET IT OVER HER.',
+      opts: [{ t: 'ON OUR WAY', go: 'out' }] },
+    out: { who: 'voss', say: 'NINE HUNDRED PEOPLE, AURORA. VOSS OUT.', opts: [] },
+  } },
   p_meridian: { who: 'odili', nodes: {
     start: { say: (s) => s.pulsarHello(),
       opts: [
@@ -211,14 +228,30 @@ export function installPulsar(Sim) {
       this.pulS.anom = this.spawnAt(CT_ANOMALY, F_UNKNOWN, px, py, 0);
       if (this.pulS.anom !== NO_ID) Object.assign(this.npc[this.pulS.anom], { name: 'PULSAR PSR J-7', short: 'PULSAR', scan: 1,
         note: 'A NEUTRON STAR SPINNING ONCE EVERY 50 SECONDS. TWO BEAMS OF HARD RADIATION, OPPOSITE EACH OTHER, SWEEP THE SYSTEM - A SHIP IS HIT TWICE A TURN. SOLID ROCK BLOCKS THE BEAM: THE LARGE ASTEROIDS NEARBY CAST SAFE SHADOWS. THE CRUST IS UNDER STRAIN - WATCH FOR A GLITCH.' });
+      // the mission opens on a routine briefing; the Meridian's mayday interrupts it (p_brief).
+      // Until then the pulsar does no harm - the beams start counting from the mayday.
+      this.pulS.held = true; this.pulS.fx = fx; this.pulS.fy = fy;
+      this.setObjective('STAND BY - ADMIRAL VOSS IS ON THE LINE');
+      this.after(2, () => { if (this.M.type === K.MT_PULSAR && this.pulS && this.pulS.held) this.startDialog('p_brief', FROM_COMMAND); });
+      this.after(70, () => { if (this.M.type === K.MT_PULSAR && this.pulS && this.pulS.held) this.pulsarGo(); }); // nobody listened: the mayday comes anyway
+      M.ver++;
+    },
+    pulsarGo() {
+      const s = this.pulS, M = this.M;
+      if (!s || !s.held) return;
+      s.held = false;
+      const { fx, fy } = s;
+      M.pul.t0 = this.now; // the beams were placed clear of her: start their sweep from there now
       this.addMarker(fx, fy, K.MK_RENDEZVOUS);
       this.setWaypoint(fx, fy);
-      this.setObjective(`PULSAR RESCUE: REACH THE MERIDIAN IN SECTOR ${this.sec(fx, fy)} - SHE'S DEAD IN SPACE IN THE PULSAR'S BEAMS`);
-      this.say(FROM_COMMAND, 2, `AURORA, THE FREIGHTER MERIDIAN HAS LOST HER ENGINES BESIDE A PULSAR IN SECTOR ${this.sec(fx, fy)}. ITS BEAMS SWEEP ACROSS HER TWICE A MINUTE AND HER HULL WON'T TAKE MANY MORE. KEEP HER ALIVE UNTIL HER JUMP DRIVE IS REPAIRED AND SHE CAN JUMP OUT. HAIL HER CAPTAIN WHEN YOU ARRIVE.`);
+      this.setObjective(`PULSAR RESCUE: REACH THE MERIDIAN IN SECTOR ${this.sec(fx, fy)} - SHE'S DEAD IN SPACE IN THE PULSAR'S BEAMS, CARRYING VESPERA'S FEVER SERUM`);
+      if (!this.dlg) this.say(FROM_COMMAND, 2, `AURORA, THE FREIGHTER MERIDIAN - CARRYING SERUM FOR VESPERA'S FEVER OUTBREAK - HAS LOST HER ENGINES BESIDE A PULSAR IN SECTOR ${this.sec(fx, fy)}. YOU'RE THE ONLY SHIP IN RANGE. KEEP HER ALIVE UNTIL HER JUMP DRIVE IS REPAIRED. HAIL HER CAPTAIN WHEN YOU ARRIVE.`);
+      else this.after(1, () => this.say(FROM_CREW, 0, `THE MERIDIAN'S BEACON: SECTOR ${this.sec(fx, fy)}. POSITION MARKED AND SET AS OUR WAYPOINT, CAPTAIN.`));
       M.ver++;
     },
     pulsarHello() {
       const s = this.pulS;
+      if (s.held) this.pulsarGo(); // they found her before the mayday finished
       if (!s.met) { s.met = true; return 'AURORA! THANK GOD. RUTH ODILI, MASTER OF THE MERIDIAN. A COOLANT FIRE TOOK OUR ENGINES AND THE JUMP DRIVE WITH THEM - WE DRIFTED INTO THIS THING\'S PATH. EVERY TIME THE BEAM COMES ROUND WE LOSE MORE HULL. MY ENGINEERS ARE ON THE JUMP DRIVE NOW. KEEP US IN ONE PIECE UNTIL IT\'S BACK AND WE\'RE GONE.'; }
       return 'AURORA, ODILI HERE. WHAT DO YOU NEED?';
     },
@@ -261,7 +294,7 @@ export function installPulsar(Sim) {
     towOk() { const M = this.M; return M.type === K.MT_PULSAR && this.pulS && M.stage < K.ST_RETURN && this.npc[M.fr] && this.npc[M.fr].alive ? M.fr : NO_ID; },
     pulsarTick(dt) {
       const M = this.M, P = this.P, s = this.pulS, pul = M.pul, f = this.npc[M.fr];
-      if (!s || !f || !f.alive) return;
+      if (!s || !f || !f.alive || s.held) return;
       const diff = M.diff;
       // ---- the beams
       const beam = (key, x, y, hit) => {

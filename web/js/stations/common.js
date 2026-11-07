@@ -74,6 +74,7 @@ export function drawRadar(g, w, cx, cy, R, range, headingUp, selected, sweep) {
     g.line(x0, y0, x1, y1, b.from === K.US ? C.ORANGE : C.GREEN, 1.5);
   }
   drawShip(g, ART_CRUISER, C.SKY, cx, cy, 0.2, headingUp ? 0 : w.P.hdg);
+  drawShipShields(g, w, cx, cy, 20, headingUp ? 0 : w.P.hdg);
 }
 
 // tap on a radar -> nearest contact id (or NO_ID)
@@ -89,3 +90,19 @@ export function radarPick(w, tx, ty, cx, cy, R, range, headingUp) {
 }
 
 export const DIM_BTN = C.GREY;
+
+// ---- the shields as arcs round the ship's own image: one arc per quarter, its thickness and colour
+// its strength; faint outline when the shields are down. rot = the angle the sprite's bow points
+// (P.hdg on north-up displays, 0 on bow-up ones); r = just outside the sprite.
+const SHQ_OFF = [0, 180, 270, 90]; // fore, aft, port, stbd relative to the bow
+export function drawShipShields(g, w, cx, cy, r, rot) {
+  const P = w.P, raise = P.shieldRaise || 0, up = raise >= 0.99, c = g.ctx;
+  for (let q = 0; q < 4; q++) {
+    const a = rot + SHQ_OFF[q] - 90, cap = Math.max(1, (P.shieldMax && P.shieldMax[q]) || 100), f = Math.max(0, Math.min(1, (P.shield[q] || 0) / cap));
+    if (raise <= 0.02 || f <= 0.01) { c.globalAlpha = 0.35; g.arcSeg(cx, cy, r + 1, r, a - 38, a + 38, C.GREY); c.globalAlpha = 1; continue; }
+    const th = 1.5 + f * Math.max(2.5, r * 0.18), col = !up ? C.YELLOW : f > 0.6 ? C.SKY : f > 0.3 ? C.YELLOW : C.RED;
+    c.globalAlpha = up ? 0.95 : 0.4 + 0.5 * raise;
+    g.arcSeg(cx, cy, r + th, r, a - 38, a + 38, col);
+    c.globalAlpha = 1;
+  }
+}

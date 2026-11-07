@@ -19,7 +19,7 @@ const {
 
 const PK = { ASTEROID: G.PK_ASTEROID, COMET: G.PK_COMET, WRECK: G.PK_WRECK, DERELICT: G.PK_DERELICT, RUINS: G.PK_RUINS, GAS: G.PK_GAS, SPIRE: G.PK_SPIRE, CAPSULE: G.PK_CAPSULE };
 export const AI_STATIC = 0, AI_DRIFT = 1, AI_TRAVEL = 2, AI_WARPIN = 3, AI_ATTACK = 4, AI_FLEE = 5, AI_SURRENDER = 6, AI_PATROL = 7, AI_ALLY = 8;
-const TRAIL = 24, PTRAIL = 120, MAX_TORPS = 10, MAX_BEAMFX = 6, MAX_BOOMS = 10, MSG_KEEP = 12, MAX_ORDERS = 8, MAX_ADVICE = 5;
+const TRAIL = 24, PTRAIL = 120, MAX_TORPS = 10, MAX_BEAMFX = 6, MAX_BOOMS = 10, MSG_KEEP = 25, MAX_ORDERS = 8, MAX_ADVICE = 5;
 const DIFF_DMG = [0.7, 1.0, 1.3];
 
 function newPlayer() {
@@ -35,6 +35,7 @@ function newPlayer() {
     spareUse: 0, noSparesWarned: false,
     labUid: 0, labTest: 0, labProg: 0, shRange: 0, autoBrake: false, allStop: false,
     vx: 0, vy: 0, orbitPl: -1, orbPlot: -1, apPlanet: -1, escA: 0, oobT: 0, skimT: 0,
+    route: [], thrFrac: null, apAvoid: '', apSide: 0, jumpLen: K.JUMP_TRANSIT_S,
   };
 }
 function newNpc() {
@@ -55,6 +56,9 @@ import { installGround } from './ground.js';
 import { installLab } from './lab.js';
 import { installPulsar } from './pulsar.js';
 import { installSleep } from './longsleep.js';
+import { installPuzzles } from './puzzles.js';
+import { installStory } from './story.js';
+import { installThreshold } from './threshold.js';
 
 export class Sim {
   constructor(rand = Math.random) {
@@ -188,7 +192,14 @@ export class Sim {
   // ---------------------------------------------------------------- events / messages
   emit(type, arg = 0, flash = null) { this.events.push({ type, arg, flash }); }
   say(from, col, text, o1 = 0, o2 = 0, o3 = 0) {
-    const m = { id: this.nextMsgId++, from, col, text, opt: [o1, o2, o3].filter((o) => o) };
+    const opt = [o1, o2, o3].filter((o) => o), m0 = this.msgs[0];
+    // the same thing said again straight away: count it instead of filling the log ("... (3)")
+    if (m0 && m0.from === from && m0.text === text && !opt.length && !m0.opt.length && !m0.dseq && !m0.reply) {
+      m0.n = (m0.n || 1) + 1; m0.col = col;
+      this.emit(K.EV_MESSAGE);
+      return;
+    }
+    const m = { id: this.nextMsgId++, from, col, text, opt };
     this.msgs.unshift(m);
     if (this.msgs.length > MSG_KEEP) this.msgs.length = MSG_KEEP;
     if (from < MAX_CONTACTS || from === FROM_COMMAND) { // transmissions go on the viewer for a few seconds
@@ -480,7 +491,10 @@ export class Sim {
     switch (c.cmd) {
       case CMD.HEADING: P.desHdg = wrap360(+c.c || 0); P.autopilot = K.AP_OFF; break;
       case CMD.THROTTLE:
-        P.throttle = Math.round(clampf(+c.c || 0, -25, 100) * 10) / 10; // % of full impulse (an absolute speed)
+        // a=1: a preset (FULL, 3/4 ... -1/4) - a share of what the engines can give, which follows engineering's power
+        P.thrFrac = a === 1 ? clampf((+c.c || 0) / 100, -0.25, 1) : null;
+        P.throttle = a === 1 ? Math.round(P.thrFrac * this.impulseCap() / K.IMPULSE_TOP * 1000) / 10
+          : Math.round(clampf(+c.c || 0, -25, 100) * 10) / 10; // % of full impulse (an absolute speed)
         if (P.throttle !== 0) P.allStop = false;
         if (P.dock === 2 && P.throttle > 0) { P.dock = 0; this.say(FROM_CREW, 0, 'UNDOCKED. CLEAR OF THE STARBASE.'); }
         break;
@@ -490,7 +504,7 @@ export class Sim {
         P.warpSet = clampf(b === 1 ? a / 10 : a, 0, K.WARP_TOP); // b=1: a is in tenths (the helm slider)
         if (!P.warpSet) { P.warping = false; P.warpCharge = 0; }
         break;
-      case CMD.STOP: P.throttle = 0; P.warpSet = 0; P.warping = false; P.warpCharge = 0; P.autopilot = K.AP_OFF; P.allStop = true; break;
+      case CMD.STOP: P.thrFrac = null; P.throttle = 0; P.warpSet = 0; P.warping = false; P.warpCharge = 0; P.autopilot = K.AP_OFF; P.allStop = true; break;
       case CMD.AUTOBRAKE: P.autoBrake = !!a; this.say(FROM_CREW, 0, P.autoBrake ? 'AUTO BRAKE ON - THE FLIGHT COMPUTER CANCELS DRIFT AND BRAKES WHEN THE THROTTLE IS CUT.' : 'AUTO BRAKE OFF - WE KEEP WHATEVER MOMENTUM WE HAVE. FULL STOP TO BRAKE.'); break;
       case CMD.EVASIVE: P.evasive = !!a; break;
       case CMD.AUTOPILOT:
@@ -506,12 +520,15 @@ export class Sim {
         P.autopilot = a;
         P.apTarget = b;
         break;
-      case CMD.WAYPOINT:
-        P.wpValid = !!a;
-        P.wpx = clampf(+c.c || 0, 0, SECTOR);
-        P.wpy = clampf(+c.d || 0, 0, SECTOR);
+      case CMD.WAYPOINT: { // a=1 set the waypoint (a new course), a=2 add a leg to NAV's course, a=0 clear the course
+        const x = clampf(+c.c || 0, 0, SECTOR), y = clampf(+c.d || 0, 0, SECTOR);
+        if (a === 2 && P.wpValid && P.route.length) { if (P.route.length < 8) P.route.push([x, y]); else this.denied('A COURSE CAN HAVE EIGHT LEGS AT MOST.'); }
+        else if (a) { P.route = [[x, y]]; P.wpValid = true; }
+        else { P.route = []; P.wpValid = false; }
+        if (P.route.length) [P.wpx, P.wpy] = P.route[0];
         if (!P.wpValid && P.autopilot === K.AP_WAYPOINT) P.autopilot = K.AP_OFF;
         break;
+      }
       case CMD.DOCK: {
         if (P.dock) break;
         // the nearest station that will have us
@@ -534,7 +551,7 @@ export class Sim {
       case CMD.PLOT: if (a === 2) {
         const pl = this.sysDef.planets[b];
         P.orbPlot = pl ? b : -1;
-        if (pl) this.say(FROM_CREW, 0, `${pl.name} PLOTTED FOR ORBIT. HELM: AUTOPILOT / JUMP > ORBIT - WE'LL PULL ALONGSIDE AND MOVE WITH THE PLANET.`);
+        if (pl) this.say(FROM_CREW, 0, `${pl.name} PLOTTED FOR ORBIT. HELM: AUTOPILOT > ORBIT - WE'LL PULL ALONGSIDE AND MOVE WITH THE PLANET.`);
       } else if (a === 0) { P.jumpPlot = b === NO_ID || b >= SYSTEMS.length ? NO_ID : b; if (P.jumpPlot !== NO_ID) this.say(FROM_CREW, 0, `JUMP PLOTTED TO ${sysAt(b).name}. HELM: ALIGN TO HEADING ${String(this.jumpVector(b)).padStart(3, '0')} AND ENGAGE.`); } else P.icPlot = b; break;
       case CMD.SAMPLE: case CMD.EXTRACT:
         this.xCmd(a, c.cmd === CMD.EXTRACT ? 2 : 1); break;
@@ -551,6 +568,7 @@ export class Sim {
         break;
       }
       case CMD.LAB: if (this.labCmd) this.labCmd(a, b, c.c | 0, c.d | 0); break;
+      case CMD.PUZ: this.puzCmd(a, b, Math.round(+c.c || 0), Math.round(+c.d || 0)); break;
       case CMD.SCAN:
         if (!(a < MAX_CONTACTS && this.visible(a))) { this.denied('NO SENSOR CONTACT TO SCAN.'); break; }
         if (this.npc[a].scan >= 2) { this.denied('CONTACT ALREADY FULLY SCANNED.'); break; }
@@ -638,6 +656,7 @@ export class Sim {
 
   // ---------------------------------------------------------------- comms
   commsHandle(id, opt) {
+    if (id === FROM_COMMAND && opt === 0) { this.fleetHail(); return; } // Fleet Command is always on the line
     if (!(id < MAX_CONTACTS) || !this.visible(id)) { this.denied('NO CONTACT TO HAIL.'); return; }
     if (opt === 0) { this.lastHailId = id; this.lastHailAt = this.now; }
     const n = this.npc[id], M = this.M;
@@ -927,6 +946,52 @@ export class Sim {
   }
 
   // ---------------------------------------------------------------- our ship
+  // ---- autopilot: steer for (gx, gy) but go round anything solid in the way (planets, stars, stations,
+  // the pulsar and its rocks). Sets P.apAvoid to the name of what we're going round.
+  apObstacles() {
+    const P = this.P, sd = this.sysDef, t = this.now / 1000, out = [], nS = sd.star.binary ? 2 : 1;
+    for (let k = 0; k < nS; k++) { const [x, y] = starPos(sd, k, t); out.push({ x, y, r: (nS > 1 ? sd.star.r * 0.7 : sd.star.r) * 1.4 + 1500, name: nS > 1 ? `${sd.name} ${k ? 'B' : 'A'}` : `${sd.name} (STAR)` }); }
+    sd.planets.forEach((pl, i) => {
+      if (P.autopilot === K.AP_ESCORT && P.apPlanet === i) return; // the orbit autopilot handles its own planet
+      const [x, y] = planetPos(sd, i, t); out.push({ x, y, r: pl.r * O.SURFACE_K + 900, name: pl.name });
+    });
+    const pul = this.M.pul;
+    if (pul) { out.push({ x: pul.x, y: pul.y, r: 2600, name: 'THE PULSAR' }); for (const r of pul.rocks || []) out.push({ x: r.x, y: r.y, r: r.r + 700, name: 'ASTEROID' }); }
+    for (let i = 0; i < MAX_CONTACTS; i++) {
+      const n = this.npc[i];
+      if (n.active && n.alive && n.type === CT_STARBASE && i !== P.apTarget) out.push({ x: n.x, y: n.y, r: 1100, name: n.short || 'STATION' });
+    }
+    return out;
+  }
+  apSteer(gx, gy) {
+    const P = this.P, dGoal = distTo(P.x, P.y, gx, gy);
+    let want = bearingTo(P.x, P.y, gx, gy), avoid = null;
+    const look = Math.min(dGoal, clampf(Math.max(P.speed, 60) * 14, 6000, 70000));
+    const obs = this.apObstacles();
+    for (let iter = 0; iter < 3; iter++) {
+      let hit = null, hd = 1e12;
+      for (const o of obs) {
+        const d = distTo(P.x, P.y, o.x, o.y);
+        if (d - o.r > look || distTo(gx, gy, o.x, o.y) < o.r) continue; // out of reach, or the goal is beside it
+        if (d > o.r) {
+          const off = angDiff(bearingTo(P.x, P.y, o.x, o.y), want), half = Math.asin(o.r / d) / DEG;
+          if (Math.abs(off) >= half || d * Math.cos(off * DEG) - o.r > look) continue; // not in our path
+        }
+        if (d < hd) { hd = d; hit = o; }
+      }
+      if (!hit) break;
+      const d = distTo(P.x, P.y, hit.x, hit.y), bO = bearingTo(P.x, P.y, hit.x, hit.y);
+      const half = d > hit.r ? Math.asin(hit.r / d) / DEG : 90;
+      // pass on the side the goal lies - and keep to it once chosen, so we don't dither when it's dead ahead
+      let side = angDiff(bO, want) >= 0 ? 1 : -1;
+      if (P.apSideOf === hit.name && P.apSide) side = P.apSide;
+      P.apSide = side; P.apSideOf = hit.name;
+      want = wrap360(bO + side * (half + 5));
+      avoid = hit;
+    }
+    if (avoid) P.apAvoid = avoid.name; else P.apSideOf = '';
+    return want;
+  }
   // the fastest the engines can go with the power engineering gives them
   warpCap() { return clampf(K.WARP_MAX * this.eff(S_WARP), 0, K.WARP_TOP); }
   impulseCap() { return K.IMPULSE_TOP * clampf(this.eff(S_IMPULSE), 0, 2) / 2; } // full impulse at full (200%) impulse power
@@ -949,6 +1014,12 @@ export class Sim {
     const v = this.jumpVector(to);
     if (Math.abs(angDiff(P.hdg, v)) > tol) return `HELM: ALIGN THE SHIP TO THE JUMP VECTOR, HEADING ${String(v).padStart(3, '0')}.${P.evasive ? ' (EVASIVE MANOEUVRES ARE ON - SWITCH THEM OFF.)' : ''}`;
     return '';
+  }
+  // seconds in the lane: a campaign can make the lanes slow (sim.laneSlow), and some artefacts drag on the field
+  jumpTransit(to) {
+    let drag = 1;
+    for (const h of this.P.arts) if (!(h.pz && h.pz.done)) drag *= G.ART[h.a].drag || 1; // a lane relic drinks the jump field until it's worked out
+    return K.JUMP_TRANSIT_S * (this.laneSlow ? this.laneSlow(to) : 1) * drag;
   }
   jumpCmd(to) {
     const P = this.P;
@@ -978,9 +1049,10 @@ export class Sim {
     if (P.jumpCharge >= 1) {
       P.jumpCharge = 1;
       P.energy -= K.JUMP_COST;
-      P.jumping = K.JUMP_TRANSIT_S;
+      P.jumping = P.jumpLen = this.jumpTransit(P.jumpTo);
       this.emit(K.EV_JUMP, P.jumpTo);
-      this.say(FROM_CREW, 0, `JUMP! EN ROUTE TO ${sysAt(P.jumpTo).name}.`);
+      this.say(FROM_CREW, 0, P.jumpLen > K.JUMP_TRANSIT_S * 1.5 ? `JUMP! EN ROUTE TO ${sysAt(P.jumpTo).name} - THE LANE IS SLOW: ABOUT ${Math.round(P.jumpLen)} SECONDS IN TRANSIT.` : `JUMP! EN ROUTE TO ${sysAt(P.jumpTo).name}.`);
+      if (this.onJumpStart) this.onJumpStart(P.jumpTo);
     }
     return false;
   }
@@ -1032,11 +1104,16 @@ export class Sim {
     this.labTick(dt);
     if (P.jumpTo !== NO_ID && this.jumpTick(dt)) { P.speed = K.WARP_SPEED * 6; return; } // in the jump tunnel
     // ---- steering
+    P.apAvoid = '';
     if (P.autopilot === K.AP_WAYPOINT && P.wpValid) {
-      const d = distTo(P.x, P.y, P.wpx, P.wpy);
-      P.desHdg = bearingTo(P.x, P.y, P.wpx, P.wpy);
-      if (P.warping && d < 5000) { this.dropWarp(); this.say(FROM_CREW, 0, 'APPROACHING WAYPOINT - DROPPING OUT OF WARP.'); }
-      if (d < 800) { P.autopilot = K.AP_OFF; P.throttle = 0; P.allStop = true; this.say(FROM_CREW, 0, 'WAYPOINT REACHED. ALL STOP.'); }
+      if (!P.route.length) P.route = [[P.wpx, P.wpy]];
+      const d = distTo(P.x, P.y, P.wpx, P.wpy), last = P.route.length <= 1;
+      P.desHdg = this.apSteer(P.wpx, P.wpy);
+      if (P.warping && d < 5000 && last) { this.dropWarp(); this.say(FROM_CREW, 0, 'APPROACHING THE LAST WAYPOINT - DROPPING OUT OF WARP.'); }
+      if (!last && d < Math.max(1500, P.speed * 1.5)) { // a leg of NAV's course done: on to the next without stopping
+        P.route.shift(); [P.wpx, P.wpy] = P.route[0];
+        this.say(FROM_CREW, 0, `WAYPOINT REACHED - COMING ABOUT FOR THE NEXT LEG (${P.route.length} TO GO).`);
+      } else if (last && d < 800) { P.autopilot = K.AP_OFF; P.thrFrac = null; P.throttle = 0; P.allStop = true; this.say(FROM_CREW, 0, 'WAYPOINT REACHED. ALL STOP.'); }
     } else if (P.autopilot === K.AP_ESCORT && P.apPlanet >= 0) {
       // orbit: hold a station point beside the planet and move with it
       const t = this.now / 1000, [sx, sy] = O.orbitPoint(this.sysDef, P.apPlanet, t, P.escA), [pvx, pvy] = O.planetVel(this.sysDef, P.apPlanet, t);
@@ -1045,7 +1122,7 @@ export class Sim {
       const [ppx, ppy] = planetPos(this.sysDef, P.apPlanet, t), ca = Math.atan2(P.y - ppy, P.x - ppx);
       let da = P.escA - ca; da = Math.atan2(Math.sin(da), Math.cos(da));
       const [gx, gy] = Math.abs(da) > 0.9 && distTo(P.x, P.y, ppx, ppy) < pl.r * 6 ? O.orbitPoint(this.sysDef, P.apPlanet, t, ca + Math.sign(da) * 0.8) : [sx, sy];
-      P.desHdg = d > 250 ? bearingTo(P.x, P.y, gx, gy) : bearingTo(0, 0, pvx, pvy);
+      P.desHdg = d > 250 ? this.apSteer(gx, gy) : bearingTo(0, 0, pvx, pvy);
       if (P.warping && d < 6000) { this.dropWarp(); this.say(FROM_CREW, 0, `APPROACHING ${pl.name} - DROPPING OUT OF WARP.`); }
       P.escortD = d; P.escortV = Math.hypot(pvx, pvy);
       if (d < O.ORBIT_OK && P.orbitPl !== P.apPlanet) { P.orbitPl = P.apPlanet; this.emit(K.EV_FOUND); this.say(FROM_CREW, 0, `STANDARD ORBIT OF ${pl.name}. COMMS CAN HAIL THE SURFACE.`); if (this.onOrbit) this.onOrbit(P.apPlanet); }
@@ -1056,7 +1133,7 @@ export class Sim {
       if (n && n.active && n.alive) {
         const r = (n.hdg + 90) * DEG, sx = n.x + Math.sin(r) * 900, sy = n.y - Math.cos(r) * 900;
         const d = distTo(P.x, P.y, sx, sy);
-        P.desHdg = d > 250 ? bearingTo(P.x, P.y, sx, sy) : n.hdg;
+        P.desHdg = d > 250 ? this.apSteer(sx, sy) : n.hdg;
         if (P.warping && d < 7000) { this.dropWarp(); this.say(FROM_CREW, 0, 'CLOSING ON OUR CHARGE - DROPPING OUT OF WARP.'); }
         P.escortD = d;
       } else { P.autopilot = K.AP_OFF; this.say(FROM_CREW, 1, 'ESCORT ENDED - WE LOST THE SHIP.'); }
@@ -1064,7 +1141,7 @@ export class Sim {
       if (P.apTarget < MAX_CONTACTS && npc[P.apTarget].active && npc[P.apTarget].alive) {
         const n = npc[P.apTarget];
         const d = distTo(P.x, P.y, n.x, n.y);
-        P.desHdg = bearingTo(P.x, P.y, n.x, n.y);
+        P.desHdg = this.apSteer(n.x, n.y);
         if (P.warping && d < 7000) { this.dropWarp(); this.say(FROM_CREW, 0, 'INTERCEPT RANGE - DROPPING OUT OF WARP.'); }
       } else P.autopilot = K.AP_OFF;
     }
@@ -1099,6 +1176,7 @@ export class Sim {
       // the throttle is a set speed (as a share of full impulse); power only moves the ceiling.
       // If the ceiling drops below the set speed, the set speed comes down with it.
       const capPct = this.impulseCap() / K.IMPULSE_TOP * 100;
+      if (P.thrFrac !== null && P.thrFrac !== undefined) P.throttle = Math.round(P.thrFrac * capPct * 10) / 10; // FULL stays full as power changes
       if (P.throttle > capPct) P.throttle = capPct; else if (P.throttle < -capPct) P.throttle = -capPct;
       targetSpeed = P.throttle / 100 * K.IMPULSE_TOP;
       // INTERCEPT closes to ~2.5k then holds there facing the target
@@ -1335,7 +1413,7 @@ export class Sim {
     this.M.ver++;
   }
   clearMarkers() { this.M.mk = []; this.M.ver++; }
-  setWaypoint(x, y) { const P = this.P; P.wpValid = true; P.wpx = x; P.wpy = y; }
+  setWaypoint(x, y) { const P = this.P; P.wpValid = true; P.wpx = x; P.wpy = y; P.route = [[x, y]]; }
   clampSec(v) { return clampf(v, 6000, SECTOR - 6000); }
   clearOfPlanets(x, y) {
     const t = this.now / 1000;
@@ -2012,13 +2090,20 @@ export class Sim {
     const d = this.dlg, def = DIALOGS[d.key], node = def.nodes[k];
     if (!node) { this.endDialog(); return; }
     d.node = k;
+    // a node can change who is speaking (an interruption, a second voice on the line), make a sound,
+    // run something as it starts, and move on by itself after a few seconds (auto: [seconds, next])
+    if (node.who) d.who = typeof node.who === 'function' ? node.who(this, d.ctx) : node.who;
+    else d.who = d.ctx.who || def.who;
+    if (node.ev) this.emit(node.ev);
+    if (node.on) { node.on(this, d.ctx); if (this.dlg !== d) return; }
     const text = typeof node.say === 'function' ? node.say(this, d.ctx) : node.say;
     d.vis = (node.opts || []).filter((o) => !o.if || o.if(this, d.ctx));
     this.sayAs(d.who, text, node.col ?? (d.key === 'demand' ? 2 : 3));
     const m = this.msgs[0];
     m.dseq = d.seq;
     m.dopt = d.vis.map((o) => o.t);
-    if (!d.vis.length) this.endDialog();
+    if (node.auto) { const seq = d.seq; this.after(node.auto[0], () => { if (this.dlg && this.dlg.seq === seq && this.dlg.node === k) this.presentNode(node.auto[1]); }); }
+    else if (!d.vis.length) this.endDialog();
   }
   dialogReply(seq, idx) {
     const d = this.dlg;
@@ -2066,9 +2151,11 @@ export class Sim {
   addArt(id, ident = 0) {
     const a = G.ART_INDEX[id];
     if (a === undefined || this.P.arts.length >= G.MAX_ARTS) return;
-    this.P.arts.push({ a, uid: this.P.artSeq++, ident });
+    const h = { a, uid: this.P.artSeq++, ident };
+    this.P.arts.push(h);
     this.foundArts.add(id);
     this.emit(K.EV_FOUND, a);
+    return h;
   }
   removeArt(id) { const i = this.P.arts.findIndex((h) => G.ART[h.a].id === id); if (i >= 0) this.P.arts.splice(i, 1); }
   tribute(frac) {
@@ -2380,3 +2467,6 @@ installGround(Sim);
 installLab(Sim);
 installPulsar(Sim);
 installSleep(Sim);
+installPuzzles(Sim);
+installStory(Sim);
+installThreshold(Sim);

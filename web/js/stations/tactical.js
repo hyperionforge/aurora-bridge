@@ -188,6 +188,22 @@ export const shields = {
 const PRESET_NAME = ['BALANCE', 'COMBAT', 'CRUISE', 'SCIENCE'];
 export const engineer = {
   drag: -1, local: 0, lastSend: 0,
+  // the effect of a system's power setting, as the crew would feel it (pw = the slider being dragged)
+  buys(w, s, pw) {
+    const P = w.P, e = (pw / 100) * (P.health[s] / 100) * (P.energy <= 0.5 ? 0.3 : 1);
+    switch (s) {
+      case K.S_IMPULSE: return `${Math.round(K.IMPULSE_TOP * clampf(e, 0, 2) / 2)} KM/S`;
+      case K.S_WARP: return `WARP ${clampf(K.WARP_MAX * e, 0, K.WARP_TOP).toFixed(1)}`;
+      case K.S_PHASERS: return e > 0.01 ? `${(K.PH_RECHARGE_S / clampf(e, 0.01, 1.6)).toFixed(1)}s` : 'OFF';
+      case K.S_TORPS: return e > 0.01 ? `LOAD ${Math.round(K.TORP_LOAD_S / clampf(e, 0.01, 1.6))}s` : 'OFF';
+      case K.S_SHIELDS: return `CAP ${Math.round(100 * clampf(e, 0, 1.25))}`;
+      case K.S_SENSORS: { // scale what science sees now (artefacts, nebulae, LRS included) by the new setting
+        const eNow = (P.power[s] / 100) * (P.health[s] / 100) * (P.energy <= 0.5 ? 0.3 : 1);
+        return `RANGE ${fmtDist(w.sensorRange * clampf(e, 0.3, 1.5) / clampf(eNow, 0.3, 1.5))}`;
+      }
+    }
+    return '';
+  },
   draw(g, w, app, L) {
     const P = w.P, cw = L.x1 - L.x0, colW = cw / K.NSYS, y0 = L.y0;
     for (let s = 0; s < K.NSYS; s++) {
@@ -219,6 +235,8 @@ export const engineer = {
         app.send(CMD.COOLANT, s, P.coolant[s] + 1);
       });
       g.text(x, y0 + 318, 'HEALTH ' + Math.round(P.health[s]) + '%', 12, healthColor(P.health[s]));
+      // what this much power buys right now
+      g.textFit(x + cwid, y0 + 318, this.buys(w, s, pw), 12, '#4fb8c8', 'right', cwid * 0.5);
     }
     // bottom strip
     const by = y0 + 342, rate = P.energyRate;

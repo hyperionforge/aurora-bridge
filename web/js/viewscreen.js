@@ -12,6 +12,7 @@ import { drawPulsarMap, drawPulsarFwd } from './pulsar.js';
 import { bodies, drawStar, drawRingedPlanet, drawSystemLayer, drawGalaxy, drawStation, drawPoi, drawJumpTunnel, drawCampLines, drawBubble, drawOobBanner, drawEdgeFrame } from './sysdraw.js';
 import { POI_TIP, POI_NAME, RES_SHORT, hazWord } from './cargo.js';
 import { drawLab } from './lab.js';
+import { drawPuzzle, hasPuz, PZ_NAME } from './puzzles.js';
 import { CHARS } from './dialogue.js';
 import { CAMPAIGNS } from './campaign.js';
 const campOf = (id) => CAMPAIGNS.find((c) => c.id === id) || CAMPAIGNS[0];
@@ -121,7 +122,8 @@ export class Scene {
         const a = clampf(Math.min((w.now - cp.t0) / 600, (7000 - (w.now - cp.t0)) / 900), 0, 1);
         g.ctx.globalAlpha = a * 0.85; g.rect(x, y + ht * 0.3, wd, ht * 0.4, '#000'); g.ctx.globalAlpha = a;
         g.text(x + wd / 2, y + ht * 0.36, campOf(cp.id).name, 16 * u, C.LILAC, 'center');
-        g.text(x + wd / 2, y + ht * 0.42, `CHAPTER ${['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'][cp.ch - 1]}`, 22 * u, C.ORANGE, 'center');
+        const cpd = campOf(cp.id);
+        g.text(x + wd / 2, y + ht * 0.42, cpd.labels ? cpd.labels[cp.ch - 1] : `CHAPTER ${['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX'][cp.ch - 1]}`, 22 * u, C.ORANGE, 'center');
         g.text(x + wd / 2, y + ht * 0.5, campOf(cp.id).chapters[cp.ch - 1], 44 * u, C.PEACH, 'center', true);
         g.ctx.globalAlpha = 1;
       }
@@ -152,7 +154,8 @@ export class Scene {
     g.rect(r.x, r.y, r.w, r.h, '#05070e');
     g.text(r.x + 14 * u, r.y + 8 * u, 'SCIENCE LAB', 18 * u, C.SKY, 'left', true);
     const pad = 14 * u, top = r.y + 34 * u;
-    if (h) drawLab(g, w, h, { x: r.x + pad, y: top, w: r.w - 2 * pad, h: r.h - 44 * u }, u);
+    if (h && hasPuz(h)) drawPuzzle(g, w, h, { x: r.x + pad, y: top, w: r.w - 2 * pad, h: r.h - 44 * u }, u);
+    else if (h) drawLab(g, w, h, { x: r.x + pad, y: top, w: r.w - 2 * pad, h: r.h - 44 * u }, u);
     else g.text(r.x + r.w / 2, r.y + r.h / 2, 'NO SPECIMEN ON THE BENCH', 16 * u, C.GREY_TXT, 'center');
   }
   // ---------------------------------------------------------------- forward view
@@ -412,9 +415,16 @@ export class Scene {
     g.circle(gx + P.x * k, gy + P.y * k, w.sensorRange * k, '#1e3c5a', false, u);
     const pt = (w.slow && w.slow.ptrail) || [];
     for (let i = 0; i < pt.length; i += 2) g.rect(gx + pt[i] * k, gy + pt[i + 1] * k, 1.5 * u, 1.5 * u, dim(C.SKY, 0.3 + 0.7 * i / pt.length));
-    if (P.wpValid) {
-      g.line(gx + P.x * k, gy + P.y * k, gx + P.wpx * k, gy + P.wpy * k, '#50468c', u);
-      g.strokeRect(gx + P.wpx * k - 4 * u, gy + P.wpy * k - 4 * u, 9 * u, 9 * u, C.VIOLET, 1.5 * u);
+    if (P.wpValid) { // NAV's course, every leg
+      const route = P.route && P.route.length ? P.route : [[P.wpx, P.wpy]];
+      let [ax, ay] = [gx + P.x * k, gy + P.y * k];
+      route.forEach(([wx, wy], i) => {
+        const bx = gx + wx * k, by = gy + wy * k;
+        g.line(ax, ay, bx, by, '#50468c', u);
+        g.strokeRect(bx - 4 * u, by - 4 * u, 9 * u, 9 * u, C.VIOLET, 1.5 * u);
+        if (route.length > 1) g.text(bx + 6 * u, by - 12 * u, String(i + 1), 10 * u, C.VIOLET);
+        [ax, ay] = [bx, by];
+      });
     }
     for (const n of w.npc) {
       if (!n.alive || !n.vis) continue;
@@ -571,7 +581,7 @@ export class Scene {
       const col = i === 0 ? K.MSG_COL[m.col % 4] : dim(K.MSG_COL[m.col % 4], 0.7);
       g.text(x, y, fromName(m.from), 14 * u, i === 0 ? C.ORANGE : C.TAN);
       y += 18 * u;
-      for (const l of g.wrapLines(m.text, lw - pad * 2 - 10 * u, (i === 0 ? 20 : 16) * u)) {
+      for (const l of g.wrapLines(m.text + ((m.n || 1) > 1 ? `  (${m.n})` : ''), lw - pad * 2 - 10 * u, (i === 0 ? 20 : 16) * u)) {
         if (y > r.y + r.h - 22 * u) break;
         g.text(x + 10 * u, y, l, (i === 0 ? 20 : 16) * u, col);
         y += (i === 0 ? 24 : 19) * u;
@@ -749,7 +759,7 @@ export class Scene {
       g.text(cx, r.y + 40 * u, won ? 'VOYAGE COMPLETE' : 'THE AURORA IS LOST', 50 * u, won ? C.GREEN : C.RED, 'center', true);
       let yy = r.y + 130 * u;
       const line = (txt, col) => { g.text(cx, yy, txt, 19 * u, col, 'center'); yy += 28 * u; };
-      if (cp && cp.ch) line(`${campOf(cp.id).name} - REACHED CHAPTER ${cp.ch}: ${campOf(cp.id).chapters[cp.ch - 1]}`, C.LILAC);
+      if (cp && cp.ch) line(`${campOf(cp.id).name} - REACHED ${campOf(cp.id).labels ? campOf(cp.id).labels[cp.ch - 1] : 'CHAPTER ' + cp.ch}: ${campOf(cp.id).chapters[cp.ch - 1]}`, C.LILAC);
       line(`VOYAGE TIME   ${mmss(w.missionT)}`, C.SKY);
       line(`STAR SYSTEMS VISITED  ${s ? s.visitedN : 1}`, C.SKY);
       line(`CONTRACTS COMPLETED  ${(s && s.stats && s.stats.jobs) || 0}`, C.SKY);
@@ -818,7 +828,7 @@ export function drawTitleCard(g, w, r, joinUrl) {
     const sm = s.selMode || 0;
     if (sm === K.MODE_CAMPAIGN) {
       const cpn = CAMPAIGNS[s.selCamp | 0], chn = s.selType % Math.max(1, (s.campMaxes || [])[s.selCamp | 0] || 1);
-      g.text(cx, r.y + 222 * u, `${cpn.name} - CHAPTER ${chn + 1}: ${cpn.chapters[chn]}   -   ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
+      g.text(cx, r.y + 222 * u, `${cpn.name} - ${cpn.labels ? cpn.labels[chn] : 'CHAPTER ' + (chn + 1)}: ${cpn.chapters[chn]}   -   ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');
       g.wrap(cx - 300 * u, r.y + 250 * u, 600 * u, chn ? cpn.desc[chn] : cpn.blurb, 13 * u, C.GREY_TXT, 1.3, 2);
     } else {
       g.text(cx, r.y + 222 * u, sm ? `${K.MODE_NAME[sm]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}` : `MISSION: ${K.MT_NAME[s.selType]}   -   DIFFICULTY: ${K.DIFF_NAME[s.selDiff]}`, 19 * u, C.SKY, 'center');

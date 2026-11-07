@@ -10,7 +10,8 @@
   "description": "Starship Aurora bridge simulator for Android phones",
   "scripts": {
     "start": "node server/dev-server.mjs",
-    "test": "node tests/bots.mjs 1,2,3 && node tests/e2e.mjs node 2 0"
+    "test": "node tests/bots.mjs 1,2,3 && node tests/e2e.mjs node 2 0",
+    "test:story": "node tests/campaign4.mjs home && node tests/campaign4.mjs crown && node tests/pulsar.mjs shield"
   },
   "dependencies": {
     "ws": "^8.18.0"

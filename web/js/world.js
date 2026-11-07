@@ -16,7 +16,7 @@ const EMPTY_P = { x: 0, y: 0, hdg: 0, desHdg: 0, speed: 0, throttle: 0, warpSet:
   power: [100, 100, 100, 100, 100, 100], coolant: [0, 0, 0, 0, 0, 0], heat: [0, 0, 0, 0, 0, 0], team: [K.NO_ID, K.NO_ID], phCharge: 0,
   autoFire: false, torps: [0, 0], tubeState: [0, 0], tubeType: [0, 0], tubeTimer: [0, 0], target: K.NO_ID, sub: 0, scanId: K.NO_ID, scanProg: 0, lrs: 0,
   cargo: [0, 0, 0, 0, 0, 0, 0, 0, 0], arts: [], refQ: [], refProg: 0, xId: K.NO_ID, xMode: 0, xProg: 0, anaUid: 0, anaProg: 0, anaDeep: 0, jumpTo: K.NO_ID, jumpCharge: 0, jumping: 0, jumpPlot: K.NO_ID, icPlot: K.NO_ID, jumpVec: -1,
-  orbitPl: -1, orbPlot: -1, apPlanet: -1, oobT: 0, bubR: 600, shRange: 0, vx: 0, vy: 0, autoBrake: false, allStop: false };
+  orbitPl: -1, orbPlot: -1, apPlanet: -1, oobT: 0, bubR: 600, shRange: 0, vx: 0, vy: 0, autoBrake: false, allStop: false, route: [], thrFrac: null, apAvoid: '', jumpLen: 6 };
 
 export class World {
   constructor() {
@@ -58,9 +58,30 @@ export class World {
       this.f1 = m;
       this.a1 = performance.now();
       this.game = m.game;
-    } else if (m.t === 's') this.slow = m;
+    } else if (m.t === 's') { this.slow = m; this.keepMsgs(m.msgs || []); }
     else if (m.t === 'lobby') this.lobby = m;
   }
+
+  // every message of this voyage, newest first (the host only sends the last few)
+  keepMsgs(list) {
+    if (!this.hist) { this.hist = []; this.histIds = new Map(); }
+    if (this.game === K.GS_RUN && !this.histRun) { this.hist = []; this.histIds = new Map(); this.histRun = true; } // a new voyage: a fresh log
+    else if (this.game !== K.GS_RUN) this.histRun = false;
+    const fresh = [];
+    for (const m of list) {
+      const old = this.histIds.get(m.id);
+      if (old) { if ((old.n || 1) !== (m.n || 1)) { old.n = m.n; old.col = m.col; this.histRev = (this.histRev || 0) + 1; } Object.assign(old, { dopt: m.dopt, who: m.who, lang: m.lang }); continue; }
+      const c = { ...m };
+      this.histIds.set(m.id, c);
+      fresh.push(c);
+    }
+    if (!fresh.length) return;
+    fresh.sort((a, b) => b.id - a.id);
+    this.hist = fresh.concat(this.hist).sort((a, b) => b.id - a.id);
+    if (this.hist.length > 400) { for (const q of this.hist.splice(400)) this.histIds.delete(q.id); }
+    this.histRev = (this.histRev || 0) + 1;
+  }
+  get history() { return this.hist && this.hist.length ? this.hist : this.msgs; }
 
   // interpolate - call once per frame
   update() {
